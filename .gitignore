@@ -130,3 +130,6 @@ deploy/docker-compose.override.yml
 vite.config.js
 docs/*
 .serena/
+.agents/
+.agent/
+skills-lock.json
