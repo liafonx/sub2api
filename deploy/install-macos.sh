@@ -2,7 +2,7 @@
 #
 # Sub2API macOS Installation Script
 # Sub2API macOS 安装脚本
-# Usage: curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install-macos.sh | sudo zsh
+# Usage: curl -sSL https://raw.githubusercontent.com/liafonx/sub2api/main/deploy/install-macos.sh | sudo zsh
 #
 # Known limitations vs Linux version:
 #   - No equivalent of systemd's NoNewPrivileges/ProtectSystem/ProtectHome/PrivateTmp
