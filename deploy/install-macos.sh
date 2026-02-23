@@ -724,10 +724,6 @@ install_service() {
     <dict>
         <key>GIN_MODE</key>
         <string>release</string>
-        <key>SERVER_HOST</key>
-        <string>${SERVER_HOST}</string>
-        <key>SERVER_PORT</key>
-        <string>${SERVER_PORT}</string>
     </dict>
 </dict>
 </plist>
