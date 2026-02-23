@@ -110,6 +110,8 @@ backend/data/
 backend/config.yaml
 deploy/config.yaml
 backend/.installed
+deploy/nginx/
+
 
 # ===================
 # 其他
@@ -133,3 +135,4 @@ docs/*
 .agents/
 .agent/
 skills-lock.json
+deploy/CRS-README.md
