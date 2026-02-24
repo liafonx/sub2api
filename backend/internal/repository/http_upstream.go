@@ -100,9 +100,7 @@ type httpUpstreamService struct {
 // 返回:
 //   - service.HTTPUpstream 接口实现
 func NewHTTPUpstream(cfg *config.Config) service.HTTPUpstream {
-	// Initialize the global TLS fingerprint registry with config profiles.
-	// This must happen before any GlobalRegistry() call so custom profiles are loaded.
-	// sync.Once inside InitGlobalRegistry makes this safe to call multiple times.
+	// Load custom TLS fingerprint profiles before GlobalRegistry() is called.
 	tlsfingerprint.InitGlobalRegistry(&cfg.Gateway.TLSFingerprint)
 
 	return &httpUpstreamService{
