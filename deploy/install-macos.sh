@@ -725,7 +725,7 @@ install_service() {
         <key>GIN_MODE</key>
         <string>release</string>
         <key>DATA_DIR</key>
-        <string>${INSTALL_DIR}/data</string>
+        <string>${INSTALL_DIR}</string>
     </dict>
 </dict>
 </plist>
