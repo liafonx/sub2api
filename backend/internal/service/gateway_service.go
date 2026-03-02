@@ -3372,6 +3372,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// 重试循环
 	var resp *http.Response
 	retryStart := time.Now()
+	// TTFT breakdown: capture first-attempt pre-request and connection timings
+	var ttftPreRequestDone, ttftConnectionDone time.Time
 	for attempt := 1; attempt <= maxRetryAttempts; attempt++ {
 		// 构建上游请求（每次重试需要重新构建，因为请求体需要重新读取）
 		upstreamReq, err := s.buildUpstreamRequest(ctx, c, account, body, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
@@ -3379,8 +3381,17 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			return nil, err
 		}
 
+		// Mark pre-request done (GetAccessToken + buildUpstreamRequest complete)
+		if ttftPreRequestDone.IsZero() {
+			ttftPreRequestDone = time.Now()
+		}
+
 		// 发送请求
 		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, account.IsTLSFingerprintEnabled())
+		// Mark when response headers arrived (connection + inference headers)
+		if err == nil && ttftConnectionDone.IsZero() {
+			ttftConnectionDone = time.Now()
+		}
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
@@ -3593,6 +3604,18 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		return nil, errors.New("upstream request failed: empty response")
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	// Log TTFT timing breakdown (pre_request_ms = token fetch + build; connection_ms = TCP+TLS+headers)
+	if !ttftPreRequestDone.IsZero() && !ttftConnectionDone.IsZero() {
+		preReqMs := ttftPreRequestDone.Sub(startTime).Milliseconds()
+		connMs := ttftConnectionDone.Sub(ttftPreRequestDone).Milliseconds()
+		slog.Debug("ttft_breakdown",
+			"pre_request_ms", preReqMs,
+			"connection_ms", connMs,
+			"account_id", account.ID,
+			"model", reqModel,
+		)
+	}
 
 	// 处理重试耗尽的情况
 	if resp.StatusCode >= 400 && s.shouldRetryUpstreamError(account, resp.StatusCode) {

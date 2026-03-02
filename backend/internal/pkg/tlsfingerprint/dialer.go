@@ -540,7 +540,7 @@ func buildClientHelloSpecFromProfile(profile *Profile) *utls.ClientHelloSpec {
 		&utls.SupportedPointsExtension{SupportedPoints: pointFormats},
 		&utls.SupportedCurvesExtension{Curves: curves},
 		&utls.SessionTicketExtension{},
-		&utls.ALPNExtension{AlpnProtocols: []string{"http/1.1"}},
+		&utls.ALPNExtension{AlpnProtocols: []string{"h2", "http/1.1"}},
 		&utls.GenericExtension{Id: 22},
 		&utls.ExtendedMasterSecretExtension{},
 		&utls.SignatureAlgorithmsExtension{SupportedSignatureAlgorithms: defaultSignatureAlgorithms},
