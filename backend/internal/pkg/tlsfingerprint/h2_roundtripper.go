@@ -3,9 +3,10 @@ package tlsfingerprint
 import (
 	"context"
 	"crypto/tls"
-	"log/slog"
+	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -89,7 +90,7 @@ func (rt *h2RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 			},
 		}
 		transport = h2t
-		slog.Debug("h2_transport_created", "host", addr)
+		fmt.Fprintf(os.Stderr, "h2_transport_created host=%s\n", addr)
 	} else {
 		// HTTP/1.1 fallback: close probe connection; transport manages its own pool.
 		_ = conn.Close()
@@ -102,7 +103,7 @@ func (rt *h2RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 			IdleConnTimeout:       rt.h1Settings.IdleConnTimeout,
 			ResponseHeaderTimeout: rt.h1Settings.ResponseHeaderTimeout,
 		}
-		slog.Debug("h1_transport_created", "host", addr)
+		fmt.Fprintf(os.Stderr, "h1_transport_created host=%s\n", addr)
 	}
 
 	rt.transports[addr] = transport
