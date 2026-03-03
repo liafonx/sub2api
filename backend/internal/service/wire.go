@@ -206,14 +206,14 @@ func ProvideSoraMediaStorage(cfg *config.Config) *SoraMediaStorage {
 	return NewSoraMediaStorage(cfg)
 }
 
-func ProvideSoraDirectClient(
+func ProvideSoraSDKClient(
 	cfg *config.Config,
 	httpUpstream HTTPUpstream,
 	tokenProvider *OpenAITokenProvider,
 	accountRepo AccountRepository,
 	soraAccountRepo SoraAccountRepository,
-) *SoraDirectClient {
-	client := NewSoraDirectClient(cfg, httpUpstream, tokenProvider)
+) *SoraSDKClient {
+	client := NewSoraSDKClient(cfg, httpUpstream, tokenProvider)
 	client.SetAccountRepositories(accountRepo, soraAccountRepo)
 	return client
 }
@@ -284,6 +284,13 @@ func ProvideAPIKeyAuthCacheInvalidator(apiKeyService *APIKeyService) APIKeyAuthC
 	return apiKeyService
 }
 
+// ProvideSettingService wires SettingService with group reader for default subscription validation.
+func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupRepository, cfg *config.Config) *SettingService {
+	svc := NewSettingService(settingRepo, cfg)
+	svc.SetDefaultSubscriptionGroupReader(groupRepo)
+	return svc
+}
+
 // ProviderSet is the Wire provider set for all services
 var ProviderSet = wire.NewSet(
 	// Core services
@@ -306,8 +313,8 @@ var ProviderSet = wire.NewSet(
 	NewGatewayService,
 	ProvideSoraMediaStorage,
 	ProvideSoraMediaCleanupService,
-	ProvideSoraDirectClient,
-	wire.Bind(new(SoraClient), new(*SoraDirectClient)),
+	ProvideSoraSDKClient,
+	wire.Bind(new(SoraClient), new(*SoraSDKClient)),
 	NewSoraGatewayService,
 	NewOpenAIGatewayService,
 	NewOAuthService,
@@ -326,7 +333,8 @@ var ProviderSet = wire.NewSet(
 	ProvideRateLimitService,
 	NewAccountUsageService,
 	NewAccountTestService,
-	NewSettingService,
+	ProvideSettingService,
+	NewDataManagementService,
 	ProvideOpsSystemLogSink,
 	NewOpsService,
 	ProvideOpsMetricsCollector,
@@ -338,6 +346,7 @@ var ProviderSet = wire.NewSet(
 	ProvideEmailQueueService,
 	NewTurnstileService,
 	NewSubscriptionService,
+	wire.Bind(new(DefaultSubscriptionAssigner), new(*SubscriptionService)),
 	ProvideConcurrencyService,
 	NewUsageRecordWorkerPool,
 	ProvideSchedulerSnapshotService,
