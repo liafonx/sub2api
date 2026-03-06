@@ -247,7 +247,13 @@ Confirmed: `h2_transport_created host=api.anthropic.com:443`
 git fetch upstream
 git merge upstream/main
 # Resolve conflicts (typically VERSION and .gitignore)
-# Verify patches survived:
+
+# Always align the fork's version with the latest upstream tag:
+# 1) Find newest tag: git tag --list 'v*' --sort=-creatordate | head -n 1
+# 2) Strip the leading 'v' and update backend/cmd/server/VERSION to that value.
+# 3) Commit the VERSION bump on the merge branch.
+
+# Verify fork-only patches survived:
 grep InitGlobalRegistry backend/internal/repository/http_upstream.go
 grep '"h2"' backend/internal/pkg/tlsfingerprint/dialer.go
 ls backend/internal/pkg/tlsfingerprint/h2_roundtripper.go
