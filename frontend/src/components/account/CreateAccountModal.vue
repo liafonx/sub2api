@@ -1618,6 +1618,50 @@
           </div>
         </div>
 
+        <!-- Per-User Quota Allocation -->
+        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+          <div class="mb-3 flex items-center justify-between">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.userQuota.label') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.quotaControl.userQuota.hint') }}
+              </p>
+              <p v-if="!windowCostEnabled" class="mt-1 text-xs text-amber-500">
+                {{ t('admin.accounts.quotaControl.userQuota.requiresWindowCost') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              :disabled="!windowCostEnabled"
+              @click="windowCostEnabled && (userQuotaEnabled = !userQuotaEnabled)"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                windowCostEnabled ? 'cursor-pointer' : 'cursor-not-allowed opacity-50',
+                userQuotaEnabled && windowCostEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  userQuotaEnabled && windowCostEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+          <div v-if="userQuotaEnabled && windowCostEnabled">
+            <label class="input-label">{{ t('admin.accounts.quotaControl.userQuota.idleTimeout') }}</label>
+            <input
+              v-model.number="userQuotaIdleTimeout"
+              type="number"
+              min="10"
+              step="10"
+              class="input"
+              :placeholder="t('admin.accounts.quotaControl.userQuota.idleTimeoutPlaceholder')"
+            />
+            <p class="input-hint">{{ t('admin.accounts.quotaControl.userQuota.idleTimeoutHint') }}</p>
+          </div>
+        </div>
+
         <!-- Session Limit -->
         <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
           <div class="mb-3 flex items-center justify-between">
@@ -2653,6 +2697,8 @@ const showGeminiHelpDialog = ref(false)
 const windowCostEnabled = ref(false)
 const windowCostLimit = ref<number | null>(null)
 const windowCostStickyReserve = ref<number | null>(null)
+const userQuotaEnabled = ref(false)
+const userQuotaIdleTimeout = ref<number | null>(null)
 const sessionLimitEnabled = ref(false)
 const maxSessions = ref<number | null>(null)
 const sessionIdleTimeout = ref<number | null>(null)
@@ -3295,6 +3341,8 @@ const resetForm = () => {
   windowCostEnabled.value = false
   windowCostLimit.value = null
   windowCostStickyReserve.value = null
+  userQuotaEnabled.value = false
+  userQuotaIdleTimeout.value = null
   sessionLimitEnabled.value = false
   maxSessions.value = null
   sessionIdleTimeout.value = null
@@ -4238,6 +4286,14 @@ const handleAnthropicExchange = async (authCode: string) => {
       extra.window_cost_sticky_reserve = windowCostStickyReserve.value ?? 10
     }
 
+    // Add per-user quota settings
+    if (userQuotaEnabled.value && windowCostEnabled.value) {
+      extra.user_quota_enabled = true
+      if (userQuotaIdleTimeout.value != null && userQuotaIdleTimeout.value > 0) {
+        extra.user_quota_idle_timeout = userQuotaIdleTimeout.value
+      }
+    }
+
     // Add session limit settings
     if (sessionLimitEnabled.value && maxSessions.value != null && maxSessions.value > 0) {
       extra.max_sessions = maxSessions.value
@@ -4351,6 +4407,14 @@ const handleCookieAuth = async (sessionKey: string) => {
         if (windowCostEnabled.value && windowCostLimit.value != null && windowCostLimit.value > 0) {
           extra.window_cost_limit = windowCostLimit.value
           extra.window_cost_sticky_reserve = windowCostStickyReserve.value ?? 10
+        }
+
+        // Add per-user quota settings
+        if (userQuotaEnabled.value && windowCostEnabled.value) {
+          extra.user_quota_enabled = true
+          if (userQuotaIdleTimeout.value != null && userQuotaIdleTimeout.value > 0) {
+            extra.user_quota_idle_timeout = userQuotaIdleTimeout.value
+          }
         }
 
         // Add session limit settings

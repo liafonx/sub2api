@@ -316,7 +316,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			account := selection.Account
 			setOpsSelectedAccount(c, account.ID, account.Platform)
-
 			// 检查请求拦截（预热请求、SUGGESTION MODE等）
 			if account.IsInterceptWarmupEnabled() {
 				interceptType := detectInterceptType(body, reqModel, parsedReq.MaxTokens, reqStream, isClaudeCodeClient)
@@ -576,6 +575,17 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			// 账号槽位/等待计数需要在超时或断开时安全回收
 			accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
+
+			// 注册用户活动 + 每用户配额检查（在获取槽位后，仅 Anthropic OAuth/SetupToken 账号）
+			// RegisterActivity 在槽位获取之后调用，确保仅在请求真正被处理时才计入活跃用户。
+			if account.IsAnthropicOAuthOrSetupToken() {
+				h.gatewayService.RegisterUserActivity(c.Request.Context(), account, subject.UserID)
+				if allowed, _ := h.gatewayService.CheckUserQuotaForAccount(c.Request.Context(), account, subject.UserID, hasBoundSession); !allowed {
+					accountReleaseFunc()
+					h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error", "Per-user quota exceeded, please try again later", streamStarted)
+					return
+				}
+			}
 
 			// ===== 用户消息串行队列 START =====
 			var queueRelease func()

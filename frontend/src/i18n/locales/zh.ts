@@ -2103,6 +2103,14 @@ export default {
           stickyReservePlaceholder: '10',
           stickyReserveHint: '为粘性会话预留的额外额度'
         },
+        userQuota: {
+          label: '每用户配额分配',
+          hint: '将剩余窗口预算平均分配给活跃用户',
+          idleTimeout: '空闲超时（秒）',
+          idleTimeoutPlaceholder: '60',
+          idleTimeoutHint: '用户在此秒数内无活动后自动释放',
+          requiresWindowCost: '需要先启用并配置 5h 窗口费用控制',
+        },
         sessionLimit: {
           label: '会话数量控制',
           hint: '限制同时活跃的会话数量',
