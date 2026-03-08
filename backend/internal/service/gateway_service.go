@@ -521,6 +521,7 @@ type GatewayService struct {
 	claudeTokenProvider   *ClaudeTokenProvider
 	sessionLimitCache     SessionLimitCache // 会话数量限制缓存（仅 Anthropic OAuth/SetupToken）
 	rpmCache              RPMCache          // RPM 计数缓存（仅 Anthropic OAuth/SetupToken）
+	userQuotaChecker      UserQuotaChecker  // per-user quota allocation (Anthropic OAuth/SetupToken only)
 	userGroupRateResolver *userGroupRateResolver
 	userGroupRateCache    *gocache.Cache
 	userGroupRateSF       singleflight.Group
@@ -6591,6 +6592,12 @@ func (s *GatewayService) RecordUsage(ctx context.Context, input *RecordUsageInpu
 		mediaType = &result.MediaType
 	}
 	accountRateMultiplier := account.BillingRateMultiplier()
+
+	// Per-user quota cost tracking (only for Anthropic OAuth/SetupToken accounts)
+	if s.userQuotaChecker != nil && account.IsUserQuotaEnabled() && user != nil {
+		s.userQuotaChecker.IncrementUserCost(ctx, account.ID, user.ID, cost.TotalCost)
+	}
+
 	usageLog := &UsageLog{
 		UserID:                user.ID,
 		APIKeyID:              apiKey.ID,
@@ -6669,6 +6676,31 @@ func (s *GatewayService) RecordUsage(ctx context.Context, input *RecordUsageInpu
 	}
 
 	return nil
+}
+
+// SetUserQuotaChecker sets the per-user quota checker. Called during application startup
+// after the GatewayService is constructed.
+func (s *GatewayService) SetUserQuotaChecker(checker UserQuotaChecker) {
+	s.userQuotaChecker = checker
+}
+
+// RegisterUserActivity marks a user as active on an account for quota tracking.
+// Must be called after account selection on every request (Anthropic accounts only).
+func (s *GatewayService) RegisterUserActivity(ctx context.Context, account *Account, userID int64) {
+	if s.userQuotaChecker == nil {
+		return
+	}
+	s.userQuotaChecker.RegisterActivity(ctx, account, userID)
+}
+
+// CheckUserQuotaForAccount checks whether userID may proceed on account.
+// Returns (true, "") if quota is not enabled or check passes.
+// Returns (false, reason) if the request should be blocked with 429.
+func (s *GatewayService) CheckUserQuotaForAccount(ctx context.Context, account *Account, userID int64, isSticky bool) (bool, string) {
+	if s.userQuotaChecker == nil {
+		return true, ""
+	}
+	return s.userQuotaChecker.CheckUserQuota(ctx, account, userID, isSticky)
 }
 
 // RecordUsageLongContextInput 记录使用量的输入参数（支持长上下文双倍计费）

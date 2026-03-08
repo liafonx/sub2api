@@ -163,6 +163,25 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	claudeTokenProvider := service.NewClaudeTokenProvider(accountRepository, geminiTokenCache, oAuthService)
 	digestSessionStore := service.NewDigestSessionStore()
 	gatewayService := service.NewGatewayService(accountRepository, groupRepository, usageLogRepository, userRepository, userSubscriptionRepository, userGroupRateRepository, gatewayCache, configConfig, schedulerSnapshotService, concurrencyService, billingService, rateLimitService, billingCacheService, identityService, httpUpstream, deferredService, claudeTokenProvider, sessionLimitCache, rpmCache, digestSessionStore)
+	userQuotaCache := repository.NewUserQuotaCache(redisClient)
+	userQuotaService := service.NewUserQuotaService(userQuotaCache, func(ctx context.Context, account *service.Account) float64 {
+		if account.GetWindowCostLimit() <= 0 {
+			return 0
+		}
+		// Reuse existing window cost lookup via sessionLimitCache
+		if cost, hit, err := sessionLimitCache.GetWindowCost(ctx, account.ID); err == nil && hit {
+			return cost
+		}
+		startTime := account.GetCurrentWindowStartTime()
+		// usageLogRepository is already wired
+		stats, err := usageLogRepository.GetAccountWindowStats(ctx, account.ID, startTime)
+		if err != nil {
+			return 0
+		}
+		return stats.StandardCost
+	})
+	gatewayService.SetUserQuotaChecker(userQuotaService)
+	service.StartUserQuotaCleanupTicker(context.Background(), userQuotaService, 15*time.Second)
 	openAITokenProvider := service.NewOpenAITokenProvider(accountRepository, geminiTokenCache, openAIOAuthService)
 	openAIGatewayService := service.NewOpenAIGatewayService(accountRepository, usageLogRepository, userRepository, userSubscriptionRepository, userGroupRateRepository, gatewayCache, configConfig, schedulerSnapshotService, concurrencyService, billingService, rateLimitService, billingCacheService, httpUpstream, deferredService, openAITokenProvider)
 	geminiMessagesCompatService := service.NewGeminiMessagesCompatService(accountRepository, groupRepository, gatewayCache, schedulerSnapshotService, geminiTokenProvider, rateLimitService, httpUpstream, antigravityGatewayService, configConfig)
