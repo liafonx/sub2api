@@ -10,6 +10,10 @@ import (
 	"time"
 )
 
+// ---------------------------------------------------------------------------
+// Mock
+// ---------------------------------------------------------------------------
+
 type mockUserQuotaCache struct {
 	mu sync.Mutex
 
@@ -23,13 +27,12 @@ type mockUserQuotaCache struct {
 	// ZCardActive
 	cardErr error
 
-	// HIncrByEpoch
+	// BumpEpochAndSetMeta
 	epochCounters map[int64]int64 // accountID -> epoch
-	incrEpochErr  error
+	bumpMetaErr   error
 
-	// HSetMeta / HGetMeta
+	// HGetMeta
 	meta       map[int64]quotaMetaData // accountID -> meta
-	setMetaErr error
 	getMetaErr error
 
 	// GetQuotaCheckData
@@ -37,10 +40,10 @@ type mockUserQuotaCache struct {
 	// override: when set, GetQuotaCheckData returns these values directly
 	quotaCheckOverride *quotaCheckResult
 
-	// IncrByFloatCost / GetUserCost
-	costs       map[string]float64 // "accountID:epoch:userID" -> cost
-	incrCostErr error
-	getCostErr  error
+	// AtomicIncrCost / GetUserCost
+	costs            map[string]float64 // "accountID:epoch:userID" -> cost
+	atomicIncrCostErr error
+	getCostErr        error
 
 	// DelMeta
 	deletedMeta map[int64]bool
@@ -70,6 +73,17 @@ func newTestAccount(id int64, extra map[string]any) *Account {
 		Platform: PlatformAnthropic,
 		Type:     AccountTypeOAuth,
 		Extra:    extra,
+	}
+}
+
+func newTestAccountWithWindow(id int64, extra map[string]any, windowStart, windowEnd time.Time) *Account {
+	return &Account{
+		ID:                 id,
+		Platform:           PlatformAnthropic,
+		Type:               AccountTypeOAuth,
+		Extra:              extra,
+		SessionWindowStart: &windowStart,
+		SessionWindowEnd:   &windowEnd,
 	}
 }
 
@@ -140,38 +154,23 @@ func (m *mockUserQuotaCache) ZCardActive(_ context.Context, accountID int64) (in
 	return int64(len(m.activeUsers[accountID])), nil
 }
 
-func (m *mockUserQuotaCache) HIncrByEpoch(_ context.Context, accountID int64) (int64, error) {
+func (m *mockUserQuotaCache) BumpEpochAndSetMeta(_ context.Context, accountID int64, perUserLimit float64, perUserStickyReserve float64, activeCount int64) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.recordCall("HIncrByEpoch")
-	if m.incrEpochErr != nil {
-		return 0, m.incrEpochErr
+	m.recordCall("BumpEpochAndSetMeta")
+	if m.bumpMetaErr != nil {
+		return 0, m.bumpMetaErr
 	}
 
 	m.epochCounters[accountID]++
-	meta := m.meta[accountID]
-	meta.epoch = m.epochCounters[accountID]
-	m.meta[accountID] = meta
-	return m.epochCounters[accountID], nil
-}
-
-func (m *mockUserQuotaCache) HSetMeta(_ context.Context, accountID int64, epoch int64, perUserLimit float64, perUserStickyReserve float64, activeCount int64) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.recordCall("HSetMeta")
-	if m.setMetaErr != nil {
-		return m.setMetaErr
-	}
-
 	m.meta[accountID] = quotaMetaData{
-		epoch:                epoch,
+		epoch:                m.epochCounters[accountID],
 		perUserLimit:         perUserLimit,
 		perUserStickyReserve: perUserStickyReserve,
 		activeCount:          activeCount,
 	}
-	return nil
+	return m.epochCounters[accountID], nil
 }
 
 func (m *mockUserQuotaCache) HGetMeta(_ context.Context, accountID int64) (int64, float64, float64, error) {
@@ -190,7 +189,7 @@ func (m *mockUserQuotaCache) HGetMeta(_ context.Context, accountID int64) (int64
 	return meta.epoch, meta.perUserLimit, meta.perUserStickyReserve, nil
 }
 
-func (m *mockUserQuotaCache) GetQuotaCheckData(ctx context.Context, accountID int64, userID int64) (int64, float64, float64, float64, error) {
+func (m *mockUserQuotaCache) GetQuotaCheckData(ctx context.Context, accountID int64, userID int64) (int64, float64, float64, float64, int64, error) {
 	m.mu.Lock()
 	m.recordCall("GetQuotaCheckData")
 	err := m.getQuotaCheckDataErr
@@ -198,32 +197,40 @@ func (m *mockUserQuotaCache) GetQuotaCheckData(ctx context.Context, accountID in
 	m.mu.Unlock()
 
 	if err != nil {
-		return 0, 0, 0, 0, err
+		return 0, 0, 0, 0, 0, err
 	}
 	if override != nil {
-		return override.epoch, override.perUserLimit, override.perUserStickyReserve, override.userCost, nil
+		return override.epoch, override.perUserLimit, override.perUserStickyReserve, override.userCost, 0, nil
 	}
 
 	epoch, perUserLimit, perUserStickyReserve, err := m.HGetMeta(ctx, accountID)
 	if err != nil || epoch == 0 {
-		return epoch, perUserLimit, perUserStickyReserve, 0, err
+		return epoch, perUserLimit, perUserStickyReserve, 0, 0, err
 	}
 	userCost, err := m.GetUserCost(ctx, accountID, epoch, userID)
-	return epoch, perUserLimit, perUserStickyReserve, userCost, err
+	m.mu.Lock()
+	activeCount := m.meta[accountID].activeCount
+	m.mu.Unlock()
+	return epoch, perUserLimit, perUserStickyReserve, userCost, activeCount, err
 }
 
-func (m *mockUserQuotaCache) IncrByFloatCost(_ context.Context, accountID int64, epoch int64, userID int64, delta float64) (float64, error) {
+func (m *mockUserQuotaCache) AtomicIncrCost(_ context.Context, accountID int64, userID int64, delta float64) (int64, float64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.recordCall("IncrByFloatCost")
-	if m.incrCostErr != nil {
-		return 0, m.incrCostErr
+	m.recordCall("AtomicIncrCost")
+	if m.atomicIncrCostErr != nil {
+		return 0, 0, m.atomicIncrCostErr
 	}
 
-	key := costKey(accountID, epoch, userID)
+	meta, ok := m.meta[accountID]
+	if !ok || meta.epoch == 0 {
+		return 0, 0, nil
+	}
+
+	key := costKey(accountID, meta.epoch, userID)
 	m.costs[key] += delta
-	return m.costs[key], nil
+	return meta.epoch, m.costs[key], nil
 }
 
 func (m *mockUserQuotaCache) GetUserCost(_ context.Context, accountID int64, epoch int64, userID int64) (float64, error) {
@@ -251,6 +258,19 @@ func (m *mockUserQuotaCache) DelMeta(_ context.Context, accountID int64) error {
 	return nil
 }
 
+func (m *mockUserQuotaCache) GetDisplayMetaBatch(_ context.Context, accountIDs []int64) (map[int64]QuotaDisplayMeta, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	result := make(map[int64]QuotaDisplayMeta, len(accountIDs))
+	for _, id := range accountIDs {
+		if meta, ok := m.meta[id]; ok {
+			result[id] = QuotaDisplayMeta{PerUserLimit: meta.perUserLimit, ActiveCount: meta.activeCount}
+		}
+	}
+	return result, nil
+}
+
 func costKey(accountID int64, epoch int64, userID int64) string {
 	return fmt.Sprintf("%d:%d:%d", accountID, epoch, userID)
 }
@@ -269,6 +289,10 @@ func enabledExtra(limit float64, reserve float64) map[string]any {
 		"window_cost_sticky_reserve": reserve,
 	}
 }
+
+// ---------------------------------------------------------------------------
+// CheckUserQuota
+// ---------------------------------------------------------------------------
 
 func TestCheckUserQuota_Disabled(t *testing.T) {
 	ctx := context.Background()
@@ -399,6 +423,10 @@ func TestCheckUserQuota_BoundaryExactLimit(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// RegisterActivity
+// ---------------------------------------------------------------------------
+
 func TestRegisterActivity_Disabled(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
@@ -433,11 +461,13 @@ func TestRegisterActivity_ExistingUser(t *testing.T) {
 	account := newTestAccount(1, enabledExtra(50, 10))
 	mock.activeUsers[account.ID] = map[int64]int64{10: 1}
 	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 })
+	impl := svc.(*userQuotaService)
+	impl.activeAccounts[account.ID] = &accountQuotaState{account: account, lastWindowStartMs: account.GetCurrentWindowStartTime().UnixMilli()}
 
 	svc.RegisterActivity(ctx, account, 10)
 
 	if mock.epochCounters[account.ID] != 0 {
-		t.Fatalf("epoch=%d want 0", mock.epochCounters[account.ID])
+		t.Fatalf("epoch=%d want 0 (no recalculation for existing user, same window)", mock.epochCounters[account.ID])
 	}
 	if mock.activeUsers[account.ID][10] == 1 {
 		t.Fatalf("expected activity score update")
@@ -464,6 +494,10 @@ func TestRegisterActivity_RedisError(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// IncrementUserCost (AtomicIncrCost)
+// ---------------------------------------------------------------------------
+
 func TestIncrementUserCost_Normal(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
@@ -472,7 +506,7 @@ func TestIncrementUserCost_Normal(t *testing.T) {
 
 	svc.IncrementUserCost(ctx, 7, 9, 2.5)
 
-	assertFloatEqual(t, mock.costs["7:5:9"], 2.5)
+	assertFloatEqual(t, mock.costs[costKey(7, 5, 9)], 2.5)
 }
 
 func TestIncrementUserCost_ZeroCost(t *testing.T) {
@@ -512,6 +546,10 @@ func TestIncrementUserCost_NegativeCost(t *testing.T) {
 		t.Fatalf("expected empty costs, got %v", mock.costs)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// recalculateQuotas
+// ---------------------------------------------------------------------------
 
 func TestRecalculate_EqualSplit(t *testing.T) {
 	ctx := context.Background()
@@ -560,7 +598,7 @@ func TestRecalculate_NoActiveUsers(t *testing.T) {
 	account := newTestAccount(1, enabledExtra(50, 10))
 	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 })
 	impl := svc.(*userQuotaService)
-	impl.activeAccounts[account.ID] = account
+	impl.activeAccounts[account.ID] = &accountQuotaState{account: account}
 
 	impl.recalculateQuotas(ctx, account, true)
 
@@ -607,6 +645,10 @@ func TestRecalculate_StickyReserveSplit(t *testing.T) {
 	assertFloatEqual(t, mock.meta[account.ID].perUserStickyReserve, 5)
 }
 
+// ---------------------------------------------------------------------------
+// Cleanup ticker
+// ---------------------------------------------------------------------------
+
 func TestCleanup_RemovesIdleUsers(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
@@ -622,7 +664,10 @@ func TestCleanup_RemovesIdleUsers(t *testing.T) {
 	}
 	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 })
 	impl := svc.(*userQuotaService)
-	impl.activeAccounts[account.ID] = account
+	impl.activeAccounts[account.ID] = &accountQuotaState{
+		account:           account,
+		lastWindowStartMs: account.GetCurrentWindowStartTime().UnixMilli(),
+	}
 
 	impl.runCleanup(ctx)
 
@@ -649,7 +694,10 @@ func TestCleanup_NoIdleUsers(t *testing.T) {
 	}
 	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 })
 	impl := svc.(*userQuotaService)
-	impl.activeAccounts[account.ID] = account
+	impl.activeAccounts[account.ID] = &accountQuotaState{
+		account:           account,
+		lastWindowStartMs: account.GetCurrentWindowStartTime().UnixMilli(),
+	}
 
 	impl.runCleanup(ctx)
 
@@ -670,7 +718,10 @@ func TestCleanup_AllUsersIdle(t *testing.T) {
 	}
 	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 })
 	impl := svc.(*userQuotaService)
-	impl.activeAccounts[account.ID] = account
+	impl.activeAccounts[account.ID] = &accountQuotaState{
+		account:           account,
+		lastWindowStartMs: account.GetCurrentWindowStartTime().UnixMilli(),
+	}
 
 	impl.runCleanup(ctx)
 
@@ -687,8 +738,8 @@ func TestCleanup_RedisError_Continues(t *testing.T) {
 	account2 := newTestAccount(2, map[string]any{"window_cost_limit": 50.0})
 	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 })
 	impl := svc.(*userQuotaService)
-	impl.activeAccounts[account1.ID] = account1
-	impl.activeAccounts[account2.ID] = account2
+	impl.activeAccounts[account1.ID] = &accountQuotaState{account: account1}
+	impl.activeAccounts[account2.ID] = &accountQuotaState{account: account2}
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -702,6 +753,67 @@ func TestCleanup_RedisError_Continues(t *testing.T) {
 		t.Fatalf("expected no epoch bumps, got %v", mock.epochCounters)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// NotifyAccountUpdated
+// ---------------------------------------------------------------------------
+
+func TestNotifyAccountUpdated_ActiveAccount_RecalculatesQuotas(t *testing.T) {
+	ctx := context.Background()
+	mock := newMock()
+	account := newTestAccount(1, enabledExtra(100, 10))
+	now := time.Now().UnixMilli()
+	mock.activeUsers[account.ID] = map[int64]int64{1: now, 2: now}
+	mock.epochCounters[account.ID] = 1
+	mock.meta[account.ID] = quotaMetaData{epoch: 1, perUserLimit: 50}
+
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 })
+	impl := svc.(*userQuotaService)
+	impl.activeAccounts[account.ID] = &accountQuotaState{account: account}
+
+	updatedAccount := newTestAccount(account.ID, enabledExtra(50, 10))
+	svc.NotifyAccountUpdated(ctx, updatedAccount)
+
+	if mock.epochCounters[account.ID] != 2 {
+		t.Fatalf("epoch=%d want 2", mock.epochCounters[account.ID])
+	}
+	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 25)
+	if impl.activeAccounts[account.ID].account != updatedAccount {
+		t.Fatalf("expected activeAccounts to hold updated account pointer")
+	}
+}
+
+func TestNotifyAccountUpdated_InactiveAccount_NoOp(t *testing.T) {
+	ctx := context.Background()
+	mock := newMock()
+	account := newTestAccount(1, enabledExtra(100, 10))
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 })
+
+	svc.NotifyAccountUpdated(ctx, account)
+
+	if len(mock.calls) != 0 {
+		t.Fatalf("expected no cache calls, got %v", mock.calls)
+	}
+}
+
+func TestNotifyAccountUpdated_QuotaDisabled_NoOp(t *testing.T) {
+	ctx := context.Background()
+	mock := newMock()
+	account := newTestAccount(1, map[string]any{"window_cost_limit": 100.0})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 })
+	impl := svc.(*userQuotaService)
+	impl.activeAccounts[account.ID] = &accountQuotaState{account: account}
+
+	svc.NotifyAccountUpdated(ctx, account)
+
+	if len(mock.calls) != 0 {
+		t.Fatalf("expected no cache calls, got %v", mock.calls)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Concurrency
+// ---------------------------------------------------------------------------
 
 func TestConcurrentRegisterActivity(t *testing.T) {
 	ctx := context.Background()
@@ -724,4 +836,310 @@ func TestConcurrentRegisterActivity(t *testing.T) {
 	if len(mock.activeUsers[account.ID]) != 10 {
 		t.Fatalf("users=%d want 10", len(mock.activeUsers[account.ID]))
 	}
+}
+
+// ---------------------------------------------------------------------------
+// New: epoch isolation -- costs do not carry across epochs
+// ---------------------------------------------------------------------------
+
+func TestEpochBumpResetsCost(t *testing.T) {
+	ctx := context.Background()
+	mock := newMock()
+	account := newTestAccount(1, enabledExtra(50, 10))
+	now := time.Now().UnixMilli()
+	mock.activeUsers[account.ID] = map[int64]int64{1: now}
+	mock.epochCounters[account.ID] = 5
+	mock.meta[account.ID] = quotaMetaData{epoch: 5, perUserLimit: 30, activeCount: 1}
+	// User 1 has $10 cost in epoch 5
+	mock.costs[costKey(account.ID, 5, 1)] = 10.0
+
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 20 })
+	impl := svc.(*userQuotaService)
+
+	impl.recalculateQuotas(ctx, account, true)
+
+	// Epoch bumped to 6
+	if mock.meta[account.ID].epoch != 6 {
+		t.Fatalf("epoch=%d want 6", mock.meta[account.ID].epoch)
+	}
+	// Old epoch 5 cost still present
+	oldCost, err := mock.GetUserCost(ctx, account.ID, 5, 1)
+	if err != nil {
+		t.Fatalf("GetUserCost error: %v", err)
+	}
+	assertFloatEqual(t, oldCost, 10.0)
+
+	// New epoch 6 cost is zero
+	newCost, err := mock.GetUserCost(ctx, account.ID, 6, 1)
+	if err != nil {
+		t.Fatalf("GetUserCost error: %v", err)
+	}
+	assertFloatEqual(t, newCost, 0.0)
+
+	// GetQuotaCheckData returns userCost=0 (uses epoch 6)
+	_, _, _, userCost, _, err := mock.GetQuotaCheckData(ctx, account.ID, 1)
+	if err != nil {
+		t.Fatalf("GetQuotaCheckData error: %v", err)
+	}
+	assertFloatEqual(t, userCost, 0.0)
+}
+
+func TestCostNotCarriedAcrossEpochs(t *testing.T) {
+	ctx := context.Background()
+	mock := newMock()
+	account := newTestAccount(1, enabledExtra(50, 10))
+	now := time.Now().UnixMilli()
+	mock.activeUsers[account.ID] = map[int64]int64{1: now}
+	mock.epochCounters[account.ID] = 3
+	mock.meta[account.ID] = quotaMetaData{epoch: 3, perUserLimit: 30, activeCount: 1}
+
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 20 })
+	impl := svc.(*userQuotaService)
+
+	// User 1 accumulates $7 in epoch 3
+	svc.IncrementUserCost(ctx, account.ID, 1, 7.0)
+	assertFloatEqual(t, mock.costs[costKey(account.ID, 3, 1)], 7.0)
+
+	// Recalculation bumps to epoch 4
+	impl.recalculateQuotas(ctx, account, true)
+	if mock.meta[account.ID].epoch != 4 {
+		t.Fatalf("epoch=%d want 4", mock.meta[account.ID].epoch)
+	}
+
+	// GetQuotaCheckData returns userCost=0 for epoch 4
+	_, _, _, userCost, _, err := mock.GetQuotaCheckData(ctx, account.ID, 1)
+	if err != nil {
+		t.Fatalf("GetQuotaCheckData error: %v", err)
+	}
+	assertFloatEqual(t, userCost, 0.0)
+
+	// User 1 accumulates $3 in epoch 4
+	svc.IncrementUserCost(ctx, account.ID, 1, 3.0)
+	assertFloatEqual(t, mock.costs[costKey(account.ID, 4, 1)], 3.0)
+
+	// GetQuotaCheckData returns 3.0, not 7.0+3.0
+	_, _, _, userCost2, _, err := mock.GetQuotaCheckData(ctx, account.ID, 1)
+	if err != nil {
+		t.Fatalf("GetQuotaCheckData error: %v", err)
+	}
+	assertFloatEqual(t, userCost2, 3.0)
+}
+
+// ---------------------------------------------------------------------------
+// New: AtomicIncrCost
+// ---------------------------------------------------------------------------
+
+func TestAtomicIncrCost_NoEpoch(t *testing.T) {
+	ctx := context.Background()
+	mock := newMock()
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 })
+
+	svc.IncrementUserCost(ctx, 7, 9, 2.5)
+
+	if len(mock.costs) != 0 {
+		t.Fatalf("expected no costs written when meta absent, got %v", mock.costs)
+	}
+}
+
+func TestAtomicIncrCost_Normal(t *testing.T) {
+	ctx := context.Background()
+	mock := newMock()
+	mock.meta[7] = quotaMetaData{epoch: 5}
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 })
+
+	svc.IncrementUserCost(ctx, 7, 9, 2.5)
+	assertFloatEqual(t, mock.costs[costKey(7, 5, 9)], 2.5)
+
+	svc.IncrementUserCost(ctx, 7, 9, 1.5)
+	assertFloatEqual(t, mock.costs[costKey(7, 5, 9)], 4.0)
+}
+
+// ---------------------------------------------------------------------------
+// New: BumpEpochAndSetMeta
+// ---------------------------------------------------------------------------
+
+func TestBumpEpochAndSetMeta(t *testing.T) {
+	ctx := context.Background()
+	mock := newMock()
+	account := newTestAccount(1, enabledExtra(50, 10))
+	now := time.Now().UnixMilli()
+	mock.activeUsers[account.ID] = map[int64]int64{1: now, 2: now}
+	mock.epochCounters[account.ID] = 3
+	mock.meta[account.ID] = quotaMetaData{epoch: 3}
+
+	// windowCost=10, remaining=50-10=40, 2 users → perUserLimit=20
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 10 })
+	impl := svc.(*userQuotaService)
+
+	impl.recalculateQuotas(ctx, account, true)
+
+	if mock.meta[account.ID].epoch != 4 {
+		t.Fatalf("epoch=%d want 4", mock.meta[account.ID].epoch)
+	}
+	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 20)
+	assertFloatEqual(t, mock.meta[account.ID].perUserStickyReserve, 5) // 10/2
+	if mock.meta[account.ID].activeCount != 2 {
+		t.Fatalf("activeCount=%d want 2", mock.meta[account.ID].activeCount)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// New: window-reset detection
+// ---------------------------------------------------------------------------
+
+func TestWindowResetTriggersRecalc_RegisterActivity(t *testing.T) {
+	ctx := context.Background()
+	mock := newMock()
+
+	now := time.Now()
+	windowStart := now.Add(-3 * time.Hour)
+	windowEnd := now.Add(2 * time.Hour)
+	account := newTestAccountWithWindow(1, enabledExtra(50, 10), windowStart, windowEnd)
+
+	// User 10 already active (not new)
+	mock.activeUsers[account.ID] = map[int64]int64{10: now.UnixMilli()}
+	mock.epochCounters[account.ID] = 1
+	mock.meta[account.ID] = quotaMetaData{epoch: 1, perUserLimit: 30, activeCount: 1}
+
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 20 })
+	impl := svc.(*userQuotaService)
+
+	// Simulate state from a previous window
+	prevWindowStart := windowStart.Add(-5 * time.Hour)
+	impl.activeAccounts[account.ID] = &accountQuotaState{
+		account:           account,
+		lastWindowStartMs: prevWindowStart.UnixMilli(),
+	}
+
+	// RegisterActivity for existing user -- should detect window reset and recalculate
+	svc.RegisterActivity(ctx, account, 10)
+
+	if mock.epochCounters[account.ID] != 2 {
+		t.Fatalf("epoch=%d want 2 (window reset must trigger recalculation)", mock.epochCounters[account.ID])
+	}
+	// remaining=50-20=30, 1 user
+	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 30)
+
+	// lastWindowStartMs must be updated to current window start
+	state := impl.activeAccounts[account.ID]
+	if state == nil {
+		t.Fatalf("state should not be nil after recalculation")
+	}
+	if state.lastWindowStartMs != windowStart.UnixMilli() {
+		t.Fatalf("lastWindowStartMs=%d want %d", state.lastWindowStartMs, windowStart.UnixMilli())
+	}
+}
+
+func TestWindowResetTriggersRecalc_Cleanup(t *testing.T) {
+	ctx := context.Background()
+	mock := newMock()
+
+	now := time.Now()
+	windowStart := now.Add(-3 * time.Hour)
+	windowEnd := now.Add(2 * time.Hour)
+	account := newTestAccountWithWindow(1, map[string]any{
+		"user_quota_enabled":         true,
+		"window_cost_limit":          50.0,
+		"window_cost_sticky_reserve": 10.0,
+		"user_quota_idle_timeout":    60,
+	}, windowStart, windowEnd)
+
+	// User 1 is active and not idle
+	mock.activeUsers[account.ID] = map[int64]int64{1: now.UnixMilli()}
+	mock.epochCounters[account.ID] = 1
+	mock.meta[account.ID] = quotaMetaData{epoch: 1, perUserLimit: 30, activeCount: 1}
+
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 20 })
+	impl := svc.(*userQuotaService)
+
+	// Simulate state from a previous window
+	prevWindowStart := windowStart.Add(-5 * time.Hour)
+	impl.activeAccounts[account.ID] = &accountQuotaState{
+		account:           account,
+		lastWindowStartMs: prevWindowStart.UnixMilli(),
+	}
+
+	impl.runCleanup(ctx)
+
+	// Epoch must be bumped even though no idle users were removed
+	if mock.epochCounters[account.ID] != 2 {
+		t.Fatalf("epoch=%d want 2 (window reset must trigger recalculation)", mock.epochCounters[account.ID])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// New: recalculation uses current remaining budget
+// ---------------------------------------------------------------------------
+
+func TestRecalculation_UsesCurrentRemaining(t *testing.T) {
+	ctx := context.Background()
+	mock := newMock()
+	account := newTestAccount(1, enabledExtra(50, 10))
+	now := time.Now().UnixMilli()
+	mock.activeUsers[account.ID] = map[int64]int64{1: now}
+
+	// windowCost=40, remaining=50-40=10, 1 user → perUserLimit=10
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 40 })
+	impl := svc.(*userQuotaService)
+
+	impl.recalculateQuotas(ctx, account, true)
+
+	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 10)
+	assertFloatEqual(t, mock.meta[account.ID].perUserStickyReserve, 10) // 10/1
+}
+
+// ---------------------------------------------------------------------------
+// New: full end-to-end workflow
+// ---------------------------------------------------------------------------
+
+func TestFullWorkflow_MultiUserJoinSpendJoin(t *testing.T) {
+	ctx := context.Background()
+	mock := newMock()
+
+	// windowCost is mutable so the closure captures the variable by reference
+	windowCost := 20.0
+	account := newTestAccount(1, enabledExtra(50, 10))
+	svc := NewUserQuotaService(mock, func(_ context.Context, _ *Account) float64 { return windowCost })
+
+	// Step 1: User A (1) joins → epoch=1, remaining=50-20=30, perUserLimit=30
+	svc.RegisterActivity(ctx, account, 1)
+	if mock.epochCounters[account.ID] != 1 {
+		t.Fatalf("after A join: epoch=%d want 1", mock.epochCounters[account.ID])
+	}
+	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 30)
+
+	// Step 2: User A spends $5
+	svc.IncrementUserCost(ctx, account.ID, 1, 5.0)
+	assertFloatEqual(t, mock.costs[costKey(account.ID, 1, 1)], 5.0)
+
+	// GetQuotaCheckData reflects cost=5 in epoch 1
+	_, _, _, costA, _, err := mock.GetQuotaCheckData(ctx, account.ID, 1)
+	if err != nil {
+		t.Fatalf("GetQuotaCheckData error: %v", err)
+	}
+	assertFloatEqual(t, costA, 5.0)
+
+	// Step 3: Update window cost (A spent $5, total window now $25)
+	windowCost = 25.0
+
+	// Step 4: User B (2) joins → recalculate → epoch=2, remaining=50-25=25, 2 users → perUserLimit=12.5
+	svc.RegisterActivity(ctx, account, 2)
+	if mock.epochCounters[account.ID] != 2 {
+		t.Fatalf("after B join: epoch=%d want 2", mock.epochCounters[account.ID])
+	}
+	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 12.5)
+
+	// Step 5: User A's cost in new epoch (2) must be 0 -- NOT carried over from epoch 1
+	_, _, _, costANew, _, err := mock.GetQuotaCheckData(ctx, account.ID, 1)
+	if err != nil {
+		t.Fatalf("GetQuotaCheckData error: %v", err)
+	}
+	assertFloatEqual(t, costANew, 0.0)
+
+	// Step 6: User B's cost in epoch 2 is also 0
+	_, _, _, costBNew, _, err := mock.GetQuotaCheckData(ctx, account.ID, 2)
+	if err != nil {
+		t.Fatalf("GetQuotaCheckData error: %v", err)
+	}
+	assertFloatEqual(t, costBNew, 0.0)
 }

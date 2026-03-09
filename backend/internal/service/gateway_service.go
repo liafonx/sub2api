@@ -6774,6 +6774,50 @@ func (s *GatewayService) CheckUserQuotaForAccount(ctx context.Context, account *
 	return s.userQuotaChecker.CheckUserQuota(ctx, account, userID, isSticky)
 }
 
+// UserQuotaUsageInfo holds per-user quota display data for the /v1/usage response.
+type UserQuotaUsageInfo struct {
+	PerUserLimit float64
+	UserCost     float64
+	ActiveUsers  int64
+}
+
+// GetEffectiveUserQuota returns the most restrictive per-user quota applicable to userID
+// across all user-quota-enabled Anthropic accounts in the group. Returns nil when no such
+// quota is active (feature disabled, no active users, or checker not configured).
+func (s *GatewayService) GetEffectiveUserQuota(ctx context.Context, groupID int64, userID int64) (*UserQuotaUsageInfo, error) {
+	if s.userQuotaChecker == nil {
+		return nil, nil
+	}
+
+	accounts, err := s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, groupID, PlatformAnthropic)
+	if err != nil {
+		return nil, err
+	}
+
+	var best *UserQuotaUsageInfo
+	for i := range accounts {
+		acc := &accounts[i]
+		if !acc.IsUserQuotaEnabled() {
+			continue
+		}
+		perUserLimit, userCost, activeCount, hasData, err := s.userQuotaChecker.GetUserQuotaStatus(ctx, acc.ID, userID)
+		if err != nil || !hasData {
+			continue
+		}
+
+		info := &UserQuotaUsageInfo{
+			PerUserLimit: perUserLimit,
+			UserCost:     userCost,
+			ActiveUsers:  activeCount,
+		}
+		// Pick most restrictive (smallest per-user limit)
+		if best == nil || perUserLimit < best.PerUserLimit {
+			best = info
+		}
+	}
+	return best, nil
+}
+
 // RecordUsageLongContextInput 记录使用量的输入参数（支持长上下文双倍计费）
 type RecordUsageLongContextInput struct {
 	Result                *ForwardResult

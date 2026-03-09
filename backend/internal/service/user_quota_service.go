@@ -6,7 +6,15 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
+
+// QuotaDisplayMeta holds display data for a single account's user quota state.
+type QuotaDisplayMeta struct {
+	PerUserLimit float64
+	ActiveCount  int64
+}
 
 // UserQuotaChecker is the interface for per-user dynamic quota enforcement.
 // All operations fail-open: returns allowed=true on Redis errors or when disabled.
@@ -14,31 +22,49 @@ type UserQuotaChecker interface {
 	CheckUserQuota(ctx context.Context, account *Account, userID int64, isSticky bool) (allowed bool, reason string)
 	RegisterActivity(ctx context.Context, account *Account, userID int64)
 	IncrementUserCost(ctx context.Context, accountID int64, userID int64, standardCost float64)
+	// GetDisplayMetaBatch reads per_user_limit and active_count for multiple accounts.
+	GetDisplayMetaBatch(ctx context.Context, accountIDs []int64) (map[int64]QuotaDisplayMeta, error)
+	// GetUserQuotaStatus returns the per-user limit, user's current cost, and active user count for an account.
+	// Returns hasData=false when meta is not initialized (no active users).
+	GetUserQuotaStatus(ctx context.Context, accountID int64, userID int64) (perUserLimit float64, userCost float64, activeCount int64, hasData bool, err error)
+	// NotifyAccountUpdated refreshes the cached account and recalculates quotas
+	// if the account has active users. Call after admin updates account settings.
+	NotifyAccountUpdated(ctx context.Context, account *Account)
 }
 
 // UserQuotaCache defines the Redis operations for the user quota plugin.
 type UserQuotaCache interface {
-	// ZAddActivity adds/updates user activity (score=nowMs). Returns true if user was new.
+	// ZAddActivity adds/updates user activity (score=nowMs) using ZADD GT.
+	// Returns true if the member was newly added to the set.
 	ZAddActivity(ctx context.Context, accountID int64, userID int64, nowMs int64) (isNew bool, err error)
 	// ZRemIdleUsers removes members with score < cutoffMs, returns removed userIDs.
 	ZRemIdleUsers(ctx context.Context, accountID int64, cutoffMs int64) ([]int64, error)
 	// ZCardActive returns count of active users.
 	ZCardActive(ctx context.Context, accountID int64) (int64, error)
-	// HIncrByEpoch atomically increments epoch, returns new value.
-	HIncrByEpoch(ctx context.Context, accountID int64) (int64, error)
-	// HSetMeta writes quota metadata (must be called after HIncrByEpoch with the new epoch).
-	HSetMeta(ctx context.Context, accountID int64, epoch int64, perUserLimit float64, perUserStickyReserve float64, activeCount int64) error
+	// BumpEpochAndSetMeta atomically increments epoch and writes all quota metadata.
+	// Returns the new epoch value.
+	BumpEpochAndSetMeta(ctx context.Context, accountID int64, perUserLimit float64, perUserStickyReserve float64, activeCount int64) (int64, error)
 	// HGetMeta reads quota metadata. epoch=0 means not initialized.
 	HGetMeta(ctx context.Context, accountID int64) (epoch int64, perUserLimit float64, perUserStickyReserve float64, err error)
-	// GetQuotaCheckData fetches quota metadata and user cost in a single Lua script (1 RTT).
+	// GetQuotaCheckData fetches quota metadata, user cost, and active count in a single Lua script (1 RTT).
 	// Returns epoch=0 if meta is not initialized.
-	GetQuotaCheckData(ctx context.Context, accountID int64, userID int64) (epoch int64, perUserLimit float64, perUserStickyReserve float64, userCost float64, err error)
-	// IncrByFloatCost atomically adds delta to user cost, returns new total.
-	IncrByFloatCost(ctx context.Context, accountID int64, epoch int64, userID int64, delta float64) (float64, error)
+	GetQuotaCheckData(ctx context.Context, accountID int64, userID int64) (epoch int64, perUserLimit float64, perUserStickyReserve float64, userCost float64, activeCount int64, err error)
+	// AtomicIncrCost atomically reads the current epoch from meta and increments the user's cost.
+	// Returns epoch=0 if meta is not initialized (cost is not recorded).
+	AtomicIncrCost(ctx context.Context, accountID int64, userID int64, delta float64) (epoch int64, newTotal float64, err error)
 	// GetUserCost reads cost for a user in the given epoch. Returns 0 if not set.
 	GetUserCost(ctx context.Context, accountID int64, epoch int64, userID int64) (float64, error)
 	// DelMeta removes the meta hash (when no active users remain).
 	DelMeta(ctx context.Context, accountID int64) error
+	// GetDisplayMetaBatch reads per_user_limit and active_count for multiple accounts (Redis pipeline).
+	// Returns map[accountID] → QuotaDisplayMeta. Missing/empty meta is omitted.
+	GetDisplayMetaBatch(ctx context.Context, accountIDs []int64) (map[int64]QuotaDisplayMeta, error)
+}
+
+// accountQuotaState holds in-memory state for a single account being tracked by the quota service.
+type accountQuotaState struct {
+	account           *Account
+	lastWindowStartMs int64 // UnixMilli of the 5h billing window start at last recalculation; 0 = not yet recorded
 }
 
 // userQuotaService implements UserQuotaChecker.
@@ -47,7 +73,7 @@ type userQuotaService struct {
 	windowCostGetter func(ctx context.Context, account *Account) float64
 
 	mu             sync.RWMutex
-	activeAccounts map[int64]*Account
+	activeAccounts map[int64]*accountQuotaState
 }
 
 // NewUserQuotaService creates a new userQuotaService.
@@ -56,7 +82,7 @@ func NewUserQuotaService(cache UserQuotaCache, windowCostGetter func(ctx context
 	return &userQuotaService{
 		cache:            cache,
 		windowCostGetter: windowCostGetter,
-		activeAccounts:   make(map[int64]*Account),
+		activeAccounts:   make(map[int64]*accountQuotaState),
 	}
 }
 
@@ -83,19 +109,20 @@ func StartUserQuotaCleanupTicker(ctx context.Context, svc UserQuotaChecker, inte
 
 func (s *userQuotaService) runCleanup(ctx context.Context) {
 	s.mu.RLock()
-	accounts := make([]*Account, 0, len(s.activeAccounts))
-	for _, acc := range s.activeAccounts {
-		accounts = append(accounts, acc)
+	states := make([]*accountQuotaState, 0, len(s.activeAccounts))
+	for _, state := range s.activeAccounts {
+		states = append(states, state)
 	}
 	s.mu.RUnlock()
 
 	totalRemoved := 0
 
-	for _, account := range accounts {
+	for _, state := range states {
+		account := state.account
 		cutoffMs := time.Now().UnixMilli() - account.GetUserQuotaIdleTimeout().Milliseconds()
 		removed, err := s.cache.ZRemIdleUsers(ctx, account.ID, cutoffMs)
 		if err != nil {
-			zap.L().Error("user_quota.redis_error",
+			logger.L().Error("user_quota.redis_error",
 				zap.String("operation", "ZRemIdleUsers"),
 				zap.Int64("account_id", account.ID),
 				zap.Error(err),
@@ -103,7 +130,7 @@ func (s *userQuotaService) runCleanup(ctx context.Context) {
 			continue
 		}
 		for _, uid := range removed {
-			zap.L().Info("user_quota.user_released",
+			logger.L().Info("user_quota.user_released",
 				zap.Int64("account_id", account.ID),
 				zap.Int64("user_id", uid),
 				zap.String("reason", "idle"),
@@ -111,24 +138,22 @@ func (s *userQuotaService) runCleanup(ctx context.Context) {
 			totalRemoved++
 		}
 
-		count, err := s.cache.ZCardActive(ctx, account.ID)
-		if err != nil {
-			continue
-		}
-		if count == 0 {
-			s.mu.Lock()
-			delete(s.activeAccounts, account.ID)
-			s.mu.Unlock()
-			_ = s.cache.DelMeta(ctx, account.ID)
-			continue
-		}
-		if len(removed) > 0 {
+		currentWindowStartMs := account.GetCurrentWindowStartTime().UnixMilli()
+		windowChanged := state.lastWindowStartMs > 0 && currentWindowStartMs != state.lastWindowStartMs
+
+		if len(removed) > 0 || windowChanged {
+			if windowChanged {
+				logger.L().Info("user_quota.window_reset_detected",
+					zap.Int64("account_id", account.ID),
+					zap.String("trigger", "cleanup_tick"),
+				)
+			}
 			s.recalculateQuotas(ctx, account, true)
 		}
 	}
 
-	zap.L().Debug("user_quota.cleanup_tick",
-		zap.Int("accounts_checked", len(accounts)),
+	logger.L().Debug("user_quota.cleanup_tick",
+		zap.Int("accounts_checked", len(states)),
 		zap.Int("users_removed", totalRemoved),
 	)
 }
@@ -139,9 +164,9 @@ func (s *userQuotaService) CheckUserQuota(ctx context.Context, account *Account,
 		return true, "disabled"
 	}
 
-	epoch, perUserLimit, perUserStickyReserve, userCost, err := s.cache.GetQuotaCheckData(ctx, account.ID, userID)
+	epoch, perUserLimit, perUserStickyReserve, userCost, _, err := s.cache.GetQuotaCheckData(ctx, account.ID, userID)
 	if err != nil {
-		zap.L().Error("user_quota.redis_error",
+		logger.L().Error("user_quota.redis_error",
 			zap.String("operation", "GetQuotaCheckData"),
 			zap.Int64("account_id", account.ID),
 			zap.Int64("user_id", userID),
@@ -154,7 +179,7 @@ func (s *userQuotaService) CheckUserQuota(ctx context.Context, account *Account,
 	}
 
 	if userCost < perUserLimit {
-		zap.L().Debug("user_quota.check_allowed",
+		logger.L().Debug("user_quota.check_allowed",
 			zap.Int64("account_id", account.ID),
 			zap.Int64("user_id", userID),
 			zap.Float64("user_cost", userCost),
@@ -166,7 +191,7 @@ func (s *userQuotaService) CheckUserQuota(ctx context.Context, account *Account,
 
 	if userCost < perUserLimit+perUserStickyReserve {
 		if isSticky {
-			zap.L().Debug("user_quota.check_allowed",
+			logger.L().Debug("user_quota.check_allowed",
 				zap.Int64("account_id", account.ID),
 				zap.Int64("user_id", userID),
 				zap.Float64("user_cost", userCost),
@@ -175,7 +200,7 @@ func (s *userQuotaService) CheckUserQuota(ctx context.Context, account *Account,
 			)
 			return true, "yellow_sticky"
 		}
-		zap.L().Warn("user_quota.check_blocked",
+		logger.L().Warn("user_quota.check_blocked",
 			zap.Int64("account_id", account.ID),
 			zap.Int64("user_id", userID),
 			zap.Float64("user_cost", userCost),
@@ -185,7 +210,7 @@ func (s *userQuotaService) CheckUserQuota(ctx context.Context, account *Account,
 		return false, "yellow_non_sticky"
 	}
 
-	zap.L().Warn("user_quota.check_blocked",
+	logger.L().Warn("user_quota.check_blocked",
 		zap.Int64("account_id", account.ID),
 		zap.Int64("user_id", userID),
 		zap.Float64("user_cost", userCost),
@@ -195,7 +220,8 @@ func (s *userQuotaService) CheckUserQuota(ctx context.Context, account *Account,
 	return false, "red"
 }
 
-// RegisterActivity marks the user as active. Triggers recalculation on first appearance.
+// RegisterActivity marks the user as active. Triggers recalculation on first appearance
+// or when the upstream 5h billing window has reset since the last recalculation.
 func (s *userQuotaService) RegisterActivity(ctx context.Context, account *Account, userID int64) {
 	if !account.IsUserQuotaEnabled() {
 		return
@@ -204,7 +230,7 @@ func (s *userQuotaService) RegisterActivity(ctx context.Context, account *Accoun
 	nowMs := time.Now().UnixMilli()
 	isNew, err := s.cache.ZAddActivity(ctx, account.ID, userID, nowMs)
 	if err != nil {
-		zap.L().Error("user_quota.redis_error",
+		logger.L().Error("user_quota.redis_error",
 			zap.String("operation", "ZAddActivity"),
 			zap.Int64("account_id", account.ID),
 			zap.Int64("user_id", userID),
@@ -213,46 +239,63 @@ func (s *userQuotaService) RegisterActivity(ctx context.Context, account *Accoun
 		return
 	}
 
-	s.mu.RLock()
-	existing := s.activeAccounts[account.ID]
-	s.mu.RUnlock()
-	if existing != account {
-		s.mu.Lock()
-		s.activeAccounts[account.ID] = account
-		s.mu.Unlock()
-	}
+	currentWindowStartMs := account.GetCurrentWindowStartTime().UnixMilli()
 
-	if isNew {
-		count, _ := s.cache.ZCardActive(ctx, account.ID)
-		zap.L().Info("user_quota.user_joined",
-			zap.Int64("account_id", account.ID),
-			zap.Int64("user_id", userID),
-			zap.Int64("new_active_count", count),
-		)
-		s.recalculateQuotas(ctx, account, false)
+	s.mu.Lock()
+	state, exists := s.activeAccounts[account.ID]
+	windowChanged := false
+	if !exists {
+		state = &accountQuotaState{
+			account:           account,
+			lastWindowStartMs: currentWindowStartMs,
+		}
+		s.activeAccounts[account.ID] = state
+	} else {
+		state.account = account
+		if state.lastWindowStartMs > 0 && state.lastWindowStartMs != currentWindowStartMs {
+			windowChanged = true
+		}
+	}
+	s.mu.Unlock()
+
+	if isNew || windowChanged {
+		if windowChanged {
+			logger.L().Info("user_quota.window_reset_detected",
+				zap.Int64("account_id", account.ID),
+				zap.String("trigger", "register_activity"),
+			)
+		}
+		newEpoch, activeCount := s.recalculateQuotas(ctx, account, false)
+		if isNew && activeCount > 0 {
+			logger.L().Info("user_quota.user_joined",
+				zap.Int64("account_id", account.ID),
+				zap.Int64("user_id", userID),
+				zap.Int64("active_users", activeCount),
+				zap.Int64("epoch", newEpoch),
+			)
+		}
 	}
 }
 
-// IncrementUserCost adds standardCost to the user's per-epoch counter.
+// IncrementUserCost atomically reads the current epoch and adds standardCost to the user's cost counter.
 func (s *userQuotaService) IncrementUserCost(ctx context.Context, accountID int64, userID int64, standardCost float64) {
 	if standardCost <= 0 {
 		return
 	}
-	epoch, _, _, err := s.cache.HGetMeta(ctx, accountID)
-	if err != nil || epoch == 0 {
-		return
-	}
-	newTotal, err := s.cache.IncrByFloatCost(ctx, accountID, epoch, userID, standardCost)
+	epoch, newTotal, err := s.cache.AtomicIncrCost(ctx, accountID, userID, standardCost)
 	if err != nil {
-		zap.L().Error("user_quota.redis_error",
-			zap.String("operation", "IncrByFloatCost"),
+		logger.L().Error("user_quota.redis_error",
+			zap.String("operation", "AtomicIncrCost"),
 			zap.Int64("account_id", accountID),
 			zap.Int64("user_id", userID),
 			zap.Error(err),
 		)
 		return
 	}
-	zap.L().Debug("user_quota.cost_incremented",
+	if epoch == 0 {
+		return
+	}
+	logger.L().Info("user_quota.cost_incremented",
 		zap.Int64("account_id", accountID),
 		zap.Int64("user_id", userID),
 		zap.Int64("epoch", epoch),
@@ -261,35 +304,78 @@ func (s *userQuotaService) IncrementUserCost(ctx context.Context, accountID int6
 	)
 }
 
-// recalculateQuotas bumps epoch and redistributes remaining budget equally.
-func (s *userQuotaService) recalculateQuotas(ctx context.Context, account *Account, skipEviction bool) {
-	cutoffMs := time.Now().UnixMilli() - account.GetUserQuotaIdleTimeout().Milliseconds()
+// GetDisplayMetaBatch delegates to cache for batch per_user_limit + active_count reads.
+func (s *userQuotaService) GetDisplayMetaBatch(ctx context.Context, accountIDs []int64) (map[int64]QuotaDisplayMeta, error) {
+	return s.cache.GetDisplayMetaBatch(ctx, accountIDs)
+}
+
+// GetUserQuotaStatus returns perUserLimit, userCost, activeCount, and whether meta exists for the account+user.
+func (s *userQuotaService) GetUserQuotaStatus(ctx context.Context, accountID int64, userID int64) (perUserLimit float64, userCost float64, activeCount int64, hasData bool, err error) {
+	var epoch int64
+	epoch, perUserLimit, _, userCost, activeCount, err = s.cache.GetQuotaCheckData(ctx, accountID, userID)
+	if err != nil {
+		return 0, 0, 0, false, err
+	}
+	if epoch == 0 {
+		return 0, 0, 0, false, nil
+	}
+	return perUserLimit, userCost, activeCount, true, nil
+}
+
+// NotifyAccountUpdated refreshes the cached account pointer and triggers quota
+// recalculation if the account has active users. Call after admin updates account settings.
+func (s *userQuotaService) NotifyAccountUpdated(ctx context.Context, account *Account) {
+	if !account.IsUserQuotaEnabled() {
+		return
+	}
+	s.mu.RLock()
+	_, exists := s.activeAccounts[account.ID]
+	s.mu.RUnlock()
+	if !exists {
+		return
+	}
+	s.mu.Lock()
+	if state, ok := s.activeAccounts[account.ID]; ok {
+		state.account = account
+	}
+	s.mu.Unlock()
+	s.recalculateQuotas(ctx, account, false)
+	logger.L().Info("user_quota.account_updated",
+		zap.Int64("account_id", account.ID),
+	)
+}
+
+// recalculateQuotas bumps epoch and redistributes remaining budget equally among active users.
+// Returns (newEpoch, activeCount). Returns (0, 0) on error or when no active users remain.
+func (s *userQuotaService) recalculateQuotas(ctx context.Context, account *Account, skipEviction bool) (newEpoch, activeCount int64) {
 	if !skipEviction {
+		cutoffMs := time.Now().UnixMilli() - account.GetUserQuotaIdleTimeout().Milliseconds()
 		if _, err := s.cache.ZRemIdleUsers(ctx, account.ID, cutoffMs); err != nil {
-			zap.L().Error("user_quota.redis_error",
+			logger.L().Error("user_quota.redis_error",
 				zap.String("operation", "ZRemIdleUsers"),
 				zap.Int64("account_id", account.ID),
 				zap.Error(err),
 			)
-			return
+			return 0, 0
 		}
 	}
 
-	activeCount, err := s.cache.ZCardActive(ctx, account.ID)
+	var err error
+	activeCount, err = s.cache.ZCardActive(ctx, account.ID)
 	if err != nil {
-		zap.L().Error("user_quota.redis_error",
+		logger.L().Error("user_quota.redis_error",
 			zap.String("operation", "ZCardActive"),
 			zap.Int64("account_id", account.ID),
 			zap.Error(err),
 		)
-		return
+		return 0, 0
 	}
 	if activeCount == 0 {
 		s.mu.Lock()
 		delete(s.activeAccounts, account.ID)
 		s.mu.Unlock()
 		_ = s.cache.DelMeta(ctx, account.ID)
-		return
+		return 0, 0
 	}
 
 	currentWindowCost := s.windowCostGetter(ctx, account)
@@ -302,25 +388,25 @@ func (s *userQuotaService) recalculateQuotas(ctx context.Context, account *Accou
 	perUserLimit := remaining / float64(activeCount)
 	perUserStickyReserve := account.GetWindowCostStickyReserve() / float64(activeCount)
 
-	newEpoch, err := s.cache.HIncrByEpoch(ctx, account.ID)
+	newEpoch, err = s.cache.BumpEpochAndSetMeta(ctx, account.ID, perUserLimit, perUserStickyReserve, activeCount)
 	if err != nil {
-		zap.L().Error("user_quota.redis_error",
-			zap.String("operation", "HIncrByEpoch"),
+		logger.L().Error("user_quota.redis_error",
+			zap.String("operation", "BumpEpochAndSetMeta"),
 			zap.Int64("account_id", account.ID),
 			zap.Error(err),
 		)
-		return
-	}
-	if err := s.cache.HSetMeta(ctx, account.ID, newEpoch, perUserLimit, perUserStickyReserve, activeCount); err != nil {
-		zap.L().Error("user_quota.redis_error",
-			zap.String("operation", "HSetMeta"),
-			zap.Int64("account_id", account.ID),
-			zap.Error(err),
-		)
-		return
+		return 0, 0
 	}
 
-	zap.L().Info("user_quota.recalculation",
+	// Record the current window start so future calls can detect a window reset.
+	currentWindowStartMs := account.GetCurrentWindowStartTime().UnixMilli()
+	s.mu.Lock()
+	if state, ok := s.activeAccounts[account.ID]; ok {
+		state.lastWindowStartMs = currentWindowStartMs
+	}
+	s.mu.Unlock()
+
+	logger.L().Info("user_quota.recalculation",
 		zap.Int64("account_id", account.ID),
 		zap.Int64("epoch", newEpoch),
 		zap.Int64("active_users", activeCount),
@@ -328,4 +414,5 @@ func (s *userQuotaService) recalculateQuotas(ctx context.Context, account *Accou
 		zap.Float64("per_user_limit", perUserLimit),
 		zap.Float64("per_user_sticky_reserve", perUserStickyReserve),
 	)
+	return newEpoch, activeCount
 }

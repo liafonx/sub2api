@@ -55,6 +55,7 @@ type AccountHandler struct {
 	sessionLimitCache       service.SessionLimitCache
 	rpmCache                service.RPMCache
 	tokenCacheInvalidator   service.TokenCacheInvalidator
+	userQuotaChecker        service.UserQuotaChecker
 }
 
 // NewAccountHandler creates a new admin account handler
@@ -72,6 +73,7 @@ func NewAccountHandler(
 	sessionLimitCache service.SessionLimitCache,
 	rpmCache service.RPMCache,
 	tokenCacheInvalidator service.TokenCacheInvalidator,
+	userQuotaChecker service.UserQuotaChecker,
 ) *AccountHandler {
 	return &AccountHandler{
 		adminService:            adminService,
@@ -87,6 +89,7 @@ func NewAccountHandler(
 		sessionLimitCache:       sessionLimitCache,
 		rpmCache:                rpmCache,
 		tokenCacheInvalidator:   tokenCacheInvalidator,
+		userQuotaChecker:        userQuotaChecker,
 	}
 }
 
@@ -161,6 +164,8 @@ type AccountWithConcurrency struct {
 	CurrentWindowCost *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
 	ActiveSessions    *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
 	CurrentRPM        *int     `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
+	PerUserLimit      *float64 `json:"per_user_limit,omitempty"`      // 当前每用户配额上限
+	QuotaActiveUsers  *int     `json:"quota_active_users,omitempty"`  // 当前配额活跃用户数
 }
 
 func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, account *service.Account) AccountWithConcurrency {
@@ -200,6 +205,17 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 		if h.rpmCache != nil && account.GetBaseRPM() > 0 {
 			if rpm, err := h.rpmCache.GetRPM(ctx, account.ID); err == nil {
 				item.CurrentRPM = &rpm
+			}
+		}
+
+		if h.userQuotaChecker != nil && account.IsUserQuotaEnabled() {
+			if metaMap, err := h.userQuotaChecker.GetDisplayMetaBatch(ctx, []int64{account.ID}); err == nil {
+				if meta, ok := metaMap[account.ID]; ok {
+					limit := meta.PerUserLimit
+					activeUsers := int(meta.ActiveCount)
+					item.PerUserLimit = &limit
+					item.QuotaActiveUsers = &activeUsers
+				}
 			}
 		}
 	}
@@ -251,10 +267,11 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 
-	// 识别需要查询窗口费用、会话数和 RPM 的账号（Anthropic OAuth/SetupToken 且启用了相应功能）
+	// 识别需要查询窗口费用、会话数、RPM 和每用户配额的账号（Anthropic OAuth/SetupToken 且启用了相应功能）
 	windowCostAccountIDs := make([]int64, 0)
 	sessionLimitAccountIDs := make([]int64, 0)
 	rpmAccountIDs := make([]int64, 0)
+	userQuotaAccountIDs := make([]int64, 0)
 	sessionIdleTimeouts := make(map[int64]time.Duration) // 各账号的会话空闲超时配置
 	for i := range accounts {
 		acc := &accounts[i]
@@ -268,6 +285,9 @@ func (h *AccountHandler) List(c *gin.Context) {
 			}
 			if acc.GetBaseRPM() > 0 {
 				rpmAccountIDs = append(rpmAccountIDs, acc.ID)
+			}
+			if acc.IsUserQuotaEnabled() {
+				userQuotaAccountIDs = append(userQuotaAccountIDs, acc.ID)
 			}
 		}
 	}
@@ -286,6 +306,12 @@ func (h *AccountHandler) List(c *gin.Context) {
 		if activeSessions == nil {
 			activeSessions = make(map[int64]int)
 		}
+	}
+
+	// 获取每用户配额元数据（Redis Pipeline，低开销）
+	var quotaMetaMap map[int64]service.QuotaDisplayMeta
+	if len(userQuotaAccountIDs) > 0 && h.userQuotaChecker != nil {
+		quotaMetaMap, _ = h.userQuotaChecker.GetDisplayMetaBatch(c.Request.Context(), userQuotaAccountIDs)
 	}
 
 	// 始终获取窗口费用（PostgreSQL 聚合查询）
@@ -343,6 +369,16 @@ func (h *AccountHandler) List(c *gin.Context) {
 		if rpmCounts != nil {
 			if rpm, ok := rpmCounts[acc.ID]; ok {
 				item.CurrentRPM = &rpm
+			}
+		}
+
+		// 添加每用户配额元数据（仅当启用时）
+		if quotaMetaMap != nil {
+			if meta, ok := quotaMetaMap[acc.ID]; ok {
+				limit := meta.PerUserLimit
+				activeUsers := int(meta.ActiveCount)
+				item.PerUserLimit = &limit
+				item.QuotaActiveUsers = &activeUsers
 			}
 		}
 
@@ -600,6 +636,10 @@ func (h *AccountHandler) Update(c *gin.Context) {
 
 		response.ErrorFrom(c, err)
 		return
+	}
+
+	if h.userQuotaChecker != nil {
+		h.userQuotaChecker.NotifyAccountUpdated(c.Request.Context(), account)
 	}
 
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))

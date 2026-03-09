@@ -892,7 +892,7 @@ func (h *GatewayHandler) Usage(c *gin.Context) {
 	isQuotaLimited := apiKey.Quota > 0 || apiKey.HasRateLimits()
 
 	if isQuotaLimited {
-		h.usageQuotaLimited(c, ctx, apiKey, usageData, modelStats)
+		h.usageQuotaLimited(c, ctx, apiKey, subject, usageData, modelStats)
 		return
 	}
 
@@ -954,8 +954,25 @@ func (h *GatewayHandler) buildUsageData(ctx context.Context, apiKeyID int64) gin
 	}
 }
 
+// appendUserQuota adds user_quota field to resp when quota data is available for the group/user.
+func (h *GatewayHandler) appendUserQuota(resp gin.H, ctx context.Context, groupID *int64, userID int64) {
+	if groupID == nil {
+		return
+	}
+	uq, err := h.gatewayService.GetEffectiveUserQuota(ctx, *groupID, userID)
+	if err != nil || uq == nil {
+		return
+	}
+	resp["user_quota"] = gin.H{
+		"per_user_limit": uq.PerUserLimit,
+		"used":           uq.UserCost,
+		"remaining":      max(0, uq.PerUserLimit-uq.UserCost),
+		"active_users":   uq.ActiveUsers,
+	}
+}
+
 // usageQuotaLimited 处理 quota_limited 模式的响应
-func (h *GatewayHandler) usageQuotaLimited(c *gin.Context, ctx context.Context, apiKey *service.APIKey, usageData gin.H, modelStats any) {
+func (h *GatewayHandler) usageQuotaLimited(c *gin.Context, ctx context.Context, apiKey *service.APIKey, subject middleware2.AuthSubject, usageData gin.H, modelStats any) {
 	resp := gin.H{
 		"mode":    "quota_limited",
 		"isValid": apiKey.Status == service.StatusAPIKeyActive || apiKey.Status == service.StatusAPIKeyQuotaExhausted || apiKey.Status == service.StatusAPIKeyExpired,
@@ -1041,6 +1058,9 @@ func (h *GatewayHandler) usageQuotaLimited(c *gin.Context, ctx context.Context, 
 		resp["model_stats"] = modelStats
 	}
 
+	// Best-effort: per-user quota info
+	h.appendUserQuota(resp, ctx, apiKey.GroupID, subject.UserID)
+
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -1077,6 +1097,7 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 		if modelStats != nil {
 			resp["model_stats"] = modelStats
 		}
+		h.appendUserQuota(resp, ctx, apiKey.GroupID, subject.UserID)
 		c.JSON(http.StatusOK, resp)
 		return
 	}
@@ -1102,6 +1123,7 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 	if modelStats != nil {
 		resp["model_stats"] = modelStats
 	}
+	h.appendUserQuota(resp, ctx, apiKey.GroupID, subject.UserID)
 	c.JSON(http.StatusOK, resp)
 }
 

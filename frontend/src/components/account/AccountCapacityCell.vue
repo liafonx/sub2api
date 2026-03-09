@@ -35,6 +35,22 @@
       </span>
     </div>
 
+    <!-- 每用户配额分配（仅启用时显示） -->
+    <div v-if="showUserQuota" class="flex items-center gap-1">
+      <span
+        :class="['inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium', userQuotaClass]"
+        :title="userQuotaTooltip"
+      >
+        <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6z" />
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5H21A7.5 7.5 0 0013.5 3v7.5z" />
+        </svg>
+        <span class="font-mono">{{ quotaActiveUsers }}</span>
+        <span class="text-gray-400 dark:text-gray-500">×</span>
+        <span class="font-mono">${{ formatCost(account.per_user_limit) }}</span>
+      </span>
+    </div>
+
     <!-- 会话数量限制（仅 Anthropic OAuth/SetupToken 且启用时显示） -->
     <div v-if="showSessionLimit" class="flex items-center gap-1">
       <span
@@ -116,6 +132,37 @@ const showWindowCost = computed(() => {
 
 // 当前窗口费用
 const currentWindowCost = computed(() => props.account.current_window_cost ?? 0)
+
+// 是否显示每用户配额
+const showUserQuota = computed(() => {
+  return (
+    isAnthropicOAuthOrSetupToken.value &&
+    props.account.user_quota_enabled === true &&
+    props.account.per_user_limit != null
+  )
+})
+
+// 当前配额活跃用户数
+const quotaActiveUsers = computed(() => props.account.quota_active_users ?? 0)
+
+// 每用户配额状态样式
+const userQuotaClass = computed(() => {
+  if (!showUserQuota.value) return ''
+  return quotaActiveUsers.value === 0
+    ? 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
+    : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+})
+
+// 每用户配额提示文字
+const userQuotaTooltip = computed(() => {
+  if (!showUserQuota.value) return ''
+  const count = quotaActiveUsers.value
+  const limit = props.account.per_user_limit ?? 0
+  if (count === 0) {
+    return t('admin.accounts.capacity.userQuota.inactive')
+  }
+  return t('admin.accounts.capacity.userQuota.active', { count, limit: limit.toFixed(2) })
+})
 
 // 是否显示会话限制
 const showSessionLimit = computed(() => {

@@ -735,6 +735,8 @@ export interface Account {
   current_window_cost?: number | null // 当前窗口费用
   active_sessions?: number | null // 当前活跃会话数
   current_rpm?: number | null // 当前分钟 RPM 计数
+  per_user_limit?: number | null // 当前每用户配额上限
+  quota_active_users?: number | null // 当前配额活跃用户数
 }
 
 // Account Usage types
