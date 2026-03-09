@@ -262,6 +262,13 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 			target := a.GetCacheTTLOverrideTarget()
 			out.CacheTTLOverrideTarget = &target
 		}
+		// 每用户配额分配
+		if a.IsUserQuotaEnabled() {
+			enabled := true
+			out.UserQuotaEnabled = &enabled
+			idleTimeout := int(a.GetUserQuotaIdleTimeout().Seconds())
+			out.UserQuotaIdleTimeout = &idleTimeout
+		}
 	}
 
 	// 提取 API Key 账号配额限制（仅 apikey 类型有效）
