@@ -96,14 +96,18 @@ func (c *userQuotaCache) ZCardActive(ctx context.Context, accountID int64) (int6
 	return n, nil
 }
 
-// BumpEpochAndSetMeta atomically increments the epoch and writes all quota metadata in one
-// Lua script, eliminating the brief window where a concurrent read could see a stale limit
-// with an already-bumped epoch.
+// BumpEpochAndSetMeta atomically sets a new epoch (Redis server-side millisecond timestamp)
+// and writes all quota metadata in one Lua script. Using redis.call("TIME") instead of
+// HINCRBY ensures the epoch is globally unique even after DelMeta resets the hash to empty —
+// HINCRBY on a missing key always starts from 0 and returns 1, causing the epoch to repeat
+// and old cost keys to be reused across billing windows.
 func (c *userQuotaCache) BumpEpochAndSetMeta(ctx context.Context, accountID int64, perUserLimit float64, perUserStickyReserve float64, activeCount int64) (int64, error) {
 	const luaScript = `
 local key = KEYS[1]
-local epoch = redis.call("HINCRBY", key, "epoch", 1)
+local t = redis.call("TIME")
+local epoch = t[1] * 1000 + math.floor(t[2] / 1000)
 redis.call("HSET", key,
+    "epoch",                   epoch,
     "per_user_limit",          ARGV[1],
     "per_user_sticky_reserve", ARGV[2],
     "active_count",            ARGV[3])

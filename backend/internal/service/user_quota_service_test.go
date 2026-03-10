@@ -446,12 +446,12 @@ func TestRegisterActivity_NewUser(t *testing.T) {
 
 	svc.RegisterActivity(ctx, account, 10)
 
-	if mock.epochCounters[account.ID] != 1 {
-		t.Fatalf("epoch=%d want 1", mock.epochCounters[account.ID])
+	if mock.epochCounters[account.ID] <= 0 {
+		t.Fatalf("epoch=%d want > 0 (recalculation must produce a positive epoch)", mock.epochCounters[account.ID])
 	}
 	meta := mock.meta[account.ID]
-	if meta.epoch != 1 {
-		t.Fatalf("meta epoch=%d want 1", meta.epoch)
+	if meta.epoch <= 0 {
+		t.Fatalf("meta epoch=%d want > 0", meta.epoch)
 	}
 }
 
@@ -567,8 +567,8 @@ func TestRecalculate_EqualSplit(t *testing.T) {
 	impl.recalculateQuotas(ctx, account, true)
 
 	meta := mock.meta[account.ID]
-	if meta.epoch != 1 {
-		t.Fatalf("epoch=%d want 1", meta.epoch)
+	if meta.epoch <= 0 {
+		t.Fatalf("epoch=%d want > 0", meta.epoch)
 	}
 	assertFloatEqual(t, meta.perUserLimit, 10)
 	assertFloatEqual(t, meta.perUserStickyReserve, 10.0/3.0)
@@ -623,8 +623,8 @@ func TestRecalculate_EpochBump(t *testing.T) {
 
 	impl.recalculateQuotas(ctx, account, true)
 
-	if mock.meta[account.ID].epoch != 4 {
-		t.Fatalf("epoch=%d want 4", mock.meta[account.ID].epoch)
+	if mock.meta[account.ID].epoch <= 3 {
+		t.Fatalf("epoch=%d want > 3 (epoch must increase monotonically)", mock.meta[account.ID].epoch)
 	}
 }
 
@@ -677,8 +677,8 @@ func TestCleanup_RemovesIdleUsers(t *testing.T) {
 	if _, ok := mock.activeUsers[account.ID][2]; !ok {
 		t.Fatalf("active user was removed")
 	}
-	if mock.epochCounters[account.ID] != 1 {
-		t.Fatalf("epoch=%d want 1", mock.epochCounters[account.ID])
+	if mock.epochCounters[account.ID] <= 0 {
+		t.Fatalf("epoch=%d want > 0 (recalculation after idle-user removal must produce a positive epoch)", mock.epochCounters[account.ID])
 	}
 }
 
@@ -774,8 +774,8 @@ func TestNotifyAccountUpdated_ActiveAccount_RecalculatesQuotas(t *testing.T) {
 	updatedAccount := newTestAccount(account.ID, enabledExtra(50, 10))
 	svc.NotifyAccountUpdated(ctx, updatedAccount)
 
-	if mock.epochCounters[account.ID] != 2 {
-		t.Fatalf("epoch=%d want 2", mock.epochCounters[account.ID])
+	if mock.epochCounters[account.ID] <= 1 {
+		t.Fatalf("epoch=%d want > 1 (NotifyAccountUpdated must trigger a recalculation)", mock.epochCounters[account.ID])
 	}
 	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 25)
 	if impl.activeAccounts[account.ID].account != updatedAccount {
@@ -858,9 +858,9 @@ func TestEpochBumpResetsCost(t *testing.T) {
 
 	impl.recalculateQuotas(ctx, account, true)
 
-	// Epoch bumped to 6
-	if mock.meta[account.ID].epoch != 6 {
-		t.Fatalf("epoch=%d want 6", mock.meta[account.ID].epoch)
+	// Epoch must have increased past 5
+	if mock.meta[account.ID].epoch <= 5 {
+		t.Fatalf("epoch=%d want > 5 (epoch must increase monotonically)", mock.meta[account.ID].epoch)
 	}
 	// Old epoch 5 cost still present
 	oldCost, err := mock.GetUserCost(ctx, account.ID, 5, 1)
@@ -900,10 +900,10 @@ func TestCostNotCarriedAcrossEpochs(t *testing.T) {
 	svc.IncrementUserCost(ctx, account.ID, 1, 7.0)
 	assertFloatEqual(t, mock.costs[costKey(account.ID, 3, 1)], 7.0)
 
-	// Recalculation bumps to epoch 4
+	// Recalculation must produce a new epoch greater than 3
 	impl.recalculateQuotas(ctx, account, true)
-	if mock.meta[account.ID].epoch != 4 {
-		t.Fatalf("epoch=%d want 4", mock.meta[account.ID].epoch)
+	if mock.meta[account.ID].epoch <= 3 {
+		t.Fatalf("epoch=%d want > 3 (epoch must increase monotonically)", mock.meta[account.ID].epoch)
 	}
 
 	// GetQuotaCheckData returns userCost=0 for epoch 4
@@ -973,8 +973,8 @@ func TestBumpEpochAndSetMeta(t *testing.T) {
 
 	impl.recalculateQuotas(ctx, account, true)
 
-	if mock.meta[account.ID].epoch != 4 {
-		t.Fatalf("epoch=%d want 4", mock.meta[account.ID].epoch)
+	if mock.meta[account.ID].epoch <= 3 {
+		t.Fatalf("epoch=%d want > 3 (epoch must increase monotonically)", mock.meta[account.ID].epoch)
 	}
 	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 20)
 	assertFloatEqual(t, mock.meta[account.ID].perUserStickyReserve, 5) // 10/2
@@ -1014,8 +1014,8 @@ func TestWindowResetTriggersRecalc_RegisterActivity(t *testing.T) {
 	// RegisterActivity for existing user -- should detect window reset and recalculate
 	svc.RegisterActivity(ctx, account, 10)
 
-	if mock.epochCounters[account.ID] != 2 {
-		t.Fatalf("epoch=%d want 2 (window reset must trigger recalculation)", mock.epochCounters[account.ID])
+	if mock.epochCounters[account.ID] <= 1 {
+		t.Fatalf("epoch=%d want > 1 (window reset must trigger recalculation)", mock.epochCounters[account.ID])
 	}
 	// remaining=50-20=30, 1 user
 	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 30)
@@ -1062,8 +1062,8 @@ func TestWindowResetTriggersRecalc_Cleanup(t *testing.T) {
 	impl.runCleanup(ctx)
 
 	// Epoch must be bumped even though no idle users were removed
-	if mock.epochCounters[account.ID] != 2 {
-		t.Fatalf("epoch=%d want 2 (window reset must trigger recalculation)", mock.epochCounters[account.ID])
+	if mock.epochCounters[account.ID] <= 1 {
+		t.Fatalf("epoch=%d want > 1 (window reset must trigger recalculation)", mock.epochCounters[account.ID])
 	}
 }
 
@@ -1101,18 +1101,19 @@ func TestFullWorkflow_MultiUserJoinSpendJoin(t *testing.T) {
 	account := newTestAccount(1, enabledExtra(50, 10))
 	svc := NewUserQuotaService(mock, func(_ context.Context, _ *Account) float64 { return windowCost })
 
-	// Step 1: User A (1) joins → epoch=1, remaining=50-20=30, perUserLimit=30
+	// Step 1: User A (1) joins → first recalculation, remaining=50-20=30, perUserLimit=30
 	svc.RegisterActivity(ctx, account, 1)
-	if mock.epochCounters[account.ID] != 1 {
-		t.Fatalf("after A join: epoch=%d want 1", mock.epochCounters[account.ID])
+	epochAfterA := mock.epochCounters[account.ID]
+	if epochAfterA <= 0 {
+		t.Fatalf("after A join: epoch=%d want > 0", epochAfterA)
 	}
 	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 30)
 
 	// Step 2: User A spends $5
 	svc.IncrementUserCost(ctx, account.ID, 1, 5.0)
-	assertFloatEqual(t, mock.costs[costKey(account.ID, 1, 1)], 5.0)
+	assertFloatEqual(t, mock.costs[costKey(account.ID, epochAfterA, 1)], 5.0)
 
-	// GetQuotaCheckData reflects cost=5 in epoch 1
+	// GetQuotaCheckData reflects cost=5 in current epoch
 	_, _, _, costA, _, err := mock.GetQuotaCheckData(ctx, account.ID, 1)
 	if err != nil {
 		t.Fatalf("GetQuotaCheckData error: %v", err)
@@ -1122,10 +1123,10 @@ func TestFullWorkflow_MultiUserJoinSpendJoin(t *testing.T) {
 	// Step 3: Update window cost (A spent $5, total window now $25)
 	windowCost = 25.0
 
-	// Step 4: User B (2) joins → recalculate → epoch=2, remaining=50-25=25, 2 users → perUserLimit=12.5
+	// Step 4: User B (2) joins → recalculate → new epoch, remaining=50-25=25, 2 users → perUserLimit=12.5
 	svc.RegisterActivity(ctx, account, 2)
-	if mock.epochCounters[account.ID] != 2 {
-		t.Fatalf("after B join: epoch=%d want 2", mock.epochCounters[account.ID])
+	if mock.epochCounters[account.ID] <= epochAfterA {
+		t.Fatalf("after B join: epoch=%d want > %d (recalculation must produce a new epoch)", mock.epochCounters[account.ID], epochAfterA)
 	}
 	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 12.5)
 
@@ -1136,10 +1137,58 @@ func TestFullWorkflow_MultiUserJoinSpendJoin(t *testing.T) {
 	}
 	assertFloatEqual(t, costANew, 0.0)
 
-	// Step 6: User B's cost in epoch 2 is also 0
+	// Step 6: User B's cost in current epoch is also 0
 	_, _, _, costBNew, _, err := mock.GetQuotaCheckData(ctx, account.ID, 2)
 	if err != nil {
 		t.Fatalf("GetQuotaCheckData error: %v", err)
 	}
 	assertFloatEqual(t, costBNew, 0.0)
+}
+
+// ---------------------------------------------------------------------------
+// New: DelMeta must not cause epoch reuse
+// ---------------------------------------------------------------------------
+
+// TestDelMeta_DoesNotResetEpoch validates the root cause of the stale-cost bug:
+// when all users go idle the cleanup cycle deletes the meta hash (DelMeta). On the next
+// request, BumpEpochAndSetMeta must produce an epoch that is DIFFERENT from the one that
+// existed before the deletion. If the epoch repeated (e.g. always returning 1 after a
+// reset), IncrementUserCost would keep writing to the same cost key, accumulating cost
+// across billing windows while per_user_limit was recomputed from scratch — causing the
+// user to hit the limit far earlier than the account's own remaining budget.
+func TestDelMeta_DoesNotResetEpoch(t *testing.T) {
+	ctx := context.Background()
+	mock := newMock()
+	account := newTestAccount(1, enabledExtra(50, 10))
+	now := time.Now().UnixMilli()
+	mock.activeUsers[account.ID] = map[int64]int64{1: now}
+
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 10 })
+	impl := svc.(*userQuotaService)
+
+	// First recalculation produces a positive epoch.
+	impl.recalculateQuotas(ctx, account, true)
+	epoch1 := mock.meta[account.ID].epoch
+	if epoch1 <= 0 {
+		t.Fatalf("epoch1=%d must be > 0", epoch1)
+	}
+
+	// Simulate all users going idle: the cleanup tick calls DelMeta when activeCount → 0.
+	mock.DelMeta(ctx, account.ID)
+	if _, exists := mock.meta[account.ID]; exists {
+		t.Fatalf("meta should be absent after DelMeta")
+	}
+
+	// User returns — add back to active set and trigger a fresh recalculation.
+	mock.activeUsers[account.ID] = map[int64]int64{1: time.Now().UnixMilli()}
+	impl.recalculateQuotas(ctx, account, true)
+	epoch2 := mock.meta[account.ID].epoch
+
+	// The new epoch MUST differ from the old one so that cost keys are not reused.
+	if epoch2 == epoch1 {
+		t.Fatalf("epoch repeated after DelMeta: epoch1=%d epoch2=%d — this would cause stale cost accumulation", epoch1, epoch2)
+	}
+	if epoch2 <= 0 {
+		t.Fatalf("epoch2=%d must be > 0", epoch2)
+	}
 }

@@ -2,7 +2,7 @@
 
 Context for AI agents managing the sub2api deployment on macOS.
 
-> **Dev machine ≠ deployment machine.** This repo is developed on a MacBook. Nginx, sub2api, and all services run on the **Mac Mini (192.168.5.5)**. Never run `nginx -s reload`, `launchctl`, or service commands locally — SSH to 192.168.5.5 first.
+> **Dev machine ≠ deployment machine.** This repo is developed on a MacBook. Nginx, sub2api, and all services run on the **Mac Mini**. Never run `nginx -s reload`, `launchctl`, or service commands locally — SSH to the Mac Mini first.
 
 ---
 
@@ -11,6 +11,7 @@ Context for AI agents managing the sub2api deployment on macOS.
 | Item | Value |
 |------|-------|
 | Host | Mac Mini (2014), x86_64, macOS |
+| SSH | `liafonx@Liafonxs-Mac-mini.local` (prefer over IP) |
 | LAN IP | 192.168.5.5 |
 | Domain | sub.liafonx.net (Cloudflare DNS-only, NOT proxied) |
 | Install dir | /opt/sub2api |
@@ -113,10 +114,11 @@ CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -tags embed -ldflags "-s -w" -o 
 ### 2. Deploy New Binary
 
 ```bash
-# Transfer to Mac Mini
-scp backend/sub2api user@192.168.5.5:/tmp/sub2api
+# Transfer to Mac Mini (from repo root).
+# ServerAliveInterval/CountMax make scp exit after transfer (avoids hang when connection doesn't close).
+scp -o ServerAliveInterval=10 -o ServerAliveCountMax=2 backend/sub2api liafonx@Liafonxs-Mac-mini.local:/tmp/sub2api
 
-# On the Mac Mini:
+# On the Mac Mini (SSH in first: ssh liafonx@Liafonxs-Mac-mini.local):
 sudo launchctl bootout system/com.sub2api
 sudo cp /tmp/sub2api /opt/sub2api/sub2api
 sudo launchctl bootstrap system /Library/LaunchDaemons/com.sub2api.plist
@@ -238,6 +240,81 @@ grep "malformed HTTP\|transport: received unexpected" /var/log/sub2api/stderr.lo
 ```
 
 Confirmed: `h2_transport_created host=api.anthropic.com:443`
+
+---
+
+## Merge Upstream New Release (Full Workflow)
+
+When upstream publishes a new release (e.g. v0.1.95), run this full workflow to merge into main, resolve conflicts, and build for the Mac Mini.
+
+**1. Fetch and identify latest tag**
+
+```bash
+git fetch upstream --tags
+LATEST=$(git tag --list 'v*' --sort=-creatordate | head -n 1)   # e.g. v0.1.95
+```
+
+**2. Stash local changes (if any), then create merge branch and merge**
+
+```bash
+git stash push -m "before merge $LATEST" -- backend/ frontend/   # if you have uncommitted changes
+git checkout main
+git checkout -b merge-upstream-$LATEST main
+git merge $LATEST
+```
+
+**3. Resolve conflicts**
+
+- **`.gitignore`** — combine both sides (e.g. keep both `Usage_Endpoint.md` and `output/`).
+- **`backend/cmd/server/VERSION`** — set to the release version (strip leading `v`, e.g. `0.1.95`).
+- **`backend/cmd/server/wire_gen.go`** — if conflicted: keep upstream's `NewGatewayService(..., settingService)` signature and fork's `userQuotaCache` / `userQuotaService` wiring; avoid duplicating `userQuotaCache`/`userQuotaService` if they already exist earlier in the file. Run `go build -tags embed -o /dev/null ./cmd/server` from `backend/` to verify.
+
+Then:
+
+```bash
+git add .gitignore backend/cmd/server/VERSION backend/cmd/server/wire_gen.go   # only files you resolved
+git commit -m "Merge upstream $LATEST, resolve conflicts, bump VERSION"
+```
+
+**4. Merge into main and push**
+
+```bash
+git checkout main
+git merge --ff-only merge-upstream-$LATEST
+git push origin main
+git push origin merge-upstream-$LATEST   # optional, to keep branch on remote
+```
+
+**5. Build for Mac Mini**
+
+```bash
+# From repo root
+cd frontend && pnpm run build
+cd ../backend && CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -tags embed -ldflags "-s -w" -o sub2api ./cmd/server
+```
+
+**6. Deploy to Mac Mini**
+
+```bash
+# Transfer to Mac Mini. ServerAliveInterval/CountMax make scp exit after transfer (avoids hang).
+scp -o ServerAliveInterval=10 -o ServerAliveCountMax=2 backend/sub2api liafonx@Liafonxs-Mac-mini.local:/tmp/sub2api
+```
+
+Then on the Mac Mini (SSH in and run; sudo will prompt for password):
+
+```bash
+ssh liafonx@Liafonxs-Mac-mini.local
+sudo launchctl bootout system/com.sub2api
+sudo cp /tmp/sub2api /opt/sub2api/sub2api
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.sub2api.plist
+tail -20 /var/log/sub2api/stderr.log
+```
+
+**7. Restore stash if you used it**
+
+```bash
+git stash pop
+```
 
 ---
 
