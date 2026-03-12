@@ -4072,6 +4072,10 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
 			}
+			// When the client disconnected (context canceled), skip writing to the dead connection.
+			if errors.Is(ctx.Err(), context.Canceled) {
+				return nil, fmt.Errorf("upstream request failed: %s", sanitizeUpstreamErrorMessage(err.Error()))
+			}
 			// Ensure the client receives an error response (handlers assume Forward writes on non-failover errors).
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
 			setOpsUpstreamError(c, 0, safeErr, "")
@@ -4531,6 +4535,10 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthrough(
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
+			}
+			// When the client disconnected (context canceled), skip writing to the dead connection.
+			if errors.Is(ctx.Err(), context.Canceled) {
+				return nil, fmt.Errorf("upstream request failed: %s", sanitizeUpstreamErrorMessage(err.Error()))
 			}
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
 			setOpsUpstreamError(c, 0, safeErr, "")

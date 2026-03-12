@@ -413,21 +413,31 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					}
 				}
 				wroteFallback := h.ensureForwardErrorResponse(c, streamStarted)
-				reqLog.Error("gateway.forward_failed",
-					zap.Int64("account_id", account.ID),
-					zap.Bool("fallback_error_response_written", wroteFallback),
-					zap.Error(err),
-				)
+				if errors.Is(c.Request.Context().Err(), context.Canceled) {
+					reqLog.Warn("gateway.forward_client_disconnected",
+						zap.Int64("account_id", account.ID),
+						zap.Error(err),
+					)
+				} else {
+					reqLog.Error("gateway.forward_failed",
+						zap.Int64("account_id", account.ID),
+						zap.Bool("fallback_error_response_written", wroteFallback),
+						zap.Error(err),
+					)
+				}
 				return
 			}
 
 			// RPM 计数递增（Forward 成功后）
 			// 注意：TOCTOU 竞态是已知且可接受的设计权衡，与 WindowCost 一致的 soft-limit 模式。
 			// 在高并发下可能短暂超出 RPM 限制，但不会导致请求失败。
+			// 使用独立 context 避免因客户端断开导致 c.Request.Context() 已取消时 Redis 调用失败。
 			if account.IsAnthropicOAuthOrSetupToken() && account.GetBaseRPM() > 0 {
-				if err := h.gatewayService.IncrementAccountRPM(c.Request.Context(), account.ID); err != nil {
+				rpmCtx, rpmCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				if err := h.gatewayService.IncrementAccountRPM(rpmCtx, account.ID); err != nil {
 					reqLog.Warn("gateway.rpm_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}
+				rpmCancel()
 			}
 
 			// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
@@ -726,21 +736,31 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					}
 				}
 				wroteFallback := h.ensureForwardErrorResponse(c, streamStarted)
-				reqLog.Error("gateway.forward_failed",
-					zap.Int64("account_id", account.ID),
-					zap.Bool("fallback_error_response_written", wroteFallback),
-					zap.Error(err),
-				)
+				if errors.Is(c.Request.Context().Err(), context.Canceled) {
+					reqLog.Warn("gateway.forward_client_disconnected",
+						zap.Int64("account_id", account.ID),
+						zap.Error(err),
+					)
+				} else {
+					reqLog.Error("gateway.forward_failed",
+						zap.Int64("account_id", account.ID),
+						zap.Bool("fallback_error_response_written", wroteFallback),
+						zap.Error(err),
+					)
+				}
 				return
 			}
 
 			// RPM 计数递增（Forward 成功后）
 			// 注意：TOCTOU 竞态是已知且可接受的设计权衡，与 WindowCost 一致的 soft-limit 模式。
 			// 在高并发下可能短暂超出 RPM 限制，但不会导致请求失败。
+			// 使用独立 context 避免因客户端断开导致 c.Request.Context() 已取消时 Redis 调用失败。
 			if account.IsAnthropicOAuthOrSetupToken() && account.GetBaseRPM() > 0 {
-				if err := h.gatewayService.IncrementAccountRPM(c.Request.Context(), account.ID); err != nil {
+				rpmCtx, rpmCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				if err := h.gatewayService.IncrementAccountRPM(rpmCtx, account.ID); err != nil {
 					reqLog.Warn("gateway.rpm_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}
+				rpmCancel()
 			}
 
 			// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
