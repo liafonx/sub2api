@@ -150,8 +150,10 @@ var (
 		0x00ff, // TLS_EMPTY_RENEGOTIATION_INFO_SCSV
 	}
 
-	// defaultCurves contains the 10 supported groups from Claude CLI (including FFDHE)
+	// defaultCurves contains the 11 supported groups advertised in supported_groups extension.
+	// X25519MLKEM768 is listed first to match Chrome 136+ ordering.
 	defaultCurves = []utls.CurveID{
+		utls.X25519MLKEM768,  // 0x11ec (post-quantum hybrid)
 		utls.X25519,          // 0x001d
 		utls.CurveP256,       // 0x0017 (secp256r1)
 		utls.CurveID(0x001e), // x448
@@ -296,7 +298,8 @@ func (d *SOCKS5ProxyDialer) DialTLSContext(ctx context.Context, network, addr st
 	slog.Debug("tls_fingerprint_socks5_handshake_success",
 		"version", state.Version,
 		"cipher_suite", state.CipherSuite,
-		"alpn", state.NegotiatedProtocol)
+		"alpn", state.NegotiatedProtocol,
+		"negotiated_group", uint16(tlsConn.HandshakeState.ServerHello.ServerShare.Group))
 
 	return tlsConn, nil
 }
@@ -406,7 +409,8 @@ func (d *HTTPProxyDialer) DialTLSContext(ctx context.Context, network, addr stri
 	slog.Debug("tls_fingerprint_http_proxy_handshake_success",
 		"version", state.Version,
 		"cipher_suite", state.CipherSuite,
-		"alpn", state.NegotiatedProtocol)
+		"alpn", state.NegotiatedProtocol,
+		"negotiated_group", uint16(tlsConn.HandshakeState.ServerHello.ServerShare.Group))
 
 	return tlsConn, nil
 }
@@ -472,7 +476,8 @@ func (d *Dialer) DialTLSContext(ctx context.Context, network, addr string) (net.
 	slog.Debug("tls_fingerprint_handshake_success",
 		"version", state.Version,
 		"cipher_suite", state.CipherSuite,
-		"alpn", state.NegotiatedProtocol)
+		"alpn", state.NegotiatedProtocol,
+		"negotiated_group", uint16(tlsConn.HandshakeState.ServerHello.ServerShare.Group))
 
 	return tlsConn, nil
 }
@@ -550,6 +555,7 @@ func buildClientHelloSpecFromProfile(profile *Profile) *utls.ClientHelloSpec {
 		}},
 		&utls.PSKKeyExchangeModesExtension{Modes: []uint8{utls.PskModeDHE}},
 		&utls.KeyShareExtension{KeyShares: []utls.KeyShare{
+			{Group: utls.X25519MLKEM768},
 			{Group: utls.X25519},
 		}},
 	)

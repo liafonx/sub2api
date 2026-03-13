@@ -172,7 +172,7 @@ func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID i
 //   - 当 enableTLSFingerprint=true 时，使用 utls 库模拟 Claude CLI 的 TLS 指纹
 //   - 指纹模板根据 accountID % len(profiles) 自动选择
 //   - 支持直连、HTTP/HTTPS 代理、SOCKS5 代理三种场景
-func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, enableTLSFingerprint bool) (*http.Response, error) {
+func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, enableTLSFingerprint bool, tlsProfileName string) (*http.Response, error) {
 	// 如果未启用 TLS 指纹，直接使用标准请求路径
 	if !enableTLSFingerprint {
 		return s.Do(req, proxyURL, accountID, accountConcurrency)
@@ -195,17 +195,23 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 
 	// 获取 TLS 指纹 Profile
 	registry := tlsfingerprint.GlobalRegistry()
-	profile := registry.GetProfileByAccountID(accountID)
+	resolvedProfileKey, profile := registry.GetProfileForAccount(accountID, tlsProfileName)
 	if profile == nil {
 		// 如果获取不到 profile，回退到普通请求
 		slog.Debug("tls_fingerprint_no_profile", "account_id", accountID, "fallback", "standard_request")
 		return s.Do(req, proxyURL, accountID, accountConcurrency)
 	}
 
-	slog.Debug("tls_fingerprint_using_profile", "account_id", accountID, "profile", profile.Name, "grease", profile.EnableGREASE)
+	slog.Debug("tls_fingerprint_using_profile",
+		"account_id", accountID,
+		"requested_profile", tlsProfileName,
+		"resolved_profile", profile.Name,
+		"resolved_profile_key", resolvedProfileKey,
+		"grease", profile.EnableGREASE,
+	)
 
 	// 获取或创建带 TLS 指纹的客户端
-	entry, err := s.acquireClientWithTLS(proxyURL, accountID, accountConcurrency, profile)
+	entry, err := s.acquireClientWithTLS(proxyURL, accountID, accountConcurrency, profile, resolvedProfileKey)
 	if err != nil {
 		slog.Debug("tls_fingerprint_acquire_client_failed", "account_id", accountID, "error", err)
 		return nil, err
@@ -233,20 +239,22 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 }
 
 // acquireClientWithTLS 获取或创建带 TLS 指纹的客户端
-func (s *httpUpstreamService) acquireClientWithTLS(proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile) (*upstreamClientEntry, error) {
-	return s.getClientEntryWithTLS(proxyURL, accountID, accountConcurrency, profile, true, true)
+func (s *httpUpstreamService) acquireClientWithTLS(proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile, resolvedProfileKey string) (*upstreamClientEntry, error) {
+	return s.getClientEntryWithTLS(proxyURL, accountID, accountConcurrency, profile, resolvedProfileKey, true, true)
 }
 
 // getClientEntryWithTLS 获取或创建带 TLS 指纹的客户端条目
 // TLS 指纹客户端使用独立的缓存键，与普通客户端隔离
-func (s *httpUpstreamService) getClientEntryWithTLS(proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile, markInFlight bool, enforceLimit bool) (*upstreamClientEntry, error) {
+// resolvedProfileKey 包含在缓存键中，确保不同 profile 使用不同的 TLS 客户端
+func (s *httpUpstreamService) getClientEntryWithTLS(proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile, resolvedProfileKey string, markInFlight bool, enforceLimit bool) (*upstreamClientEntry, error) {
 	isolation := s.getIsolationMode()
 	proxyKey, parsedProxy, err := normalizeProxyURL(proxyURL)
 	if err != nil {
 		return nil, err
 	}
-	// TLS 指纹客户端使用独立的缓存键，加 "tls:" 前缀
-	cacheKey := "tls:" + buildCacheKey(isolation, proxyKey, accountID)
+	// TLS 指纹客户端使用独立的缓存键，加 "tls:" 前缀并包含 profile key
+	// 确保切换 profile 后使用新的 TLS 客户端（不同 profile 可能有不同的 TLS 行为）
+	cacheKey := "tls:" + buildCacheKey(isolation, proxyKey, accountID) + "|profile:" + resolvedProfileKey
 	poolKey := s.buildPoolKey(isolation, accountConcurrency) + ":tls"
 
 	now := time.Now()

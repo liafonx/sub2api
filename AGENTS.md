@@ -147,6 +147,9 @@ This is the `liafonx/sub2api` fork. Patches not in upstream:
 | TLS Fingerprint Registry Fix | `repository/http_upstream.go` | PR #611 submitted |
 | HTTP/2 Upstream | `pkg/tlsfingerprint/h2_roundtripper.go` | Active |
 | Per-User Quota Allocation | `service/user_quota_service.go`, `repository/user_quota_cache.go` | Active (2026-03-08) |
+| utls pinned to v1.8.2 | `go.mod`, `go.sum` | Active — v1.8.2 has full X25519MLKEM768 support; upgrade to newer tagged release when available |
+| Full X25519MLKEM768 support | `pkg/tlsfingerprint/dialer.go` | Active (2026-03-13) — `KeyShareExtension` sends both X25519MLKEM768+X25519 key shares; `SupportedCurvesExtension` advertises 4588; no workarounds needed |
+| TLS profile cache key fix | `pkg/tlsfingerprint/registry.go`, `repository/http_upstream.go`, `repository/claude_usage_service.go`, `service/account_usage_service.go` | Active (2026-03-13) — profile key included in TLS client cache key |
 
 When merging upstream, verify patches survived:
 ```bash
@@ -156,3 +159,15 @@ ls backend/internal/pkg/tlsfingerprint/h2_roundtripper.go
 ls backend/internal/service/user_quota_service.go
 ls backend/internal/repository/user_quota_cache.go
 ```
+
+Also check if utls has a new stable release:
+```bash
+# Check current utls version in go.mod
+grep refraction-networking/utls backend/go.mod
+# Check latest releases
+curl -s https://api.github.com/repos/refraction-networking/utls/releases/latest | grep tag_name
+```
+> **Note (2026-03-13)**: utls v1.8.2 has full X25519MLKEM768 support. `dialer.go` sends both
+> X25519MLKEM768 and X25519 key shares upfront — server negotiates the hybrid directly without
+> HRR. No workarounds (`safeCurvePreferences`, `GenericExtension`, `serializeSupportedGroups`)
+> are needed. Upgrade to a newer tagged release when available.
