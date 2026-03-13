@@ -2052,7 +2052,10 @@ export default {
         },
         tlsFingerprint: {
           label: 'TLS Fingerprint Simulation',
-          hint: 'Simulate Node.js/Claude Code client TLS fingerprint'
+          hint: 'Simulate Node.js/Claude Code client TLS fingerprint',
+          profile: 'Fingerprint Profile',
+          profileHint: 'Choose a specific TLS fingerprint profile or use auto-selection',
+          profileAuto: 'Auto (round-robin)',
         },
         sessionIdMasking: {
           label: 'Session ID Masking',

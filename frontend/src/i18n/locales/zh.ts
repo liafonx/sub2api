@@ -2193,7 +2193,10 @@ export default {
         },
         tlsFingerprint: {
           label: 'TLS 指纹模拟',
-          hint: '模拟 Node.js/Claude Code 客户端的 TLS 指纹'
+          hint: '模拟 Node.js/Claude Code 客户端的 TLS 指纹',
+          profile: '指纹配置',
+          profileHint: '选择特定的 TLS 指纹配置或使用自动选择',
+          profileAuto: '自动 (轮询)',
         },
         sessionIdMasking: {
           label: '会话 ID 伪装',

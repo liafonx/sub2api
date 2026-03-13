@@ -51,5 +51,5 @@ type HTTPUpstream interface {
 	// 注意:
 	//   - 调用方必须关闭 resp.Body，否则会导致连接泄漏
 	//   - TLS 指纹客户端与普通客户端使用不同的缓存键，互不影响
-	DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, enableTLSFingerprint bool) (*http.Response, error)
+	DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, enableTLSFingerprint bool, tlsProfileName string) (*http.Response, error)
 }

@@ -70,12 +70,21 @@ export async function restartService(): Promise<{ message: string }> {
   return data
 }
 
+/**
+ * Get available TLS fingerprint profile names
+ */
+export async function getTLSProfiles(): Promise<string[]> {
+  const { data } = await apiClient.get<{ profiles: string[] }>('/admin/system/tls-profiles')
+  return data.profiles ?? []
+}
+
 export const systemAPI = {
   getVersion,
   checkUpdates,
   performUpdate,
   rollback,
-  restartService
+  restartService,
+  getTLSProfiles
 }
 
 export default systemAPI

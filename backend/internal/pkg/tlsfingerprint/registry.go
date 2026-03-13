@@ -12,6 +12,9 @@ import (
 // DefaultProfileName is the name of the built-in Claude CLI profile.
 const DefaultProfileName = "claude_cli_v2"
 
+// ProfileAuto is the sentinel value meaning "select profile automatically via round-robin".
+const ProfileAuto = "auto"
+
 // Registry manages TLS fingerprint profiles.
 // It holds a collection of profiles that can be used for TLS fingerprint simulation.
 // Profiles are selected based on account ID using modulo operation.
@@ -107,26 +110,41 @@ func (r *Registry) GetDefaultProfile() *Profile {
 }
 
 // GetProfileByAccountID returns a profile for the given account ID.
-// The profile is selected using: profileNames[accountID % len(profiles)]
-// This ensures deterministic profile assignment for each account.
+// Delegates to GetProfileForAccount with no preferred profile (round-robin).
 func (r *Registry) GetProfileByAccountID(accountID int64) *Profile {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	_, p := r.GetProfileForAccount(accountID, "")
+	return p
+}
 
-	if len(r.profileNames) == 0 {
-		return nil
+// GetProfileForAccount returns the resolved registry key and profile for the given account.
+// If preferredProfile is non-empty and not "auto", that key is used if found.
+// Otherwise falls back to round-robin selection by accountID.
+// Returning the registry key (not Profile.Name) ensures cache key uniqueness.
+func (r *Registry) GetProfileForAccount(accountID int64, preferredProfile string) (string, *Profile) {
+	if preferredProfile != "" && preferredProfile != ProfileAuto {
+		if p := r.GetProfile(preferredProfile); p != nil {
+			return preferredProfile, p
+		}
+		slog.Warn("tls_fingerprint_profile_not_found",
+			"account_id", accountID,
+			"requested_profile", preferredProfile,
+			"fallback", "auto_round_robin",
+		)
 	}
 
-	// Use modulo to select profile index
-	// Use absolute value to handle negative IDs (though unlikely)
+	// Resolve by accountID and return the registry key alongside the profile.
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if len(r.profileNames) == 0 {
+		return "", nil
+	}
 	idx := accountID
 	if idx < 0 {
 		idx = -idx
 	}
 	selectedIndex := int(idx % int64(len(r.profileNames)))
 	selectedName := r.profileNames[selectedIndex]
-
-	return r.profiles[selectedName]
+	return selectedName, r.profiles[selectedName]
 }
 
 // ProfileCount returns the number of registered profiles.

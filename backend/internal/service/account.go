@@ -1129,6 +1129,18 @@ func (a *Account) IsTLSFingerprintEnabled() bool {
 	return false
 }
 
+// GetTLSFingerprintProfile returns the preferred TLS fingerprint profile name.
+// Returns "" if not set, which means auto-selection by accountID.
+func (a *Account) GetTLSFingerprintProfile() string {
+	if a.Extra == nil {
+		return ""
+	}
+	if v, ok := a.Extra["tls_fingerprint_profile"].(string); ok {
+		return v
+	}
+	return ""
+}
+
 // GetUserMsgQueueMode 获取用户消息队列模式
 // "serialize" = 串行队列, "throttle" = 软性限速, "" = 未设置（使用全局配置）
 func (a *Account) GetUserMsgQueueMode() string {

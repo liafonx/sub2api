@@ -71,7 +71,7 @@ func (s *claudeUsageService) FetchUsageWithOptions(ctx context.Context, opts *se
 	// 如果启用 TLS 指纹且有 HTTPUpstream，使用 DoWithTLS
 	if opts.EnableTLSFingerprint && s.httpUpstream != nil {
 		// accountConcurrency 传 0 使用默认连接池配置，usage 请求不需要特殊的并发设置
-		resp, err = s.httpUpstream.DoWithTLS(req, opts.ProxyURL, opts.AccountID, 0, true)
+		resp, err = s.httpUpstream.DoWithTLS(req, opts.ProxyURL, opts.AccountID, 0, true, opts.TLSProfileName)
 		if err != nil {
 			return nil, fmt.Errorf("request with TLS fingerprint failed: %w", err)
 		}

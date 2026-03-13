@@ -250,6 +250,10 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 			enabled := true
 			out.EnableTLSFingerprint = &enabled
 		}
+		// TLS指纹配置
+		if profile := a.GetTLSFingerprintProfile(); profile != "" {
+			out.TLSFingerprintProfile = &profile
+		}
 		// 会话ID伪装开关
 		if a.IsSessionIDMaskingEnabled() {
 			enabled := true

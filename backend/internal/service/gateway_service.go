@@ -140,6 +140,10 @@ func (s *GatewayService) debugClaudeMimicEnabled() bool {
 	return s.debugClaudeMimic.Load()
 }
 
+func (s *GatewayService) doWithAccountTLS(req *http.Request, proxyURL string, account *Account) (*http.Response, error) {
+	return s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, account.IsTLSFingerprintEnabled(), account.GetTLSFingerprintProfile())
+}
+
 func parseDebugEnvBool(raw string) bool {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "1", "true", "yes", "on":
@@ -4063,7 +4067,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		}
 
 		// 发送请求
-		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, account.IsTLSFingerprintEnabled())
+		resp, err = s.doWithAccountTLS(upstreamReq, proxyURL, account)
 		// Mark when response headers arrived (connection + inference headers)
 		if err == nil && ttftConnectionDone.IsZero() {
 			ttftConnectionDone = time.Now()
@@ -4145,7 +4149,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					filteredBody := FilterThinkingBlocksForRetry(body)
 					retryReq, buildErr := s.buildUpstreamRequest(ctx, c, account, filteredBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 					if buildErr == nil {
-						retryResp, retryErr := s.httpUpstream.DoWithTLS(retryReq, proxyURL, account.ID, account.Concurrency, account.IsTLSFingerprintEnabled())
+						retryResp, retryErr := s.doWithAccountTLS(retryReq, proxyURL, account)
 						if retryErr == nil {
 							if retryResp.StatusCode < 400 {
 								logger.LegacyPrintf("service.gateway", "Account %d: signature error retry succeeded (thinking downgraded)", account.ID)
@@ -4177,7 +4181,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 									filteredBody2 := FilterSignatureSensitiveBlocksForRetry(body)
 									retryReq2, buildErr2 := s.buildUpstreamRequest(ctx, c, account, filteredBody2, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 									if buildErr2 == nil {
-										retryResp2, retryErr2 := s.httpUpstream.DoWithTLS(retryReq2, proxyURL, account.ID, account.Concurrency, account.IsTLSFingerprintEnabled())
+										retryResp2, retryErr2 := s.doWithAccountTLS(retryReq2, proxyURL, account)
 										if retryErr2 == nil {
 											resp = retryResp2
 											break
@@ -4244,7 +4248,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 						logger.LegacyPrintf("service.gateway", "Account %d: detected budget_tokens constraint error, retrying with rectified budget (budget_tokens=%d, max_tokens=%d)", account.ID, BudgetRectifyBudgetTokens, BudgetRectifyMaxTokens)
 						budgetRetryReq, buildErr := s.buildUpstreamRequest(ctx, c, account, rectifiedBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 						if buildErr == nil {
-							budgetRetryResp, retryErr := s.httpUpstream.DoWithTLS(budgetRetryReq, proxyURL, account.ID, account.Concurrency, account.IsTLSFingerprintEnabled())
+							budgetRetryResp, retryErr := s.doWithAccountTLS(budgetRetryReq, proxyURL, account)
 							if retryErr == nil {
 								resp = budgetRetryResp
 								break
@@ -4531,7 +4535,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthrough(
 			return nil, err
 		}
 
-		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, account.IsTLSFingerprintEnabled())
+		resp, err = s.doWithAccountTLS(upstreamReq, proxyURL, account)
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
@@ -7236,7 +7240,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	}
 
 	// 发送请求
-	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, account.IsTLSFingerprintEnabled())
+	resp, err := s.doWithAccountTLS(upstreamReq, proxyURL, account)
 	if err != nil {
 		setOpsUpstreamError(c, 0, sanitizeUpstreamErrorMessage(err.Error()), "")
 		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Request failed")
@@ -7264,7 +7268,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		filteredBody := FilterThinkingBlocksForRetry(body)
 		retryReq, buildErr := s.buildCountTokensRequest(ctx, c, account, filteredBody, token, tokenType, reqModel, shouldMimicClaudeCode)
 		if buildErr == nil {
-			retryResp, retryErr := s.httpUpstream.DoWithTLS(retryReq, proxyURL, account.ID, account.Concurrency, account.IsTLSFingerprintEnabled())
+			retryResp, retryErr := s.doWithAccountTLS(retryReq, proxyURL, account)
 			if retryErr == nil {
 				resp = retryResp
 				respBody, err = readUpstreamResponseBodyLimited(resp.Body, maxReadBytes)
@@ -7353,7 +7357,7 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 		proxyURL = account.Proxy.URL()
 	}
 
-	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, account.IsTLSFingerprintEnabled())
+	resp, err := s.doWithAccountTLS(upstreamReq, proxyURL, account)
 	if err != nil {
 		setOpsUpstreamError(c, 0, sanitizeUpstreamErrorMessage(err.Error()), "")
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{

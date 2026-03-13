@@ -40,7 +40,7 @@ func (r *recordingOKUpstream) Do(req *http.Request, proxyURL string, accountID i
 	}, nil
 }
 
-func (r *recordingOKUpstream) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, enableTLSFingerprint bool) (*http.Response, error) {
+func (r *recordingOKUpstream) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, enableTLSFingerprint bool, _ string) (*http.Response, error) {
 	return r.Do(req, proxyURL, accountID, accountConcurrency)
 }
 
@@ -61,7 +61,7 @@ func (s *stubAntigravityUpstream) Do(req *http.Request, proxyURL string, account
 	}, nil
 }
 
-func (s *stubAntigravityUpstream) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, enableTLSFingerprint bool) (*http.Response, error) {
+func (s *stubAntigravityUpstream) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, enableTLSFingerprint bool, _ string) (*http.Response, error) {
 	return s.Do(req, proxyURL, accountID, accountConcurrency)
 }
 

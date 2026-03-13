@@ -187,6 +187,7 @@ type ClaudeUsageFetchOptions struct {
 	ProxyURL             string       // 代理 URL（可选）
 	AccountID            int64        // 账号 ID（用于 TLS 指纹选择）
 	EnableTLSFingerprint bool         // 是否启用 TLS 指纹伪装
+	TLSProfileName       string       // 指定的 TLS 指纹 profile 名称（空字符串表示自动选择）
 	Fingerprint          *Fingerprint // 缓存的指纹信息（User-Agent 等）
 }
 
@@ -908,6 +909,7 @@ func (s *AccountUsageService) fetchOAuthUsageRaw(ctx context.Context, account *A
 		ProxyURL:             proxyURL,
 		AccountID:            account.ID,
 		EnableTLSFingerprint: account.IsTLSFingerprintEnabled(),
+		TLSProfileName:       account.GetTLSFingerprintProfile(),
 	}
 
 	// 尝试获取缓存的 Fingerprint（包含 User-Agent 等信息）
