@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -57,7 +58,8 @@ type CreateGroupRequest struct {
 	AllowMessagesDispatch bool   `json:"allow_messages_dispatch"`
 	DefaultMappedModel    string `json:"default_mapped_model"`
 	// 从指定分组复制账号（创建后自动绑定）
-	CopyAccountsFromGroupIDs []int64 `json:"copy_accounts_from_group_ids"`
+	CopyAccountsFromGroupIDs []int64                      `json:"copy_accounts_from_group_ids"`
+	ScheduledRateConfig      *service.ScheduledRateConfig `json:"scheduled_rate_config"`
 }
 
 // UpdateGroupRequest represents update group request
@@ -95,7 +97,8 @@ type UpdateGroupRequest struct {
 	AllowMessagesDispatch *bool   `json:"allow_messages_dispatch"`
 	DefaultMappedModel    *string `json:"default_mapped_model"`
 	// 从指定分组复制账号（同步操作：先清空当前分组的账号绑定，再绑定源分组的账号）
-	CopyAccountsFromGroupIDs []int64 `json:"copy_accounts_from_group_ids"`
+	CopyAccountsFromGroupIDs []int64                      `json:"copy_accounts_from_group_ids"`
+	ScheduledRateConfig      *service.ScheduledRateConfig `json:"scheduled_rate_config"`
 }
 
 // List handles listing all groups with pagination
@@ -184,6 +187,13 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		return
 	}
 
+	if req.ScheduledRateConfig != nil {
+		if err := service.ValidateScheduledRateConfig(req.ScheduledRateConfig); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
 	group, err := h.adminService.CreateGroup(c.Request.Context(), &service.CreateGroupInput{
 		Name:                            req.Name,
 		Description:                     req.Description,
@@ -212,6 +222,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		AllowMessagesDispatch:           req.AllowMessagesDispatch,
 		DefaultMappedModel:              req.DefaultMappedModel,
 		CopyAccountsFromGroupIDs:        req.CopyAccountsFromGroupIDs,
+		ScheduledRateConfig:             req.ScheduledRateConfig,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -234,6 +245,13 @@ func (h *GroupHandler) Update(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
+	}
+
+	if req.ScheduledRateConfig != nil {
+		if err := service.ValidateScheduledRateConfig(req.ScheduledRateConfig); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	group, err := h.adminService.UpdateGroup(c.Request.Context(), groupID, &service.UpdateGroupInput{
@@ -265,6 +283,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		AllowMessagesDispatch:           req.AllowMessagesDispatch,
 		DefaultMappedModel:              req.DefaultMappedModel,
 		CopyAccountsFromGroupIDs:        req.CopyAccountsFromGroupIDs,
+		ScheduledRateConfig:             req.ScheduledRateConfig,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
