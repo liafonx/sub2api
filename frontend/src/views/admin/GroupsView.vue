@@ -337,6 +337,7 @@
           <ScheduledRateRulesEditor
             v-model="createForm.scheduled_rate_config"
             :server-timezone="serverTimezone"
+            class="mt-3"
           />
         </div>
         <div v-if="createForm.subscription_type !== 'subscription'" data-tour="group-form-exclusive">
@@ -1068,6 +1069,7 @@
           <ScheduledRateRulesEditor
             v-model="editForm.scheduled_rate_config"
             :server-timezone="serverTimezone"
+            class="mt-3"
           />
         </div>
         <div v-if="editForm.subscription_type !== 'subscription'">

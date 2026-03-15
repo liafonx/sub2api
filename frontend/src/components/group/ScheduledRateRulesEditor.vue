@@ -85,7 +85,7 @@
         </div>
 
         <!-- Rule fields grid -->
-        <div class="space-y-3">
+        <div class="space-y-4">
           <!-- Rate multiplier -->
           <div>
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -96,7 +96,7 @@
               step="0.001"
               min="0"
               :value="rule.rate_multiplier"
-              class="input mt-1"
+              class="input mt-1 max-w-[200px]"
               @change="updateRule(index, { rate_multiplier: parseFloat(($event.target as HTMLInputElement).value) || 1.0 })"
             />
           </div>
@@ -156,29 +156,27 @@
               {{ t('admin.groups.scheduledRate.timeWindow') }}
             </label>
             <div class="mt-1.5 space-y-2">
-              <div class="flex items-center gap-2">
-                <div class="flex flex-1 items-center gap-2">
-                  <span class="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                    {{ t('admin.groups.scheduledRate.timeStart') }}
-                  </span>
-                  <input
-                    type="time"
-                    :value="rule.time_start ?? ''"
-                    class="input flex-1"
-                    @change="updateRule(index, { time_start: ($event.target as HTMLInputElement).value || undefined })"
-                  />
-                </div>
-                <div class="flex flex-1 items-center gap-2">
-                  <span class="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                    {{ t('admin.groups.scheduledRate.timeEnd') }}
-                  </span>
-                  <input
-                    type="time"
-                    :value="rule.time_end ?? ''"
-                    class="input flex-1"
-                    @change="updateRule(index, { time_end: ($event.target as HTMLInputElement).value || undefined })"
-                  />
-                </div>
+              <div>
+                <span class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.groups.scheduledRate.timeStart') }}
+                </span>
+                <input
+                  type="time"
+                  :value="rule.time_start ?? ''"
+                  class="input mt-1"
+                  @change="updateRule(index, { time_start: ($event.target as HTMLInputElement).value || undefined })"
+                />
+              </div>
+              <div>
+                <span class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.groups.scheduledRate.timeEnd') }}
+                </span>
+                <input
+                  type="time"
+                  :value="rule.time_end ?? ''"
+                  class="input mt-1"
+                  @change="updateRule(index, { time_end: ($event.target as HTMLInputElement).value || undefined })"
+                />
               </div>
               <!-- Time mode radios -->
               <div class="flex gap-4">
@@ -213,26 +211,26 @@
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t('admin.groups.scheduledRate.dateRange') }}
             </label>
-            <div class="mt-1.5 flex items-center gap-2">
-              <div class="flex flex-1 items-center gap-2">
-                <span class="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+            <div class="mt-1.5 space-y-2">
+              <div>
+                <span class="text-xs text-gray-500 dark:text-gray-400">
                   {{ t('admin.groups.scheduledRate.dateStart') }}
                 </span>
                 <input
                   type="date"
                   :value="rule.date_start ?? ''"
-                  class="input flex-1"
+                  class="input mt-1"
                   @change="updateRule(index, { date_start: ($event.target as HTMLInputElement).value || undefined })"
                 />
               </div>
-              <div class="flex flex-1 items-center gap-2">
-                <span class="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+              <div>
+                <span class="text-xs text-gray-500 dark:text-gray-400">
                   {{ t('admin.groups.scheduledRate.dateEnd') }}
                 </span>
                 <input
                   type="date"
                   :value="rule.date_end ?? ''"
-                  class="input flex-1"
+                  class="input mt-1"
                   @change="updateRule(index, { date_end: ($event.target as HTMLInputElement).value || undefined })"
                 />
               </div>
