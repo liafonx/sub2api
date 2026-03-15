@@ -396,6 +396,23 @@ export interface Group {
   updated_at: string
 }
 
+// ==================== Scheduled Rate Config Types ====================
+
+export interface ScheduledRateRule {
+  rate_multiplier: number
+  time_start?: string    // "HH:MM" (stored in server TZ)
+  time_end?: string      // "HH:MM" (exclusive)
+  time_mode?: 'include' | 'exclude'
+  days?: number[]        // 0=Sun..6=Sat
+  date_start?: string    // "YYYY-MM-DD"
+  date_end?: string      // "YYYY-MM-DD" (inclusive)
+}
+
+export interface ScheduledRateConfig {
+  enabled: boolean
+  rules: ScheduledRateRule[]
+}
+
 export interface AdminGroup extends Group {
   // 模型路由配置（仅管理员可见，内部信息）
   model_routing: Record<string, number[]> | null
@@ -415,6 +432,12 @@ export interface AdminGroup extends Group {
 
   // 分组排序
   sort_order: number
+
+  // 定时费率配置
+  scheduled_rate_config?: ScheduledRateConfig | null
+
+  // 服务器时区
+  server_timezone?: string
 }
 
 export interface ApiKey {
@@ -500,6 +523,8 @@ export interface CreateGroupRequest {
   supported_model_scopes?: string[]
   // 从指定分组复制账号
   copy_accounts_from_group_ids?: number[]
+  // 定时费率配置
+  scheduled_rate_config?: ScheduledRateConfig | null
 }
 
 export interface UpdateGroupRequest {
@@ -527,6 +552,8 @@ export interface UpdateGroupRequest {
   mcp_xml_inject?: boolean
   supported_model_scopes?: string[]
   copy_accounts_from_group_ids?: number[]
+  // 定时费率配置
+  scheduled_rate_config?: ScheduledRateConfig | null
 }
 
 // ==================== Account & Proxy Types ====================
