@@ -96,7 +96,7 @@
               step="0.001"
               min="0"
               :value="rule.rate_multiplier"
-              class="input mt-1 max-w-[200px]"
+              class="input mt-2 block max-w-[200px]"
               @change="updateRule(index, { rate_multiplier: parseFloat(($event.target as HTMLInputElement).value) || 1.0 })"
             />
           </div>
@@ -110,7 +110,7 @@
               <!-- Day checkboxes -->
               <div class="flex flex-wrap gap-2">
                 <label
-                  v-for="(dayName, dayIndex) in dayNames"
+                  v-for="dayIndex in dayDisplayOrder"
                   :key="dayIndex"
                   class="flex cursor-pointer items-center gap-1.5 text-sm"
                 >
@@ -120,7 +120,7 @@
                     class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500"
                     @change="toggleDay(index, dayIndex, ($event.target as HTMLInputElement).checked)"
                   />
-                  <span class="text-gray-700 dark:text-gray-300">{{ dayName }}</span>
+                  <span class="text-gray-700 dark:text-gray-300">{{ dayNames[dayIndex] }}</span>
                 </label>
               </div>
               <!-- Quick select buttons -->
@@ -244,7 +244,7 @@
         <button
           type="button"
           :disabled="config.rules.length >= MAX_RULES"
-          class="btn btn-sm px-3 py-1.5 disabled:cursor-not-allowed disabled:opacity-50"
+          class="rounded border border-primary-500 px-3 py-1.5 text-sm text-primary-600 transition-colors hover:bg-primary-50 dark:border-primary-400 dark:text-primary-400 dark:hover:bg-primary-900/20 disabled:cursor-not-allowed disabled:opacity-50"
           @click="addRule"
         >
           {{ t('admin.groups.scheduledRate.addRule') }}
@@ -278,6 +278,9 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+// Mon(1)…Sat(6), Sun(0) — display order, indices match backend convention (0=Sun)
+const dayDisplayOrder = [1, 2, 3, 4, 5, 6, 0]
 
 const dayNames = computed(() => [
   t('admin.groups.scheduledRate.daySun'),
