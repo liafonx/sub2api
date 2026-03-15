@@ -114,6 +114,11 @@ deploy/nginx/
 
 
 # ===================
+# Git worktrees
+# ===================
+.worktrees/
+
+# ===================
 # 其他
 # ===================
 tests
@@ -132,6 +137,7 @@ docs/*
 .serena/
 .agents/
 .agent/
+.cursor/
 skills-lock.json
 deploy/CRS-README.md
 .codex/
