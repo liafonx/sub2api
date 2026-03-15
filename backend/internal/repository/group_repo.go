@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -66,6 +67,14 @@ func (r *groupRepository) Create(ctx context.Context, groupIn *service.Group) er
 	// 设置模型路由配置
 	if groupIn.ModelRouting != nil {
 		builder = builder.SetModelRouting(groupIn.ModelRouting)
+	}
+
+	// 设置定时倍率配置
+	if groupIn.ScheduledRateConfig != nil {
+		var m map[string]any
+		b, _ := json.Marshal(groupIn.ScheduledRateConfig)
+		json.Unmarshal(b, &m)
+		builder = builder.SetScheduledRateConfig(m)
 	}
 
 	// 设置支持的模型系列（始终设置，空数组表示不限制）
@@ -185,6 +194,16 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 
 	// 处理 SupportedModelScopes（始终设置，空数组表示不限制）
 	builder = builder.SetSupportedModelScopes(groupIn.SupportedModelScopes)
+
+	// 处理 ScheduledRateConfig：nil 时清除，否则序列化后设置
+	if groupIn.ScheduledRateConfig != nil {
+		var m map[string]any
+		b, _ := json.Marshal(groupIn.ScheduledRateConfig)
+		json.Unmarshal(b, &m)
+		builder = builder.SetScheduledRateConfig(m)
+	} else {
+		builder = builder.ClearScheduledRateConfig()
+	}
 
 	updated, err := builder.Save(ctx)
 	if err != nil {
