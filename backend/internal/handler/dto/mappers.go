@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -143,6 +144,8 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 		SupportedModelScopes: g.SupportedModelScopes,
 		AccountCount:         g.AccountCount,
 		SortOrder:            g.SortOrder,
+		ScheduledRateConfig:  g.ScheduledRateConfig,
+		ServerTimezone:       timezone.Name(),
 	}
 	if len(g.AccountGroups) > 0 {
 		out.AccountGroups = make([]AccountGroup, 0, len(g.AccountGroups))

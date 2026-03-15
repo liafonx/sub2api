@@ -8252,6 +8252,7 @@ type GroupMutation struct {
 	addsort_order                           *int
 	allow_messages_dispatch                 *bool
 	default_mapped_model                    *string
+	scheduled_rate_config                   *map[string]interface{}
 	clearedFields                           map[string]struct{}
 	api_keys                                map[int64]struct{}
 	removedapi_keys                         map[int64]struct{}
@@ -10068,6 +10069,55 @@ func (m *GroupMutation) ResetDefaultMappedModel() {
 	m.default_mapped_model = nil
 }
 
+// SetScheduledRateConfig sets the "scheduled_rate_config" field.
+func (m *GroupMutation) SetScheduledRateConfig(value map[string]interface{}) {
+	m.scheduled_rate_config = &value
+}
+
+// ScheduledRateConfig returns the value of the "scheduled_rate_config" field in the mutation.
+func (m *GroupMutation) ScheduledRateConfig() (r map[string]interface{}, exists bool) {
+	v := m.scheduled_rate_config
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldScheduledRateConfig returns the old "scheduled_rate_config" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldScheduledRateConfig(ctx context.Context) (v map[string]interface{}, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldScheduledRateConfig is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldScheduledRateConfig requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldScheduledRateConfig: %w", err)
+	}
+	return oldValue.ScheduledRateConfig, nil
+}
+
+// ClearScheduledRateConfig clears the value of the "scheduled_rate_config" field.
+func (m *GroupMutation) ClearScheduledRateConfig() {
+	m.scheduled_rate_config = nil
+	m.clearedFields[group.FieldScheduledRateConfig] = struct{}{}
+}
+
+// ScheduledRateConfigCleared returns if the "scheduled_rate_config" field was cleared in this mutation.
+func (m *GroupMutation) ScheduledRateConfigCleared() bool {
+	_, ok := m.clearedFields[group.FieldScheduledRateConfig]
+	return ok
+}
+
+// ResetScheduledRateConfig resets all changes to the "scheduled_rate_config" field.
+func (m *GroupMutation) ResetScheduledRateConfig() {
+	m.scheduled_rate_config = nil
+	delete(m.clearedFields, group.FieldScheduledRateConfig)
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by ids.
 func (m *GroupMutation) AddAPIKeyIDs(ids ...int64) {
 	if m.api_keys == nil {
@@ -10426,7 +10476,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 32)
+	fields := make([]string, 0, 33)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -10523,6 +10573,9 @@ func (m *GroupMutation) Fields() []string {
 	if m.default_mapped_model != nil {
 		fields = append(fields, group.FieldDefaultMappedModel)
 	}
+	if m.scheduled_rate_config != nil {
+		fields = append(fields, group.FieldScheduledRateConfig)
+	}
 	return fields
 }
 
@@ -10595,6 +10648,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.AllowMessagesDispatch()
 	case group.FieldDefaultMappedModel:
 		return m.DefaultMappedModel()
+	case group.FieldScheduledRateConfig:
+		return m.ScheduledRateConfig()
 	}
 	return nil, false
 }
@@ -10668,6 +10723,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldAllowMessagesDispatch(ctx)
 	case group.FieldDefaultMappedModel:
 		return m.OldDefaultMappedModel(ctx)
+	case group.FieldScheduledRateConfig:
+		return m.OldScheduledRateConfig(ctx)
 	}
 	return nil, fmt.Errorf("unknown Group field %s", name)
 }
@@ -10900,6 +10957,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetDefaultMappedModel(v)
+		return nil
+	case group.FieldScheduledRateConfig:
+		v, ok := value.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetScheduledRateConfig(v)
 		return nil
 	}
 	return fmt.Errorf("unknown Group field %s", name)
@@ -11171,6 +11235,9 @@ func (m *GroupMutation) ClearedFields() []string {
 	if m.FieldCleared(group.FieldModelRouting) {
 		fields = append(fields, group.FieldModelRouting)
 	}
+	if m.FieldCleared(group.FieldScheduledRateConfig) {
+		fields = append(fields, group.FieldScheduledRateConfig)
+	}
 	return fields
 }
 
@@ -11229,6 +11296,9 @@ func (m *GroupMutation) ClearField(name string) error {
 		return nil
 	case group.FieldModelRouting:
 		m.ClearModelRouting()
+		return nil
+	case group.FieldScheduledRateConfig:
+		m.ClearScheduledRateConfig()
 		return nil
 	}
 	return fmt.Errorf("unknown Group nullable field %s", name)
@@ -11333,6 +11403,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldDefaultMappedModel:
 		m.ResetDefaultMappedModel()
+		return nil
+	case group.FieldScheduledRateConfig:
+		m.ResetScheduledRateConfig()
 		return nil
 	}
 	return fmt.Errorf("unknown Group field %s", name)

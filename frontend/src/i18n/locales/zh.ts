@@ -1768,7 +1768,14 @@ export default {
         dateEnd: '结束日期（含当天）',
         noRules: '暂无规则',
         ruleSummary: '规则 {index}',
-        firstMatchHint: '规则从上到下依次匹配，第一个匹配的规则生效。'
+        firstMatchHint: '规则从上到下依次匹配，第一个匹配的规则生效。',
+        daySun: '日',
+        dayMon: '一',
+        dayTue: '二',
+        dayWed: '三',
+        dayThu: '四',
+        dayFri: '五',
+        daySat: '六'
       }
     },
 

@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -167,6 +168,7 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				group.FieldSupportedModelScopes,
 				group.FieldAllowMessagesDispatch,
 				group.FieldDefaultMappedModel,
+				group.FieldScheduledRateConfig,
 			)
 		}).
 		Only(ctx)
@@ -617,7 +619,7 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 	if g == nil {
 		return nil
 	}
-	return &service.Group{
+	group := &service.Group{
 		ID:                              g.ID,
 		Name:                            g.Name,
 		Description:                     derefString(g.Description),
@@ -652,6 +654,16 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		CreatedAt:                       g.CreatedAt,
 		UpdatedAt:                       g.UpdatedAt,
 	}
+	if g.ScheduledRateConfig != nil {
+		b, err := json.Marshal(g.ScheduledRateConfig)
+		if err == nil {
+			var cfg service.ScheduledRateConfig
+			if json.Unmarshal(b, &cfg) == nil {
+				group.ScheduledRateConfig = &cfg
+			}
+		}
+	}
+	return group
 }
 
 func derefString(s *string) string {
