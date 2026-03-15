@@ -72,9 +72,14 @@ func (r *groupRepository) Create(ctx context.Context, groupIn *service.Group) er
 	// 设置定时倍率配置
 	if groupIn.ScheduledRateConfig != nil {
 		var m map[string]any
-		b, _ := json.Marshal(groupIn.ScheduledRateConfig)
-		json.Unmarshal(b, &m)
-		builder = builder.SetScheduledRateConfig(m)
+		b, err := json.Marshal(groupIn.ScheduledRateConfig)
+		if err != nil {
+			logger.LegacyPrintf("repository.group", "failed to marshal ScheduledRateConfig: %v", err)
+		} else if err := json.Unmarshal(b, &m); err != nil {
+			logger.LegacyPrintf("repository.group", "failed to unmarshal ScheduledRateConfig to map: %v", err)
+		} else {
+			builder = builder.SetScheduledRateConfig(m)
+		}
 	}
 
 	// 设置支持的模型系列（始终设置，空数组表示不限制）
@@ -198,9 +203,14 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 	// 处理 ScheduledRateConfig：nil 时清除，否则序列化后设置
 	if groupIn.ScheduledRateConfig != nil {
 		var m map[string]any
-		b, _ := json.Marshal(groupIn.ScheduledRateConfig)
-		json.Unmarshal(b, &m)
-		builder = builder.SetScheduledRateConfig(m)
+		b, err := json.Marshal(groupIn.ScheduledRateConfig)
+		if err != nil {
+			logger.LegacyPrintf("repository.group", "failed to marshal ScheduledRateConfig: %v", err)
+		} else if err := json.Unmarshal(b, &m); err != nil {
+			logger.LegacyPrintf("repository.group", "failed to unmarshal ScheduledRateConfig to map: %v", err)
+		} else {
+			builder = builder.SetScheduledRateConfig(m)
+		}
 	} else {
 		builder = builder.ClearScheduledRateConfig()
 	}

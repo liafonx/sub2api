@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"net/http"
 	"strconv"
 	"strings"
 
@@ -189,7 +188,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 
 	if req.ScheduledRateConfig != nil {
 		if err := service.ValidateScheduledRateConfig(req.ScheduledRateConfig); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			response.BadRequest(c, err.Error())
 			return
 		}
 	}
@@ -249,7 +248,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 
 	if req.ScheduledRateConfig != nil {
 		if err := service.ValidateScheduledRateConfig(req.ScheduledRateConfig); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			response.BadRequest(c, err.Error())
 			return
 		}
 	}

@@ -8,21 +8,10 @@
           {{ t('admin.groups.scheduledRate.hint') }}
         </p>
       </div>
-      <button
-        type="button"
-        @click="updateConfig({ enabled: !config.enabled })"
-        :class="[
-          'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-          config.enabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-        ]"
-      >
-        <span
-          :class="[
-            'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-            config.enabled ? 'translate-x-5' : 'translate-x-0'
-          ]"
-        />
-      </button>
+      <Toggle
+        :model-value="config.enabled"
+        @update:model-value="updateConfig({ enabled: $event })"
+      />
     </div>
 
     <!-- Rules editor (visible when enabled) -->
@@ -121,7 +110,7 @@
               <!-- Day checkboxes -->
               <div class="flex flex-wrap gap-2">
                 <label
-                  v-for="(dayName, dayIndex) in DAY_NAMES"
+                  v-for="(dayName, dayIndex) in dayNames"
                   :key="dayIndex"
                   class="flex cursor-pointer items-center gap-1.5 text-sm"
                 >
@@ -277,9 +266,9 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ScheduledRateConfig, ScheduledRateRule } from '@/types'
+import Toggle from '@/components/common/Toggle.vue'
 
 const MAX_RULES = 10
-const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 const props = defineProps<{
   modelValue: ScheduledRateConfig | null
@@ -291,6 +280,16 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+const dayNames = computed(() => [
+  t('admin.groups.scheduledRate.daySun'),
+  t('admin.groups.scheduledRate.dayMon'),
+  t('admin.groups.scheduledRate.dayTue'),
+  t('admin.groups.scheduledRate.dayWed'),
+  t('admin.groups.scheduledRate.dayThu'),
+  t('admin.groups.scheduledRate.dayFri'),
+  t('admin.groups.scheduledRate.daySat'),
+])
 
 const config = computed<ScheduledRateConfig>(() => props.modelValue ?? { enabled: false, rules: [] })
 
