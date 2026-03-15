@@ -1,6 +1,8 @@
 package service
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -66,6 +68,9 @@ type Group struct {
 
 	AccountGroups []AccountGroup
 	AccountCount  int64
+
+	// 计费费率时间表配置
+	ScheduledRateConfig *ScheduledRateConfig
 }
 
 func (g *Group) IsActive() bool {
@@ -173,4 +178,230 @@ func matchModelPattern(pattern, model string) bool {
 	}
 
 	return false
+}
+
+// MaxScheduledRateRules is the maximum number of rules allowed in a ScheduledRateConfig.
+const MaxScheduledRateRules = 10
+
+// ScheduledRateRule defines a single time-based rate multiplier rule.
+type ScheduledRateRule struct {
+	RateMultiplier float64 `json:"rate_multiplier"`
+	TimeStart      string  `json:"time_start,omitempty"` // "HH:MM", empty = all day
+	TimeEnd        string  `json:"time_end,omitempty"`   // "HH:MM", exclusive
+	TimeMode       string  `json:"time_mode,omitempty"`  // "include" (default) or "exclude"
+	Days           []int   `json:"days,omitempty"`       // 0=Sun..6=Sat, empty = every day
+	DateStart      string  `json:"date_start,omitempty"` // "2006-01-02", empty = no start limit
+	DateEnd        string  `json:"date_end,omitempty"`   // "2006-01-02", empty = no end limit, inclusive
+}
+
+// ScheduledRateConfig holds the time-based rate multiplier configuration for a group.
+type ScheduledRateConfig struct {
+	Enabled bool                `json:"enabled"`
+	Rules   []ScheduledRateRule `json:"rules"`
+}
+
+// GetEffectiveRateMultiplier returns the rate multiplier effective at the given time.
+// now must already be in the server timezone (callers pass timezone.Now()).
+// Returns g.RateMultiplier when no scheduled rule matches.
+func (g *Group) GetEffectiveRateMultiplier(now time.Time) float64 {
+	cfg := g.ScheduledRateConfig
+	if cfg == nil || !cfg.Enabled || len(cfg.Rules) == 0 {
+		return g.RateMultiplier
+	}
+
+	loc := now.Location()
+	nowDate := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	currentMinutes := now.Hour()*60 + now.Minute()
+
+	limit := len(cfg.Rules)
+	if limit > MaxScheduledRateRules {
+		limit = MaxScheduledRateRules
+	}
+
+	for i := 0; i < limit; i++ {
+		rule := cfg.Rules[i]
+
+		// --- Date check ---
+		if rule.DateStart != "" {
+			ds, err := time.ParseInLocation("2006-01-02", rule.DateStart, loc)
+			if err != nil {
+				continue
+			}
+			if nowDate.Before(ds) {
+				continue
+			}
+		}
+		if rule.DateEnd != "" {
+			de, err := time.ParseInLocation("2006-01-02", rule.DateEnd, loc)
+			if err != nil {
+				continue
+			}
+			// date_end is inclusive: nowDate must be <= de
+			if nowDate.After(de) {
+				continue
+			}
+		}
+
+		// --- Day check ---
+		if len(rule.Days) > 0 {
+			weekday := int(now.Weekday())
+			matched := false
+			valid := true
+			for _, d := range rule.Days {
+				if d < 0 || d > 6 {
+					valid = false
+					break
+				}
+				if d == weekday {
+					matched = true
+				}
+			}
+			if !valid {
+				continue
+			}
+			if !matched {
+				continue
+			}
+		}
+
+		// --- Time check ---
+		if rule.TimeStart != "" && rule.TimeEnd != "" && rule.TimeStart != rule.TimeEnd {
+			startMinutes, err := parseHHMM(rule.TimeStart)
+			if err != nil {
+				continue
+			}
+			endMinutes, err := parseHHMM(rule.TimeEnd)
+			if err != nil {
+				continue
+			}
+
+			var inWindow bool
+			if startMinutes > endMinutes {
+				// overnight window e.g. 22:00 - 06:00
+				inWindow = currentMinutes >= startMinutes || currentMinutes < endMinutes
+			} else {
+				inWindow = currentMinutes >= startMinutes && currentMinutes < endMinutes
+			}
+
+			switch rule.TimeMode {
+			case "", "include":
+				if !inWindow {
+					continue
+				}
+			case "exclude":
+				if inWindow {
+					continue
+				}
+			default:
+				continue
+			}
+		}
+
+		// All checks passed — first matching rule wins.
+		return rule.RateMultiplier
+	}
+
+	return g.RateMultiplier
+}
+
+// parseHHMM parses a "HH:MM" string into total minutes since midnight.
+func parseHHMM(s string) (int, error) {
+	parts := strings.SplitN(s, ":", 2)
+	if len(parts) != 2 {
+		return 0, fmt.Errorf("invalid HH:MM: %q", s)
+	}
+	h, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, fmt.Errorf("invalid hour in %q: %w", s, err)
+	}
+	m, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, fmt.Errorf("invalid minute in %q: %w", s, err)
+	}
+	return h*60 + m, nil
+}
+
+// ValidateScheduledRateConfig validates a ScheduledRateConfig.
+// Returns nil if config is nil (absent config is valid).
+func ValidateScheduledRateConfig(config *ScheduledRateConfig) error {
+	if config == nil {
+		return nil
+	}
+	if config.Enabled && len(config.Rules) == 0 {
+		return fmt.Errorf("enabled config must have at least one rule")
+	}
+	if len(config.Rules) > MaxScheduledRateRules {
+		return fmt.Errorf("scheduled rate config has too many rules (max %d)", MaxScheduledRateRules)
+	}
+
+	for i, rule := range config.Rules {
+		n := i + 1 // 1-based index for error messages
+
+		if rule.RateMultiplier < 0 {
+			return fmt.Errorf("rule %d: rate_multiplier must be >= 0", n)
+		}
+
+		if err := validateOptionalHHMM(rule.TimeStart, fmt.Sprintf("rule %d: time_start", n)); err != nil {
+			return err
+		}
+		if err := validateOptionalHHMM(rule.TimeEnd, fmt.Sprintf("rule %d: time_end", n)); err != nil {
+			return err
+		}
+		if (rule.TimeStart == "") != (rule.TimeEnd == "") {
+			return fmt.Errorf("rule %d: time_start and time_end must both be set or both be empty", n)
+		}
+
+		switch rule.TimeMode {
+		case "", "include", "exclude":
+			// valid
+		default:
+			return fmt.Errorf("rule %d: time_mode must be \"\", \"include\", or \"exclude\"", n)
+		}
+
+		for _, d := range rule.Days {
+			if d < 0 || d > 6 {
+				return fmt.Errorf("rule %d: day value %d is out of range (0-6)", n, d)
+			}
+		}
+
+		if rule.DateStart != "" {
+			if _, err := time.Parse("2006-01-02", rule.DateStart); err != nil {
+				return fmt.Errorf("rule %d: invalid date_start %q: %w", n, rule.DateStart, err)
+			}
+		}
+		if rule.DateEnd != "" {
+			if _, err := time.Parse("2006-01-02", rule.DateEnd); err != nil {
+				return fmt.Errorf("rule %d: invalid date_end %q: %w", n, rule.DateEnd, err)
+			}
+		}
+		if rule.DateStart != "" && rule.DateEnd != "" {
+			ds, _ := time.Parse("2006-01-02", rule.DateStart)
+			de, _ := time.Parse("2006-01-02", rule.DateEnd)
+			if ds.After(de) {
+				return fmt.Errorf("rule %d: date_start must be <= date_end", n)
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateOptionalHHMM validates a "HH:MM" string if non-empty.
+func validateOptionalHHMM(s, label string) error {
+	if s == "" {
+		return nil
+	}
+	parts := strings.SplitN(s, ":", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("%s: invalid format %q (expected HH:MM)", label, s)
+	}
+	h, err := strconv.Atoi(parts[0])
+	if err != nil || h < 0 || h > 23 {
+		return fmt.Errorf("%s: invalid hour in %q", label, s)
+	}
+	m, err := strconv.Atoi(parts[1])
+	if err != nil || m < 0 || m > 59 {
+		return fmt.Errorf("%s: invalid minute in %q", label, s)
+	}
+	return nil
 }
