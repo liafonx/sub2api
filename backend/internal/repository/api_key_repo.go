@@ -13,6 +13,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
@@ -656,9 +657,13 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 	}
 	if g.ScheduledRateConfig != nil {
 		b, err := json.Marshal(g.ScheduledRateConfig)
-		if err == nil {
+		if err != nil {
+			logger.LegacyPrintf("repository.group", "failed to marshal ScheduledRateConfig for group %d: %v", g.ID, err)
+		} else {
 			var cfg service.ScheduledRateConfig
-			if json.Unmarshal(b, &cfg) == nil {
+			if err := json.Unmarshal(b, &cfg); err != nil {
+				logger.LegacyPrintf("repository.group", "failed to unmarshal ScheduledRateConfig for group %d: %v", g.ID, err)
+			} else {
 				group.ScheduledRateConfig = &cfg
 			}
 		}
