@@ -1,6 +1,10 @@
 package dto
 
-import "time"
+import (
+	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/service"
+)
 
 type User struct {
 	ID            int64     `json:"id"`
@@ -128,6 +132,10 @@ type AdminGroup struct {
 
 	// 分组排序
 	SortOrder int `json:"sort_order"`
+
+	// 时间段倍率配置
+	ScheduledRateConfig *service.ScheduledRateConfig `json:"scheduled_rate_config,omitempty"`
+	ServerTimezone      string                       `json:"server_timezone"`
 }
 
 type Account struct {
