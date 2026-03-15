@@ -334,6 +334,10 @@
             data-tour="group-form-multiplier"
           />
           <p class="input-hint">{{ t('admin.groups.rateMultiplierHint') }}</p>
+          <ScheduledRateRulesEditor
+            v-model="createForm.scheduled_rate_config"
+            :server-timezone="serverTimezone"
+          />
         </div>
         <div v-if="createForm.subscription_type !== 'subscription'" data-tour="group-form-exclusive">
           <div class="mb-1.5 flex items-center gap-1">
@@ -1060,6 +1064,10 @@
             required
             class="input"
             data-tour="group-form-multiplier"
+          />
+          <ScheduledRateRulesEditor
+            v-model="editForm.scheduled_rate_config"
+            :server-timezone="serverTimezone"
           />
         </div>
         <div v-if="editForm.subscription_type !== 'subscription'">
@@ -1799,7 +1807,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useOnboardingStore } from '@/stores/onboarding'
 import { adminAPI } from '@/api/admin'
-import type { AdminGroup, GroupPlatform, SubscriptionType } from '@/types'
+import type { AdminGroup, GroupPlatform, ScheduledRateConfig, SubscriptionType } from '@/types'
 import type { Column } from '@/components/common/types'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
@@ -1812,6 +1820,7 @@ import Select from '@/components/common/Select.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
 import GroupRateMultipliersModal from '@/components/admin/group/GroupRateMultipliersModal.vue'
+import ScheduledRateRulesEditor from '@/components/group/ScheduledRateRulesEditor.vue'
 import { VueDraggable } from 'vue-draggable-plus'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import { useKeyedDebouncedSearch } from '@/composables/useKeyedDebouncedSearch'
@@ -1962,6 +1971,10 @@ const copyAccountsGroupOptionsForEdit = computed(() => {
 })
 
 const groups = ref<AdminGroup[]>([])
+const serverTimezone = computed(() => {
+  const firstGroup = groups.value?.[0]
+  return firstGroup?.server_timezone ?? 'Asia/Shanghai'
+})
 const loading = ref(false)
 const searchQuery = ref('')
 const filters = reactive({
@@ -2024,7 +2037,9 @@ const createForm = reactive({
   // MCP XML 协议注入开关（仅 antigravity 平台）
   mcp_xml_inject: true,
   // 从分组复制账号
-  copy_accounts_from_group_ids: [] as number[]
+  copy_accounts_from_group_ids: [] as number[],
+  // 定时费率倍率配置
+  scheduled_rate_config: null as ScheduledRateConfig | null
 })
 
 // 简单账号类型（用于模型路由选择）
@@ -2268,7 +2283,9 @@ const editForm = reactive({
   // MCP XML 协议注入开关（仅 antigravity 平台）
   mcp_xml_inject: true,
   // 从分组复制账号
-  copy_accounts_from_group_ids: [] as number[]
+  copy_accounts_from_group_ids: [] as number[],
+  // 定时费率倍率配置
+  scheduled_rate_config: null as ScheduledRateConfig | null
 })
 
 // 根据分组类型返回不同的删除确认消息
@@ -2365,6 +2382,7 @@ const closeCreateModal = () => {
   createForm.supported_model_scopes = ['claude', 'gemini_text', 'gemini_image']
   createForm.mcp_xml_inject = true
   createForm.copy_accounts_from_group_ids = []
+  createForm.scheduled_rate_config = null
   createModelRoutingRules.value = []
 }
 
@@ -2428,6 +2446,9 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.supported_model_scopes = group.supported_model_scopes || ['claude', 'gemini_text', 'gemini_image']
   editForm.mcp_xml_inject = group.mcp_xml_inject ?? true
   editForm.copy_accounts_from_group_ids = [] // 复制账号字段每次编辑时重置为空
+  editForm.scheduled_rate_config = group.scheduled_rate_config
+    ? JSON.parse(JSON.stringify(group.scheduled_rate_config))
+    : null
   // 加载模型路由规则（异步加载账号名称）
   editModelRoutingRules.value = await convertApiFormatToRoutingRules(group.model_routing)
   showEditModal.value = true
@@ -2442,6 +2463,7 @@ const closeEditModal = () => {
   editingGroup.value = null
   editModelRoutingRules.value = []
   editForm.copy_accounts_from_group_ids = []
+  editForm.scheduled_rate_config = null
 }
 
 const handleUpdateGroup = async () => {
