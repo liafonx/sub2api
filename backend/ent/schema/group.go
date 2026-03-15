@@ -157,6 +157,12 @@ func (Group) Fields() []ent.Field {
 			MaxLen(100).
 			Default("").
 			Comment("默认映射模型 ID，当账号级映射找不到时使用此值"),
+
+		// 定时费率倍数配置 (added by migration 070)
+		field.JSON("scheduled_rate_config", map[string]any{}).
+			Optional().
+			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
+			Comment("定时费率倍数配置：规则数组，支持按星期/时间段/日期范围覆盖默认倍率"),
 	}
 }
 
