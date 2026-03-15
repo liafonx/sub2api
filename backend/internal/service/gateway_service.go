@@ -35,6 +35,8 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 )
 
 const (
@@ -7481,7 +7483,7 @@ func (s *GatewayService) RecordUsage(ctx context.Context, input *RecordUsageInpu
 		multiplier = s.cfg.Default.RateMultiplier
 	}
 	if apiKey.GroupID != nil && apiKey.Group != nil {
-		groupDefault := apiKey.Group.RateMultiplier
+		groupDefault := apiKey.Group.GetEffectiveRateMultiplier(timezone.Now())
 		multiplier = s.getUserGroupRateMultiplier(ctx, user.ID, *apiKey.GroupID, groupDefault)
 	}
 
@@ -7753,7 +7755,7 @@ func (s *GatewayService) RecordUsageWithLongContext(ctx context.Context, input *
 		multiplier = s.cfg.Default.RateMultiplier
 	}
 	if apiKey.GroupID != nil && apiKey.Group != nil {
-		groupDefault := apiKey.Group.RateMultiplier
+		groupDefault := apiKey.Group.GetEffectiveRateMultiplier(timezone.Now())
 		multiplier = s.getUserGroupRateMultiplier(ctx, user.ID, *apiKey.GroupID, groupDefault)
 	}
 
