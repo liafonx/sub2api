@@ -1680,7 +1680,14 @@ export default {
         dateEnd: 'End Date (inclusive)',
         noRules: 'No rules configured',
         ruleSummary: 'Rule {index}',
-        firstMatchHint: 'Rules are evaluated top-to-bottom. First matching rule is used.'
+        firstMatchHint: 'Rules are evaluated top-to-bottom. First matching rule is used.',
+        daySun: 'Sun',
+        dayMon: 'Mon',
+        dayTue: 'Tue',
+        dayWed: 'Wed',
+        dayThu: 'Thu',
+        dayFri: 'Fri',
+        daySat: 'Sat'
       }
     },
 

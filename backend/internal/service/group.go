@@ -183,6 +183,12 @@ func matchModelPattern(pattern, model string) bool {
 // MaxScheduledRateRules is the maximum number of rules allowed in a ScheduledRateConfig.
 const MaxScheduledRateRules = 10
 
+// Time mode constants for ScheduledRateRule.TimeMode.
+const (
+	TimeModeInclude = "include"
+	TimeModeExclude = "exclude"
+)
+
 // ScheduledRateRule defines a single time-based rate multiplier rule.
 type ScheduledRateRule struct {
 	RateMultiplier float64 `json:"rate_multiplier"`
@@ -284,11 +290,11 @@ func (g *Group) GetEffectiveRateMultiplier(now time.Time) float64 {
 			}
 
 			switch rule.TimeMode {
-			case "", "include":
+			case "", TimeModeInclude:
 				if !inWindow {
 					continue
 				}
-			case "exclude":
+			case TimeModeExclude:
 				if inWindow {
 					continue
 				}
@@ -305,6 +311,7 @@ func (g *Group) GetEffectiveRateMultiplier(now time.Time) float64 {
 }
 
 // parseHHMM parses a "HH:MM" string into total minutes since midnight.
+// Returns an error if the format is invalid or values are out of range.
 func parseHHMM(s string) (int, error) {
 	parts := strings.SplitN(s, ":", 2)
 	if len(parts) != 2 {
@@ -317,6 +324,9 @@ func parseHHMM(s string) (int, error) {
 	m, err := strconv.Atoi(parts[1])
 	if err != nil {
 		return 0, fmt.Errorf("invalid minute in %q: %w", s, err)
+	}
+	if h < 0 || h > 23 || m < 0 || m > 59 {
+		return 0, fmt.Errorf("time out of range in %q (hour 0-23, minute 0-59)", s)
 	}
 	return h*60 + m, nil
 }
@@ -352,10 +362,10 @@ func ValidateScheduledRateConfig(config *ScheduledRateConfig) error {
 		}
 
 		switch rule.TimeMode {
-		case "", "include", "exclude":
+		case "", TimeModeInclude, TimeModeExclude:
 			// valid
 		default:
-			return fmt.Errorf("rule %d: time_mode must be \"\", \"include\", or \"exclude\"", n)
+			return fmt.Errorf("rule %d: time_mode must be \"\", %q, or %q", n, TimeModeInclude, TimeModeExclude)
 		}
 
 		for _, d := range rule.Days {
@@ -391,17 +401,8 @@ func validateOptionalHHMM(s, label string) error {
 	if s == "" {
 		return nil
 	}
-	parts := strings.SplitN(s, ":", 2)
-	if len(parts) != 2 {
-		return fmt.Errorf("%s: invalid format %q (expected HH:MM)", label, s)
-	}
-	h, err := strconv.Atoi(parts[0])
-	if err != nil || h < 0 || h > 23 {
-		return fmt.Errorf("%s: invalid hour in %q", label, s)
-	}
-	m, err := strconv.Atoi(parts[1])
-	if err != nil || m < 0 || m > 59 {
-		return fmt.Errorf("%s: invalid minute in %q", label, s)
+	if _, err := parseHHMM(s); err != nil {
+		return fmt.Errorf("%s: %w", label, err)
 	}
 	return nil
 }
