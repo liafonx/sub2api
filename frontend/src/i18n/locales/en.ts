@@ -1655,6 +1655,32 @@ export default {
         geminiText: 'Gemini Text',
         geminiImage: 'Gemini Image',
         hint: 'Select at least one model family'
+      },
+      scheduledRate: {
+        title: 'Scheduled Rate Override',
+        hint: 'Override the default rate multiplier based on time-of-day, day-of-week, and date range rules. First matching rule wins.',
+        timezoneWarning: 'All times are in server timezone ({timezone})',
+        addRule: 'Add Rule',
+        maxRulesReached: 'Maximum 10 rules',
+        removeRule: 'Remove',
+        moveUp: 'Move Up',
+        moveDown: 'Move Down',
+        rateMultiplier: 'Rate Multiplier',
+        days: 'Days of Week',
+        weekdays: 'Weekdays',
+        weekend: 'Weekend',
+        allDays: 'All',
+        timeWindow: 'Time Window',
+        timeStart: 'Start',
+        timeEnd: 'End (exclusive)',
+        timeModeInclude: 'Active during this time',
+        timeModeExclude: 'Active outside this time',
+        dateRange: 'Date Range',
+        dateStart: 'Start Date',
+        dateEnd: 'End Date (inclusive)',
+        noRules: 'No rules configured',
+        ruleSummary: 'Rule {index}',
+        firstMatchHint: 'Rules are evaluated top-to-bottom. First matching rule is used.'
       }
     },
 
