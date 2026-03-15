@@ -57,7 +57,7 @@ func (u *httpUpstreamSequenceRecorder) Do(req *http.Request, proxyURL string, ac
 	return u.responses[len(u.responses)-1], nil
 }
 
-func (u *httpUpstreamSequenceRecorder) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, enableTLSFingerprint bool) (*http.Response, error) {
+func (u *httpUpstreamSequenceRecorder) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, enableTLSFingerprint bool, tlsProfileName string) (*http.Response, error) {
 	return u.Do(req, proxyURL, accountID, accountConcurrency)
 }
 
