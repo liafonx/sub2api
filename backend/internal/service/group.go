@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
 type Group struct {
@@ -231,6 +233,7 @@ func (g *Group) GetEffectiveRateMultiplier(now time.Time) float64 {
 		if rule.DateStart != "" {
 			ds, err := time.ParseInLocation("2006-01-02", rule.DateStart, loc)
 			if err != nil {
+				logger.LegacyPrintf("service.group", "scheduled rate: group=%d rule=%d skipped: invalid date_start %q: %v", g.ID, i+1, rule.DateStart, err)
 				continue
 			}
 			if nowDate.Before(ds) {
@@ -240,6 +243,7 @@ func (g *Group) GetEffectiveRateMultiplier(now time.Time) float64 {
 		if rule.DateEnd != "" {
 			de, err := time.ParseInLocation("2006-01-02", rule.DateEnd, loc)
 			if err != nil {
+				logger.LegacyPrintf("service.group", "scheduled rate: group=%d rule=%d skipped: invalid date_end %q: %v", g.ID, i+1, rule.DateEnd, err)
 				continue
 			}
 			// date_end is inclusive: nowDate must be <= de
@@ -274,10 +278,12 @@ func (g *Group) GetEffectiveRateMultiplier(now time.Time) float64 {
 		if rule.TimeStart != "" && rule.TimeEnd != "" && rule.TimeStart != rule.TimeEnd {
 			startMinutes, err := parseHHMM(rule.TimeStart)
 			if err != nil {
+				logger.LegacyPrintf("service.group", "scheduled rate: group=%d rule=%d skipped: invalid time_start %q: %v", g.ID, i+1, rule.TimeStart, err)
 				continue
 			}
 			endMinutes, err := parseHHMM(rule.TimeEnd)
 			if err != nil {
+				logger.LegacyPrintf("service.group", "scheduled rate: group=%d rule=%d skipped: invalid time_end %q: %v", g.ID, i+1, rule.TimeEnd, err)
 				continue
 			}
 
@@ -304,6 +310,7 @@ func (g *Group) GetEffectiveRateMultiplier(now time.Time) float64 {
 		}
 
 		// All checks passed — first matching rule wins.
+		logger.LegacyPrintf("service.group", "scheduled rate override: group=%d rule=%d multiplier=%.3f (default=%.3f)", g.ID, i+1, rule.RateMultiplier, g.RateMultiplier)
 		return rule.RateMultiplier
 	}
 
