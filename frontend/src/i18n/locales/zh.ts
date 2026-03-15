@@ -1743,6 +1743,32 @@ export default {
         geminiText: 'Gemini Text',
         geminiImage: 'Gemini Image',
         hint: '至少选择一个模型系列'
+      },
+      scheduledRate: {
+        title: '定时费率覆盖',
+        hint: '根据时间段、星期和日期范围覆盖默认费率倍数。第一个匹配规则生效。',
+        timezoneWarning: '所有时间均为服务器时区（{timezone}）',
+        addRule: '添加规则',
+        maxRulesReached: '最多10条规则',
+        removeRule: '删除',
+        moveUp: '上移',
+        moveDown: '下移',
+        rateMultiplier: '费率倍数',
+        days: '星期',
+        weekdays: '工作日',
+        weekend: '周末',
+        allDays: '全部',
+        timeWindow: '时间段',
+        timeStart: '开始',
+        timeEnd: '结束（不含）',
+        timeModeInclude: '在此时间段内生效',
+        timeModeExclude: '在此时间段外生效',
+        dateRange: '日期范围',
+        dateStart: '开始日期',
+        dateEnd: '结束日期（含当天）',
+        noRules: '暂无规则',
+        ruleSummary: '规则 {index}',
+        firstMatchHint: '规则从上到下依次匹配，第一个匹配的规则生效。'
       }
     },
 
