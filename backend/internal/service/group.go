@@ -68,8 +68,10 @@ type Group struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 
-	AccountGroups []AccountGroup
-	AccountCount  int64
+	AccountGroups           []AccountGroup
+	AccountCount            int64
+	ActiveAccountCount      int64
+	RateLimitedAccountCount int64
 
 	// 计费费率时间表配置
 	ScheduledRateConfig *ScheduledRateConfig

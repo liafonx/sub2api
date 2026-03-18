@@ -136,16 +136,18 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 		return nil
 	}
 	out := &AdminGroup{
-		Group:                groupFromServiceBase(g),
-		ModelRouting:         g.ModelRouting,
-		ModelRoutingEnabled:  g.ModelRoutingEnabled,
-		MCPXMLInject:         g.MCPXMLInject,
-		DefaultMappedModel:   g.DefaultMappedModel,
-		SupportedModelScopes: g.SupportedModelScopes,
-		AccountCount:         g.AccountCount,
-		SortOrder:            g.SortOrder,
-		ScheduledRateConfig:  g.ScheduledRateConfig,
-		ServerTimezone:       timezone.Name(),
+		Group:                   groupFromServiceBase(g),
+		ModelRouting:            g.ModelRouting,
+		ModelRoutingEnabled:     g.ModelRoutingEnabled,
+		MCPXMLInject:            g.MCPXMLInject,
+		DefaultMappedModel:      g.DefaultMappedModel,
+		SupportedModelScopes:    g.SupportedModelScopes,
+		AccountCount:            g.AccountCount,
+		ActiveAccountCount:      g.ActiveAccountCount,
+		RateLimitedAccountCount: g.RateLimitedAccountCount,
+		SortOrder:               g.SortOrder,
+		ScheduledRateConfig:     g.ScheduledRateConfig,
+		ServerTimezone:          timezone.Name(),
 	}
 	if len(g.AccountGroups) > 0 {
 		out.AccountGroups = make([]AccountGroup, 0, len(g.AccountGroups))
@@ -535,6 +537,7 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 		AccountID:             l.AccountID,
 		RequestID:             l.RequestID,
 		Model:                 l.Model,
+		UpstreamModel:         l.UpstreamModel,
 		ServiceTier:           l.ServiceTier,
 		ReasoningEffort:       l.ReasoningEffort,
 		InboundEndpoint:       l.InboundEndpoint,
