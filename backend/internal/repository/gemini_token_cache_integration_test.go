@@ -3,12 +3,10 @@
 package repository
 
 import (
-	"errors"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
@@ -35,7 +33,7 @@ func (s *GeminiTokenCacheSuite) TestDeleteAccessToken() {
 	require.NoError(s.T(), s.cache.DeleteAccessToken(s.ctx, cacheKey))
 
 	_, err = s.cache.GetAccessToken(s.ctx, cacheKey)
-	require.True(s.T(), errors.Is(err, redis.Nil), "expected redis.Nil after delete")
+	require.ErrorIs(s.T(), err, service.ErrTokenNotFound, "expected ErrTokenNotFound after delete")
 }
 
 func (s *GeminiTokenCacheSuite) TestDeleteAccessToken_MissingKey() {
