@@ -25,9 +25,9 @@ database:
   password: zeeUs2tnpB-tE
   dbname: sub2api
   sslmode: disable
-  # 6 users × ~4 concurrent DB queries peak ≈ 24; 32 gives headroom
-  max_open_conns: 32
-  max_idle_conns: 16
+  # 6 users + background jobs (aggregation, cleanup, outbox, scheduling)
+  max_open_conns: 48
+  max_idle_conns: 24
   conn_max_lifetime_minutes: 30
   conn_max_idle_time_minutes: 10
 
@@ -40,9 +40,9 @@ redis:
   password: ""
   db: 0
   enable_tls: false
-  # 6 users + background jobs; 64 is plenty
-  pool_size: 64
-  min_idle_conns: 8
+  # 6 users + concurrency slots, auth cache, scheduling, WS sticky, dashboard cache
+  pool_size: 128
+  min_idle_conns: 16
 
 # =============================================================================
 # JWT
@@ -118,9 +118,9 @@ gateway:
     responses_websockets: false
     responses_websockets_v2: true
     # 2 accounts × 20 concurrency = 40; cap per-account conns accordingly
-    max_conns_per_account: 40
-    min_idle_per_account: 2
-    max_idle_per_account: 6
+    max_conns_per_account: 48
+    min_idle_per_account: 3
+    max_idle_per_account: 8
     dynamic_max_conns_by_account_concurrency_enabled: true
     apikey_max_conns_factor: 1.0
     oauth_max_conns_factor: 1.0
@@ -128,7 +128,7 @@ gateway:
     read_timeout_seconds: 900
     write_timeout_seconds: 120
     pool_target_utilization: 0.7
-    queue_limit_per_conn: 32
+    queue_limit_per_conn: 48
     fallback_cooldown_seconds: 30
     retry_backoff_initial_ms: 120
     retry_backoff_max_ms: 2000
@@ -229,7 +229,7 @@ sora:
 # API Key Auth Cache — smaller for 6 users
 # =============================================================================
 api_key_auth_cache:
-  l1_size: 256
+  l1_size: 1024
   l1_ttl_seconds: 15
   l2_ttl_seconds: 300
   negative_ttl_seconds: 30
