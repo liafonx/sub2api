@@ -29,7 +29,7 @@ database:
   max_open_conns: 48
   max_idle_conns: 24
   conn_max_lifetime_minutes: 30
-  conn_max_idle_time_minutes: 10
+  conn_max_idle_time_minutes: 5
 
 # =============================================================================
 # Redis — right-sized for 6 users
@@ -67,7 +67,8 @@ default:
 # Rate Limiting
 # =============================================================================
 rate_limit:
-  overload_cooldown_minutes: 10
+  # With only 2 accounts, 10 min = 50% capacity loss; 5 min balances backoff vs recovery
+  overload_cooldown_minutes: 5
 
 # =============================================================================
 # Gateway — tuned for 2 accounts, 40 peak upstream connections
@@ -95,6 +96,23 @@ gateway:
   response_header_timeout: 600
   concurrency_slot_ttl_minutes: 30
 
+  # --- Usage record workers (default 128 workers is massively oversized for 6 users) ---
+  usage_record:
+    worker_count: 8
+    queue_size: 256
+    task_timeout_seconds: 5
+    overflow_policy: "sample"
+    overflow_sample_percent: 10
+    auto_scale_enabled: true
+    auto_scale_min_workers: 8
+    auto_scale_max_workers: 32
+    auto_scale_up_queue_percent: 70
+    auto_scale_down_queue_percent: 15
+    auto_scale_up_step: 4
+    auto_scale_down_step: 4
+    auto_scale_check_interval_seconds: 3
+    auto_scale_cooldown_seconds: 10
+
   # --- Upstream error logging (helpful for debugging 2-account pool) ---
   log_upstream_error_body: true
   log_upstream_error_body_max_bytes: 2048
@@ -102,12 +120,15 @@ gateway:
   # --- Scheduling (small pool benefits from tighter queue control) ---
   scheduling:
     sticky_session_max_waiting: 3
-    sticky_session_wait_timeout: 60s
-    # With only 2 accounts, fallback queue should be small
+    # Claude long-context requests can take 60s+ for first token; don't timeout sticky waits too early
+    sticky_session_wait_timeout: 120s
     fallback_wait_timeout: 30s
-    fallback_max_waiting: 20
+    # Match upstream slot count (40) as queue cap; 20 was too tight for 6-user bursts
+    fallback_max_waiting: 40
     load_batch_enabled: true
     slot_cleanup_interval: 30s
+    # 2 accounts = cheap rebuild; faster recovery from stale scheduling state
+    full_rebuild_interval_seconds: 120
 
   # --- OpenAI Responses WebSocket (for Codex/Responses API traffic) ---
   openai_ws:
