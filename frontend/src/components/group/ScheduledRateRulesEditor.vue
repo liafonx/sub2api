@@ -163,7 +163,7 @@
                 <input
                   type="time"
                   :value="rule.time_start ?? ''"
-                  class="input mt-1"
+                  class="input mt-1 w-full"
                   @change="updateRule(index, { time_start: ($event.target as HTMLInputElement).value || undefined })"
                 />
               </div>
@@ -174,7 +174,7 @@
                 <input
                   type="time"
                   :value="rule.time_end ?? ''"
-                  class="input mt-1"
+                  class="input mt-1 w-full"
                   @change="updateRule(index, { time_end: ($event.target as HTMLInputElement).value || undefined })"
                 />
               </div>
@@ -219,7 +219,7 @@
                 <input
                   type="date"
                   :value="rule.date_start ?? ''"
-                  class="input mt-1"
+                  class="input mt-1 w-full"
                   @change="updateRule(index, { date_start: ($event.target as HTMLInputElement).value || undefined })"
                 />
               </div>
@@ -230,7 +230,7 @@
                 <input
                   type="date"
                   :value="rule.date_end ?? ''"
-                  class="input mt-1"
+                  class="input mt-1 w-full"
                   @change="updateRule(index, { date_end: ($event.target as HTMLInputElement).value || undefined })"
                 />
               </div>
