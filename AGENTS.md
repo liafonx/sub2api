@@ -1,6 +1,6 @@
 # Sub2API — Agent Guide
 
-Context for AI agents working on this repo. See also [deploy/AGENTS.md](deploy/AGENTS.md) for deployment-specific details.
+Context for AI agents working on this repo. See also `deploy/AGENTS.md` for deployment-specific details (gitignored — local dev machine only, not committed to the repo).
 
 ---
 
@@ -28,7 +28,7 @@ sub2api/
 │       ├── i18n/locales/       # en.ts, zh.ts
 │       └── types/index.ts      # Account interface
 ├── deploy/
-│   └── AGENTS.md               # Deployment environment, build & deploy workflow
+│   └── AGENTS.md               # Deployment environment, build & deploy workflow (gitignored, local dev machine only)
 └── AGENTS.md                   # This file
 ```
 
@@ -118,7 +118,7 @@ user_quota:meta:{accountID}               → Hash (epoch, per_user_limit, per_u
 
 ## Build & Deploy (summary)
 
-Full details in [deploy/AGENTS.md](deploy/AGENTS.md). Quick reference:
+Full details in `deploy/AGENTS.md` (gitignored, local dev machine only). Quick reference:
 
 ```bash
 # 1. Build frontend (always first — backend embeds it)
