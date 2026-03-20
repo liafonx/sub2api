@@ -111,6 +111,7 @@ backend/config.yaml
 deploy/config.yaml
 backend/.installed
 deploy/nginx/
+deploy/caddy/
 
 
 # ===================
