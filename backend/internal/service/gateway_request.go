@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"strings"
-	"unsafe"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
@@ -85,10 +84,7 @@ func ParseGatewayRequest(body []byte, protocol string) (*ParsedRequest, error) {
 		return nil, fmt.Errorf("invalid json")
 	}
 
-	// 性能：
-	// - gjson.GetBytes 会把匹配的 Raw/Str 安全复制成 string（对于巨大 messages 会产生额外拷贝）。
-	// - 这里将 body 通过 unsafe 零拷贝视为 string，仅在本函数内使用，且 body 不会被修改。
-	jsonStr := *(*string)(unsafe.Pointer(&body))
+	jsonStr := string(body)
 
 	parsed := &ParsedRequest{
 		Body: body,
@@ -260,7 +256,7 @@ func FilterThinkingBlocksForRetry(body []byte) []byte {
 
 	// 尽量避免把整个 body Unmarshal 成 map（会产生大量 map/接口分配）。
 	// 这里先用 gjson 把 messages 子树摘出来，后续只对 messages 做 Unmarshal/Marshal。
-	jsonStr := *(*string)(unsafe.Pointer(&body))
+	jsonStr := string(body)
 	msgsRes := gjson.Get(jsonStr, "messages")
 	if !msgsRes.Exists() || !msgsRes.IsArray() {
 		return body
@@ -447,7 +443,7 @@ func FilterThinkingBlocksForRetry(body []byte) []byte {
 // 当顶层 "thinking" 字段被禁用时必须调用，否则上游会返回
 // "strategy requires thinking to be enabled or adaptive"。
 func removeThinkingDependentContextStrategies(body []byte) []byte {
-	jsonStr := *(*string)(unsafe.Pointer(&body))
+	jsonStr := string(body)
 	editsRes := gjson.Get(jsonStr, "context_management.edits")
 	if !editsRes.Exists() || !editsRes.IsArray() {
 		return body
