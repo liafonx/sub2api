@@ -112,6 +112,7 @@ deploy/config.yaml
 backend/.installed
 deploy/nginx/
 deploy/caddy/
+deploy/AGENTS.md
 
 
 # ===================
