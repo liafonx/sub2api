@@ -1,0 +1,243 @@
+# =============================================================================
+# Sub2API — Optimized for 2× Max 20x Anthropic accounts, 6 users
+# Total upstream concurrency: 2 accounts × 20 slots = 40
+# =============================================================================
+
+server:
+  host: "127.0.0.1"
+  port: 9876
+  mode: "release"
+  trusted_proxies:
+    - "127.0.0.1"
+  # h2c: Nginx → sub2api over HTTP/2 cleartext (multiplexed, no TLS overhead)
+  h2c:
+    enabled: true
+    max_concurrent_streams: 50
+    idle_timeout: 75
+
+# =============================================================================
+# Database — right-sized for 6 users (not 256 connections!)
+# =============================================================================
+database:
+  host: 127.0.0.1
+  port: 5432
+  user: sub2api
+  password: zeeUs2tnpB-tE
+  dbname: sub2api
+  sslmode: disable
+  # 6 users × ~4 concurrent DB queries peak ≈ 24; 32 gives headroom
+  max_open_conns: 32
+  max_idle_conns: 16
+  conn_max_lifetime_minutes: 30
+  conn_max_idle_time_minutes: 10
+
+# =============================================================================
+# Redis — right-sized for 6 users
+# =============================================================================
+redis:
+  host: 127.0.0.1
+  port: 6379
+  password: ""
+  db: 0
+  enable_tls: false
+  # 6 users + background jobs; 64 is plenty
+  pool_size: 64
+  min_idle_conns: 8
+
+# =============================================================================
+# JWT
+# =============================================================================
+jwt:
+  secret: 9a89bcc21a9fcca15f6301c7b9e29e36a6cda872519afa2290474480e2f2c404
+  expire_hour: 24
+
+# =============================================================================
+# Defaults — the most critical tuning knob
+# =============================================================================
+default:
+  # 2 accounts × 20 concurrency = 40 total upstream slots
+  # 40 / 6 users = 6.67 → use 6 per user (36 total, leaves 4 slots headroom)
+  # If some users are lighter, you could bump to 7 for power users via per-user override
+  user_concurrency: 6
+  user_balance: 0
+  api_key_prefix: sk-
+  rate_multiplier: 1
+
+# =============================================================================
+# Rate Limiting
+# =============================================================================
+rate_limit:
+  overload_cooldown_minutes: 10
+
+# =============================================================================
+# Gateway — tuned for 2 accounts, 40 peak upstream connections
+# =============================================================================
+gateway:
+  # --- HTTP connection pool (for non-WebSocket traffic) ---
+  # 2 accounts × 20 = 40 peak; size pools accordingly
+  max_idle_conns: 60
+  max_idle_conns_per_host: 30
+  max_conns_per_host: 50
+  idle_conn_timeout_seconds: 120
+
+  # Few accounts → isolate by account (simpler, no proxies involved)
+  connection_pool_isolation: "account"
+
+  # Upstream client cache — 2 accounts, no need for thousands
+  max_upstream_clients: 50
+  client_idle_ttl_seconds: 600
+
+  # --- Streaming ---
+  stream_keepalive_interval: 10
+  stream_data_interval_timeout: 180
+
+  # --- Timeouts ---
+  response_header_timeout: 600
+  concurrency_slot_ttl_minutes: 30
+
+  # --- Upstream error logging (helpful for debugging 2-account pool) ---
+  log_upstream_error_body: true
+  log_upstream_error_body_max_bytes: 2048
+
+  # --- Scheduling (small pool benefits from tighter queue control) ---
+  scheduling:
+    sticky_session_max_waiting: 3
+    sticky_session_wait_timeout: 60s
+    # With only 2 accounts, fallback queue should be small
+    fallback_wait_timeout: 30s
+    fallback_max_waiting: 20
+    load_batch_enabled: true
+    slot_cleanup_interval: 30s
+
+  # --- OpenAI Responses WebSocket (for Codex/Responses API traffic) ---
+  openai_ws:
+    enabled: true
+    oauth_enabled: true
+    apikey_enabled: true
+    force_http: false
+    responses_websockets: false
+    responses_websockets_v2: true
+    # 2 accounts × 20 concurrency = 40; cap per-account conns accordingly
+    max_conns_per_account: 40
+    min_idle_per_account: 2
+    max_idle_per_account: 6
+    dynamic_max_conns_by_account_concurrency_enabled: true
+    apikey_max_conns_factor: 1.0
+    oauth_max_conns_factor: 1.0
+    dial_timeout_seconds: 10
+    read_timeout_seconds: 900
+    write_timeout_seconds: 120
+    pool_target_utilization: 0.7
+    queue_limit_per_conn: 32
+    fallback_cooldown_seconds: 30
+    retry_backoff_initial_ms: 120
+    retry_backoff_max_ms: 2000
+    retry_jitter_ratio: 0.2
+    retry_total_budget_ms: 5000
+    # Small pool → simpler scheduling
+    lb_top_k: 2
+    sticky_session_ttl_seconds: 3600
+    sticky_response_id_ttl_seconds: 3600
+
+  # --- TLS Fingerprint ---
+  tls_fingerprint:
+    enabled: true
+    profiles:
+      darwin_x64_node_v22_11_0:
+        name: "Darwin x86_64 Node.js v22.11.0"
+        enable_grease: false
+        cipher_suites: [4866, 4867, 4865, 49199, 49195, 49200, 49196, 158, 49191, 103, 49192, 107, 163, 159, 52393, 52392, 52394, 49327, 49325, 49315, 49311, 49245, 49249, 49239, 49235, 162, 49326, 49324, 49314, 49310, 49244, 49248, 49238, 49234, 49188, 106, 49187, 64, 49162, 49172, 57, 56, 49161, 49171, 51, 50, 157, 49313, 49309, 49233, 156, 49312, 49308, 49232, 61, 60, 53, 47, 255]
+        curves: [29, 23, 30, 25, 24, 256, 257, 258, 259, 260]
+        point_formats: [0, 1, 2]
+      darwin_arm64_node_v25_8_0:
+        name: "Darwin arm64 Node.js v25.8.0"
+        enable_grease: false
+        cipher_suites: [4866, 4867, 4865, 49199, 49195, 49200, 49196, 158, 49191, 103, 49192, 107, 163, 159, 52393, 52392, 52394, 49325, 49311, 49245, 49249, 49239, 49235, 162, 49324, 49310, 49244, 49248, 49238, 49234, 49188, 106, 49187, 64, 49162, 49172, 57, 56, 49161, 49171, 51, 50, 157, 49309, 49233, 156, 49308, 49232, 61, 60, 53, 47]
+        curves: [4588, 29, 23, 30, 24, 25, 256, 257]
+        point_formats: [0]
+
+# =============================================================================
+# Pricing
+# =============================================================================
+pricing:
+  update_interval_hours: 6
+
+# =============================================================================
+# Timezone
+# =============================================================================
+timezone: Europe/Stockholm
+
+# =============================================================================
+# CORS
+# =============================================================================
+cors:
+  allowed_origins:
+    - "https://sub.liafonx.net"
+  allow_credentials: true
+
+# =============================================================================
+# Security
+# =============================================================================
+security:
+  url_allowlist:
+    enabled: true
+    upstream_hosts:
+      - "api.openai.com"
+      - "api.anthropic.com"
+      - "api.kimi.com"
+      - "open.bigmodel.cn"
+      - "api.minimaxi.com"
+      - "generativelanguage.googleapis.com"
+      - "cloudcode-pa.googleapis.com"
+      - "*.openai.azure.com"
+    pricing_hosts:
+      - "raw.githubusercontent.com"
+      - "github.com"
+    crs_hosts: []
+    allow_private_hosts: true
+    allow_insecure_http: false
+
+# =============================================================================
+# Logging
+# =============================================================================
+log:
+  level: "info"
+  format: "console"
+  service_name: "sub2api"
+  env: "production"
+  caller: true
+  stacktrace_level: "error"
+  output:
+    to_stdout: true
+    to_file: false
+
+# =============================================================================
+# TOTP
+# =============================================================================
+totp:
+  encryption_key: "98682d1611c969565c2b21ddc52fa713ab17628f48702aa6c5bc2f6962d381bc"
+
+# =============================================================================
+# Sora
+# =============================================================================
+sora:
+  storage:
+    type: "local"
+    local_path: "/usr/local/var/sub2api/data/sora"
+
+# =============================================================================
+# API Key Auth Cache — smaller for 6 users
+# =============================================================================
+api_key_auth_cache:
+  l1_size: 256
+  l1_ttl_seconds: 15
+  l2_ttl_seconds: 300
+  negative_ttl_seconds: 30
+  jitter_percent: 10
+  singleflight: true
+
+# =============================================================================
+# Concurrency Wait
+# =============================================================================
+concurrency:
+  ping_interval: 10
