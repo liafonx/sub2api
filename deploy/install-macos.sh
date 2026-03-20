@@ -2,19 +2,20 @@
 #
 # Sub2API macOS Installation Script
 # Sub2API macOS 安装脚本
-# Usage: curl -sSL https://raw.githubusercontent.com/liafonx/sub2api/main/deploy/install-macos.sh | sudo zsh
+# Usage: curl -sSL https://raw.githubusercontent.com/liafonx/sub2api/main/deploy/install-macos.sh | zsh
 #
 # Known limitations vs Linux version:
 #   - No equivalent of systemd's NoNewPrivileges/ProtectSystem/ProtectHome/PrivateTmp
 #   - No automatic log rotation (logs grow unbounded; configure newsyslog manually if needed)
 #   - Additional app environment variables (DB config, etc.) must be added to the plist's
 #     EnvironmentVariables dict — launchd does not inherit the shell environment
-#   - /opt/sub2api is non-standard on macOS but kept for consistency with the Linux install
+#   - Installs as the current user (LaunchAgent). Auto-login must be enabled for service
+#     to start at reboot without manual login.
 #
 
 set -e
 
-# Fix $0 when script is piped: curl ... | sudo zsh
+# Fix $0 when script is piped: curl ... | zsh
 SCRIPT_NAME="${0:t}"
 [[ "$SCRIPT_NAME" = "zsh" || "$SCRIPT_NAME" = "bash" ]] && SCRIPT_NAME="install-macos.sh"
 
@@ -28,15 +29,14 @@ NC='\033[0m' # No Color
 
 # Configuration
 GITHUB_REPO="Wei-Shaw/sub2api"
-INSTALL_DIR="/opt/sub2api"
+BIN_DIR="/usr/local/bin"
+DATA_DIR="/usr/local/var/sub2api"
 SERVICE_NAME="sub2api"
-SERVICE_USER="sub2api"
-CONFIG_DIR="/etc/sub2api"
 
 # macOS-specific
-LAUNCHD_PLIST="/Library/LaunchDaemons/com.sub2api.plist"
+LAUNCHD_PLIST="$HOME/Library/LaunchAgents/com.sub2api.plist"
 LAUNCHD_LABEL="com.sub2api"
-LOG_DIR="/var/log/sub2api"
+LOG_DIR="/usr/local/var/log/sub2api"
 
 # Server configuration (will be set by user)
 SERVER_HOST="0.0.0.0"
@@ -68,7 +68,7 @@ typeset -A MSG_ZH=(
 
     # Installation
     ["install_title"]="Sub2API macOS 安装脚本"
-    ["run_as_root"]="请使用 root 权限运行 (使用 sudo)"
+    ["run_as_root"]="请勿以 root 身份运行，请用普通用户账号运行"
     ["detected_platform"]="检测到平台"
     ["unsupported_arch"]="不支持的架构"
     ["unsupported_os"]="不支持的操作系统"
@@ -85,9 +85,6 @@ typeset -A MSG_ZH=(
     ["checksum_not_found"]="无法验证校验和（checksums.txt 未找到）"
     ["extracting"]="正在解压..."
     ["binary_installed"]="二进制文件已安装到"
-    ["user_exists"]="用户已存在"
-    ["creating_user"]="正在创建系统用户"
-    ["user_created"]="用户已创建"
     ["setting_up_dirs"]="正在设置目录..."
     ["dirs_configured"]="目录配置完成"
     ["installing_service"]="正在安装 launchd 服务..."
@@ -96,7 +93,7 @@ typeset -A MSG_ZH=(
 
     # Completion
     ["install_complete"]="Sub2API 安装完成！"
-    ["install_dir"]="安装目录"
+    ["install_dir"]="数据目录"
     ["next_steps"]="后续步骤"
     ["step1_check_services"]="确保 PostgreSQL 和 Redis 正在运行："
     ["step2_start_service"]="启动 Sub2API 服务："
@@ -136,14 +133,13 @@ typeset -A MSG_ZH=(
     ["are_you_sure"]="确定要继续吗？(y/N)"
     ["uninstall_cancelled"]="卸载已取消"
     ["removing_files"]="正在移除文件..."
-    ["removing_install_dir"]="正在移除安装目录..."
-    ["removing_user"]="正在移除用户..."
-    ["config_not_removed"]="配置目录未被移除"
+    ["removing_install_dir"]="正在移除数据目录..."
+    ["config_not_removed"]="数据目录未被移除"
     ["remove_manually"]="如不再需要，请手动删除"
     ["removing_install_lock"]="正在移除安装锁文件..."
     ["install_lock_removed"]="安装锁文件已移除，重新安装时将进入设置向导"
-    ["purge_prompt"]="是否同时删除配置目录？这将清除所有配置和数据 [y/N]: "
-    ["removing_config_dir"]="正在移除配置目录..."
+    ["purge_prompt"]="是否同时删除数据目录？这将清除所有配置和数据 [y/N]: "
+    ["removing_config_dir"]="正在移除数据目录..."
     ["uninstall_complete"]="Sub2API 已卸载"
 
     # Help
@@ -191,7 +187,7 @@ typeset -A MSG_EN=(
 
     # Installation
     ["install_title"]="Sub2API macOS Installation Script"
-    ["run_as_root"]="Please run as root (use sudo)"
+    ["run_as_root"]="Do not run as root. Run as your normal user account."
     ["detected_platform"]="Detected platform"
     ["unsupported_arch"]="Unsupported architecture"
     ["unsupported_os"]="Unsupported OS"
@@ -208,9 +204,6 @@ typeset -A MSG_EN=(
     ["checksum_not_found"]="Could not verify checksum (checksums.txt not found)"
     ["extracting"]="Extracting..."
     ["binary_installed"]="Binary installed to"
-    ["user_exists"]="User already exists"
-    ["creating_user"]="Creating system user"
-    ["user_created"]="User created"
     ["setting_up_dirs"]="Setting up directories..."
     ["dirs_configured"]="Directories configured"
     ["installing_service"]="Installing launchd service..."
@@ -219,7 +212,7 @@ typeset -A MSG_EN=(
 
     # Completion
     ["install_complete"]="Sub2API installation completed!"
-    ["install_dir"]="Installation directory"
+    ["install_dir"]="Data directory"
     ["next_steps"]="NEXT STEPS"
     ["step1_check_services"]="Make sure PostgreSQL and Redis are running:"
     ["step2_start_service"]="Start Sub2API service:"
@@ -259,14 +252,13 @@ typeset -A MSG_EN=(
     ["are_you_sure"]="Are you sure? (y/N)"
     ["uninstall_cancelled"]="Uninstall cancelled"
     ["removing_files"]="Removing files..."
-    ["removing_install_dir"]="Removing installation directory..."
-    ["removing_user"]="Removing user..."
-    ["config_not_removed"]="Config directory was NOT removed."
+    ["removing_install_dir"]="Removing data directory..."
+    ["config_not_removed"]="Data directory was NOT removed."
     ["remove_manually"]="Remove it manually if you no longer need it."
     ["removing_install_lock"]="Removing install lock file..."
     ["install_lock_removed"]="Install lock removed. Setup wizard will appear on next install."
-    ["purge_prompt"]="Also remove config directory? This will delete all config and data [y/N]: "
-    ["removing_config_dir"]="Removing config directory..."
+    ["purge_prompt"]="Also remove data directory? This will delete all config and data [y/N]: "
+    ["removing_config_dir"]="Removing data directory..."
     ["uninstall_complete"]="Sub2API has been uninstalled"
 
     # Help
@@ -418,9 +410,9 @@ configure_server() {
     echo ""
 }
 
-# Check if running as root
-check_root() {
-    if [ "$(id -u)" -ne 0 ]; then
+# Ensure script is NOT running as root
+check_not_root() {
+    if [ "$(id -u)" -eq 0 ]; then
         print_error "$(msg 'run_as_root')"
         exit 1
     fi
@@ -548,8 +540,8 @@ validate_version() {
 
 # Get current installed version
 get_current_version() {
-    if [ -f "$INSTALL_DIR/sub2api" ]; then
-        "$INSTALL_DIR/sub2api" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown"
+    if [ -f "$BIN_DIR/sub2api" ]; then
+        "$BIN_DIR/sub2api" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown"
     else
         echo "not_installed"
     fi
@@ -594,105 +586,36 @@ download_and_extract() {
     print_info "$(msg 'extracting')"
     tar -xzf "$TEMP_DIR/$archive_name" -C "$TEMP_DIR"
 
-    # Create install directory
-    mkdir -p "$INSTALL_DIR"
-
-    # Copy binary
-    cp "$TEMP_DIR/sub2api" "$INSTALL_DIR/sub2api"
-    chmod +x "$INSTALL_DIR/sub2api"
+    # Install binary to /usr/local/bin
+    mkdir -p "$BIN_DIR"
+    cp "$TEMP_DIR/sub2api" "$BIN_DIR/sub2api"
+    chmod +x "$BIN_DIR/sub2api"
 
     # Remove macOS quarantine attribute so Gatekeeper doesn't block execution
-    xattr -d com.apple.quarantine "$INSTALL_DIR/sub2api" 2>/dev/null || true
+    xattr -d com.apple.quarantine "$BIN_DIR/sub2api" 2>/dev/null || true
 
-    # Copy deploy files if they exist in the archive
-    # Use cp -R with trailing /. to avoid zsh nomatch error on glob expansion
-    if [ -d "$TEMP_DIR/deploy" ]; then
-        cp -R "$TEMP_DIR/deploy/." "$INSTALL_DIR/" 2>/dev/null || true
-    fi
-
-    print_success "$(msg 'binary_installed') $INSTALL_DIR/sub2api"
-}
-
-# Create system user (macOS dscl)
-create_user() {
-    if id "$SERVICE_USER" &>/dev/null; then
-        print_info "$(msg 'user_exists'): $SERVICE_USER"
-        # Fix shell if it was set to /bin/false or /sbin/nologin
-        local current_shell
-        current_shell=$(dscl . -read "/Users/$SERVICE_USER" UserShell 2>/dev/null | awk '{print $2}')
-        if [ "$current_shell" = "/bin/false" ] || [ "$current_shell" = "/sbin/nologin" ]; then
-            print_info "Fixing user shell for launchd compatibility..."
-            if dscl . -change "/Users/$SERVICE_USER" UserShell "$current_shell" /bin/sh 2>/dev/null; then
-                print_success "User shell updated to /bin/sh"
-            else
-                print_warning "Failed to update user shell."
-                print_warning "Manual fix: sudo dscl . -change /Users/$SERVICE_USER UserShell $current_shell /bin/sh"
-            fi
-        fi
-    else
-        print_info "$(msg 'creating_user') $SERVICE_USER..."
-
-        # Find a free GID >= 501 (avoid Apple's reserved 0-500 range; cap at 60000)
-        local gid=501
-        while dscl . -list /Groups PrimaryGroupID 2>/dev/null | awk '{print $2}' | grep -q "^${gid}$"; do
-            gid=$((gid + 1))
-            [ "$gid" -gt 60000 ] && { print_error "Could not find free GID"; exit 1; }
-        done
-
-        # Create dedicated group
-        dscl . -create "/Groups/$SERVICE_USER"
-        dscl . -create "/Groups/$SERVICE_USER" RealName "Sub2API Service Group"
-        dscl . -create "/Groups/$SERVICE_USER" PrimaryGroupID "$gid"
-
-        # Find a free UID >= 501 (avoid Apple's reserved 0-500 range; cap at 60000)
-        local uid=501
-        while dscl . -list /Users UniqueID 2>/dev/null | awk '{print $2}' | grep -q "^${uid}$"; do
-            uid=$((uid + 1))
-            [ "$uid" -gt 60000 ] && { print_error "Could not find free UID"; exit 1; }
-        done
-
-        # Create service user with dedicated GID
-        dscl . -create "/Users/$SERVICE_USER"
-        dscl . -create "/Users/$SERVICE_USER" UserShell /bin/sh
-        dscl . -create "/Users/$SERVICE_USER" RealName "Sub2API Service User"
-        dscl . -create "/Users/$SERVICE_USER" UniqueID "$uid"
-        dscl . -create "/Users/$SERVICE_USER" PrimaryGroupID "$gid"
-        dscl . -create "/Users/$SERVICE_USER" NFSHomeDirectory "$INSTALL_DIR"
-        dscl . -create "/Users/$SERVICE_USER" IsHidden 1
-        dscl . -append "/Groups/$SERVICE_USER" GroupMembership "$SERVICE_USER"
-
-        # Hide from login window (UIDs >= 501 are shown by default without this)
-        defaults write /Library/Preferences/com.apple.loginwindow HiddenUsersList \
-            -array-add "$SERVICE_USER" 2>/dev/null || true
-
-        dscacheutil -flushcache 2>/dev/null || true
-        print_success "$(msg 'user_created')"
-    fi
+    print_success "$(msg 'binary_installed') $BIN_DIR/sub2api"
 }
 
 # Setup directories and permissions
 setup_directories() {
     print_info "$(msg 'setting_up_dirs')"
 
-    mkdir -p "$INSTALL_DIR"
-    mkdir -p "$INSTALL_DIR/data"
-    mkdir -p "$CONFIG_DIR"
+    mkdir -p "$DATA_DIR"
+    mkdir -p "$DATA_DIR/data"
     mkdir -p "$LOG_DIR"
-
-    # Use user-only chown: dscl group may not be immediately resolvable by name
-    chown -R "$SERVICE_USER" "$INSTALL_DIR"
-    chown -R "$SERVICE_USER" "$CONFIG_DIR"
-    chown -R "$SERVICE_USER" "$LOG_DIR"
+    mkdir -p "$HOME/Library/LaunchAgents"
     chmod 750 "$LOG_DIR"
 
     print_success "$(msg 'dirs_configured')"
 }
 
-# Install launchd service (replaces systemd unit)
+# Install launchd service (user-level LaunchAgent)
 install_service() {
     print_info "$(msg 'installing_service')"
 
-    # Write launchd plist with variable expansion (unquoted heredoc)
+    # Write LaunchAgent plist — no UserName (inherits current user), no Umask,
+    # WorkingDirectory is the data/config root so Viper finds config.yaml via cwd.
     cat > "$LAUNCHD_PLIST" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -702,12 +625,10 @@ install_service() {
     <string>${LAUNCHD_LABEL}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${INSTALL_DIR}/sub2api</string>
+        <string>${BIN_DIR}/sub2api</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>${INSTALL_DIR}</string>
-    <key>UserName</key>
-    <string>${SERVICE_USER}</string>
+    <string>${DATA_DIR}</string>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
@@ -718,22 +639,14 @@ install_service() {
     <string>${LOG_DIR}/stdout.log</string>
     <key>StandardErrorPath</key>
     <string>${LOG_DIR}/stderr.log</string>
-    <key>Umask</key>
-    <integer>23</integer>
     <key>EnvironmentVariables</key>
     <dict>
         <key>GIN_MODE</key>
         <string>release</string>
-        <key>DATA_DIR</key>
-        <string>${INSTALL_DIR}</string>
     </dict>
 </dict>
 </plist>
 EOF
-
-    # launchd requires plist owned by root:wheel with mode 644
-    chmod 644 "$LAUNCHD_PLIST"
-    chown root:wheel "$LAUNCHD_PLIST"
 
     # Validate plist syntax before attempting to load
     if ! plutil -lint "$LAUNCHD_PLIST" 2>/dev/null; then
@@ -774,17 +687,18 @@ get_public_ip() {
     return 1
 }
 
-# Start service (launchd)
+# Start service (LaunchAgent, user domain)
 start_service() {
     print_info "$(msg 'starting_service')"
 
-    # Unload/bootout in case a previous instance is loaded
-    launchctl bootout system/"$LAUNCHD_LABEL" 2>/dev/null || \
-        launchctl unload "$LAUNCHD_PLIST" 2>/dev/null || true
+    local uid
+    uid=$(id -u)
 
-    # Use modern bootstrap API, fall back to deprecated load for older macOS
-    if launchctl bootstrap system/ "$LAUNCHD_PLIST" 2>/dev/null || \
-       launchctl load "$LAUNCHD_PLIST" 2>/dev/null; then
+    # Unload/bootout in case a previous instance is loaded
+    launchctl bootout "gui/$uid/$LAUNCHD_LABEL" 2>/dev/null || true
+
+    # Use modern bootstrap API for user domain
+    if launchctl bootstrap "gui/$uid" "$LAUNCHD_PLIST" 2>/dev/null; then
         print_success "$(msg 'service_started')"
         return 0
     else
@@ -810,12 +724,15 @@ print_completion() {
         display_host="127.0.0.1"
     fi
 
+    local uid
+    uid=$(id -u)
+
     echo ""
     echo "=============================================="
     print_success "$(msg 'install_complete')"
     echo "=============================================="
     echo ""
-    echo "$(msg 'install_dir'): $INSTALL_DIR"
+    echo "$(msg 'install_dir'): $DATA_DIR"
     echo "$(msg 'server_config_summary'): ${SERVER_HOST}:${SERVER_PORT}"
     echo ""
     echo "=============================================="
@@ -833,17 +750,17 @@ print_completion() {
     echo "  $(msg 'useful_commands')"
     echo "=============================================="
     echo ""
-    echo "  $(msg 'cmd_status'):   sudo launchctl print system/${LAUNCHD_LABEL}"
+    echo "  $(msg 'cmd_status'):   launchctl print gui/${uid}/${LAUNCHD_LABEL}"
     echo "  $(msg 'cmd_logs'):     tail -f ${LOG_DIR}/stdout.log"
-    echo "  $(msg 'cmd_restart'):  sudo launchctl bootout system/${LAUNCHD_LABEL} && sudo launchctl bootstrap system/ ${LAUNCHD_PLIST}"
-    echo "  $(msg 'cmd_stop'):     sudo launchctl bootout system/${LAUNCHD_LABEL}"
+    echo "  $(msg 'cmd_restart'):  launchctl bootout gui/${uid}/${LAUNCHD_LABEL} && launchctl bootstrap gui/${uid} ${LAUNCHD_PLIST}"
+    echo "  $(msg 'cmd_stop'):     launchctl bootout gui/${uid}/${LAUNCHD_LABEL}"
     echo ""
     echo "=============================================="
 }
 
 # Upgrade function
 upgrade() {
-    if [ ! -f "$INSTALL_DIR/sub2api" ]; then
+    if [ ! -f "$BIN_DIR/sub2api" ]; then
         print_error "$(msg 'not_installed')"
         print_info "$(msg 'fresh_install_hint'): $SCRIPT_NAME install"
         exit 1
@@ -851,31 +768,29 @@ upgrade() {
 
     print_info "$(msg 'upgrading')"
 
-    CURRENT_VERSION=$("$INSTALL_DIR/sub2api" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+    local uid
+    uid=$(id -u)
+
+    CURRENT_VERSION=$("$BIN_DIR/sub2api" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
     print_info "$(msg 'current_version'): $CURRENT_VERSION"
 
     # Stop service if running
-    if launchctl print system/"$LAUNCHD_LABEL" &>/dev/null; then
+    if launchctl print "gui/$uid/$LAUNCHD_LABEL" &>/dev/null; then
         print_info "$(msg 'stopping_service')"
-        launchctl bootout system/"$LAUNCHD_LABEL" 2>/dev/null || \
-            launchctl unload "$LAUNCHD_PLIST" 2>/dev/null || true
+        launchctl bootout "gui/$uid/$LAUNCHD_LABEL" 2>/dev/null || true
     fi
 
     # Backup current binary
-    cp "$INSTALL_DIR/sub2api" "$INSTALL_DIR/sub2api.backup"
-    print_info "$(msg 'backup_created'): $INSTALL_DIR/sub2api.backup"
+    cp "$BIN_DIR/sub2api" "$BIN_DIR/sub2api.backup"
+    print_info "$(msg 'backup_created'): $BIN_DIR/sub2api.backup"
 
     # Download and install new version
     get_latest_version
     download_and_extract
 
-    # Set permissions
-    chown "$SERVICE_USER" "$INSTALL_DIR/sub2api"
-
     # Start service
     print_info "$(msg 'starting_service')"
-    launchctl bootstrap system/ "$LAUNCHD_PLIST" 2>/dev/null || \
-        launchctl load "$LAUNCHD_PLIST" 2>/dev/null || true
+    launchctl bootstrap "gui/$uid" "$LAUNCHD_PLIST" 2>/dev/null || true
 
     print_success "$(msg 'upgrade_complete')"
 }
@@ -885,11 +800,14 @@ upgrade() {
 install_version() {
     local target_version="$1"
 
-    if [ ! -f "$INSTALL_DIR/sub2api" ]; then
+    if [ ! -f "$BIN_DIR/sub2api" ]; then
         print_error "$(msg 'not_installed')"
         print_info "$(msg 'fresh_install_hint'): $SCRIPT_NAME install -v $target_version"
         exit 1
     fi
+
+    local uid
+    uid=$(id -u)
 
     # Validate and normalize version
     target_version=$(validate_version "$target_version")
@@ -906,22 +824,21 @@ install_version() {
     fi
 
     # Stop service if running
-    if launchctl print system/"$LAUNCHD_LABEL" &>/dev/null; then
+    if launchctl print "gui/$uid/$LAUNCHD_LABEL" &>/dev/null; then
         print_info "$(msg 'stopping_service')"
-        launchctl bootout system/"$LAUNCHD_LABEL" 2>/dev/null || \
-            launchctl unload "$LAUNCHD_PLIST" 2>/dev/null || true
+        launchctl bootout "gui/$uid/$LAUNCHD_LABEL" 2>/dev/null || true
     fi
 
     # Backup current binary
-    if [ -f "$INSTALL_DIR/sub2api" ]; then
+    if [ -f "$BIN_DIR/sub2api" ]; then
         local backup_name
         if [ "$current_version" != "unknown" ] && [ "$current_version" != "not_installed" ]; then
             backup_name="sub2api.backup.${current_version}"
         else
             backup_name="sub2api.backup.$(date +%Y%m%d%H%M%S)"
         fi
-        cp "$INSTALL_DIR/sub2api" "$INSTALL_DIR/$backup_name"
-        print_info "$(msg 'backup_created'): $INSTALL_DIR/$backup_name"
+        cp "$BIN_DIR/sub2api" "$BIN_DIR/$backup_name"
+        print_info "$(msg 'backup_created'): $BIN_DIR/$backup_name"
     fi
 
     # Set LATEST_VERSION to the target version for download_and_extract
@@ -930,13 +847,9 @@ install_version() {
     # Download and install
     download_and_extract
 
-    # Set permissions
-    chown "$SERVICE_USER" "$INSTALL_DIR/sub2api"
-
     # Start service
     print_info "$(msg 'starting_service')"
-    if launchctl bootstrap system/ "$LAUNCHD_PLIST" 2>/dev/null || \
-       launchctl load "$LAUNCHD_PLIST" 2>/dev/null; then
+    if launchctl bootstrap "gui/$uid" "$LAUNCHD_PLIST" 2>/dev/null; then
         print_success "$(msg 'service_started')"
     else
         print_error "$(msg 'service_start_failed')"
@@ -960,7 +873,7 @@ uninstall() {
 
     if ! is_interactive; then
         if [ "${FORCE_YES:-}" != "true" ]; then
-            print_error "Non-interactive mode detected. Use 'curl ... | sudo zsh -s -- uninstall -y' to confirm."
+            print_error "Non-interactive mode detected. Use 'curl ... | zsh -s -- uninstall -y' to confirm."
             exit 1
         fi
     else
@@ -973,66 +886,43 @@ uninstall() {
         fi
     fi
 
+    local uid
+    uid=$(id -u)
+
     # Stop and remove launchd service
     print_info "$(msg 'stopping_service')"
-    launchctl bootout system/"$LAUNCHD_LABEL" 2>/dev/null || \
-        launchctl unload "$LAUNCHD_PLIST" 2>/dev/null || true
+    launchctl bootout "gui/$uid/$LAUNCHD_LABEL" 2>/dev/null || true
 
     print_info "$(msg 'removing_files')"
     rm -f "$LAUNCHD_PLIST"
-
-    print_info "$(msg 'removing_install_dir')"
-    rm -rf "$INSTALL_DIR"
-
-    # Remove user and group
-    print_info "$(msg 'removing_user')"
-    if id "$SERVICE_USER" &>/dev/null; then
-        # Remove ONLY our entry from HiddenUsersList — do NOT delete the whole array
-        # (defaults delete would wipe all other hidden users on the machine)
-        local lw_plist="/Library/Preferences/com.apple.loginwindow.plist"
-        local count i val
-        count=$(/usr/libexec/PlistBuddy -c "Print :HiddenUsersList" "$lw_plist" 2>/dev/null | grep -c "." || echo 0)
-        i=$((count - 1))
-        while [ "$i" -ge 0 ]; do
-            val=$(/usr/libexec/PlistBuddy -c "Print :HiddenUsersList:${i}" "$lw_plist" 2>/dev/null || true)
-            if [ "$val" = "$SERVICE_USER" ]; then
-                /usr/libexec/PlistBuddy -c "Delete :HiddenUsersList:${i}" "$lw_plist" 2>/dev/null || true
-                break
-            fi
-            i=$((i - 1))
-        done
-        dscl . -delete "/Users/$SERVICE_USER" 2>/dev/null || true
-        dscl . -delete "/Groups/$SERVICE_USER" 2>/dev/null || true
-        dscacheutil -flushcache 2>/dev/null || true
-    fi
+    rm -f "$BIN_DIR/sub2api"
 
     # Remove install lock file (.installed) to allow fresh setup on reinstall
     print_info "$(msg 'removing_install_lock')"
-    rm -f "$CONFIG_DIR/.installed" 2>/dev/null || true
-    rm -f "$INSTALL_DIR/.installed" 2>/dev/null || true
+    rm -f "$DATA_DIR/.installed" 2>/dev/null || true
     print_success "$(msg 'install_lock_removed')"
 
     # Remove log directory
     rm -rf "$LOG_DIR"
 
-    # Ask about config directory removal (interactive mode only)
-    local remove_config=false
+    # Ask about data directory removal (interactive mode only)
+    local remove_data=false
     if [ "${PURGE:-}" = "true" ]; then
-        remove_config=true
+        remove_data=true
     elif is_interactive; then
         print -n "$(msg 'purge_prompt')"
         read -k 1 REPLY < /dev/tty
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
-            remove_config=true
+            remove_data=true
         fi
     fi
 
-    if [ "$remove_config" = true ]; then
+    if [ "$remove_data" = true ]; then
         print_info "$(msg 'removing_config_dir')"
-        rm -rf "$CONFIG_DIR"
+        rm -rf "$DATA_DIR"
     else
-        print_warning "$(msg 'config_not_removed'): $CONFIG_DIR"
+        print_warning "$(msg 'config_not_removed'): $DATA_DIR"
         print_warning "$(msg 'remove_manually')"
     fi
 
@@ -1097,7 +987,7 @@ main() {
     # Parse commands
     case "${1:-}" in
         upgrade|update)
-            check_root
+            check_not_root
             detect_platform
             check_dependencies
             if [ -n "$target_version" ]; then
@@ -1108,17 +998,16 @@ main() {
             exit 0
             ;;
         install)
-            check_root
+            check_not_root
             detect_platform
             check_dependencies
             if [ -n "$target_version" ]; then
-                if [ -f "$INSTALL_DIR/sub2api" ]; then
+                if [ -f "$BIN_DIR/sub2api" ]; then
                     install_version "$target_version"
                 else
                     configure_server
                     LATEST_VERSION=$(validate_version "$target_version")
                     download_and_extract
-                    create_user
                     setup_directories
                     install_service
                     prepare_for_setup
@@ -1131,7 +1020,6 @@ main() {
                 configure_server
                 get_latest_version
                 download_and_extract
-                create_user
                 setup_directories
                 install_service
                 prepare_for_setup
@@ -1155,7 +1043,7 @@ main() {
                 list_versions
                 exit 1
             fi
-            check_root
+            check_not_root
             detect_platform
             check_dependencies
             install_version "$target_version"
@@ -1166,7 +1054,7 @@ main() {
             exit 0
             ;;
         uninstall|remove)
-            check_root
+            check_not_root
             uninstall
             exit 0
             ;;
@@ -1198,18 +1086,17 @@ main() {
     esac
 
     # Default: Fresh install with latest version
-    check_root
+    check_not_root
     detect_platform
     check_dependencies
 
     if [ -n "$target_version" ]; then
-        if [ -f "$INSTALL_DIR/sub2api" ]; then
+        if [ -f "$BIN_DIR/sub2api" ]; then
             install_version "$target_version"
         else
             configure_server
             LATEST_VERSION=$(validate_version "$target_version")
             download_and_extract
-            create_user
             setup_directories
             install_service
             prepare_for_setup
@@ -1222,7 +1109,6 @@ main() {
         configure_server
         get_latest_version
         download_and_extract
-        create_user
         setup_directories
         install_service
         prepare_for_setup

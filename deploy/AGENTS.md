@@ -14,12 +14,12 @@ Context for AI agents managing the sub2api deployment on macOS.
 | SSH | `liafonx@Liafonxs-Mac-mini.local` (prefer over IP) |
 | LAN IP | 192.168.5.5 |
 | Domain | sub.liafonx.net (Cloudflare DNS-only, NOT proxied) |
-| Install dir | /opt/sub2api |
-| Config file | /opt/sub2api/config.yaml |
-| Binary | /opt/sub2api/sub2api |
-| Service | launchd `com.sub2api` |
-| Plist | /Library/LaunchDaemons/com.sub2api.plist |
-| Logs | /var/log/sub2api/stdout.log, /var/log/sub2api/stderr.log |
+| Binary | /usr/local/bin/sub2api |
+| Data/Config dir | /usr/local/var/sub2api/ |
+| Config file | /usr/local/var/sub2api/config.yaml |
+| Service | launchd `com.sub2api` (LaunchAgent, runs as liafonx) |
+| Plist | ~/Library/LaunchAgents/com.sub2api.plist |
+| Logs | /usr/local/var/log/sub2api/stdout.log, /usr/local/var/log/sub2api/stderr.log |
 | Nginx | Homebrew Nginx at /usr/local/etc/nginx |
 | TLS certs | /usr/local/etc/nginx/cert/liafonx.net/ (wildcard, publicly trusted) |
 
@@ -119,31 +119,31 @@ CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -tags embed -ldflags "-s -w" -o 
 scp -o ServerAliveInterval=10 -o ServerAliveCountMax=2 backend/sub2api liafonx@Liafonxs-Mac-mini.local:/tmp/sub2api
 
 # On the Mac Mini (SSH in first: ssh liafonx@Liafonxs-Mac-mini.local):
-sudo launchctl bootout system/com.sub2api
-sudo cp /tmp/sub2api /opt/sub2api/sub2api
-sudo launchctl bootstrap system /Library/LaunchDaemons/com.sub2api.plist
+launchctl bootout gui/$(id -u)/com.sub2api
+cp /tmp/sub2api /usr/local/bin/sub2api
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.sub2api.plist
 
 # Verify
-tail -20 /var/log/sub2api/stderr.log
+tail -20 /usr/local/var/log/sub2api/stderr.log
 ```
 
 ### 3. Service Management
 
 ```bash
-# Stop
-sudo launchctl bootout system/com.sub2api
+# Stop (no sudo needed — user-domain LaunchAgent)
+launchctl bootout gui/$(id -u)/com.sub2api
 
 # Start
-sudo launchctl bootstrap system /Library/LaunchDaemons/com.sub2api.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.sub2api.plist
 
 # Check status
-sudo launchctl print system/com.sub2api
+launchctl print gui/$(id -u)/com.sub2api
 
 # View logs (structured slog output goes to stderr)
-tail -f /var/log/sub2api/stderr.log
+tail -f /usr/local/var/log/sub2api/stderr.log
 ```
 
-**Launchd plist settings**: RunAtLoad=true, KeepAlive=true, ThrottleInterval=5s, GIN_MODE=release.
+**Launchd plist settings**: RunAtLoad=true, KeepAlive=true, ThrottleInterval=5s, GIN_MODE=release, WorkingDirectory=/usr/local/var/sub2api (Viper finds config.yaml via cwd). No UserName or Umask keys (inherits liafonx session).
 
 ### Config Priority
 
@@ -153,7 +153,7 @@ sub2api uses Viper with `AutomaticEnv()` and `SetEnvKeyReplacer(".", "_")`:
 Priority: Env vars > config.yaml > defaults
 ```
 
-The plist previously set `SERVER_HOST` and `SERVER_PORT` env vars which silently overrode config.yaml. These were removed — config.yaml is now the single source of truth for all settings except `GIN_MODE`.
+The plist sets only `GIN_MODE=release`. `DATA_DIR` is not set — Viper finds `config.yaml` via `WorkingDirectory=/usr/local/var/sub2api` (the cwd fallback in `config.go`). config.yaml is the single source of truth for all settings except `GIN_MODE`.
 
 ---
 
@@ -300,14 +300,14 @@ cd ../backend && CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -tags embed -ld
 scp -o ServerAliveInterval=10 -o ServerAliveCountMax=2 backend/sub2api liafonx@Liafonxs-Mac-mini.local:/tmp/sub2api
 ```
 
-Then on the Mac Mini (SSH in and run; sudo will prompt for password):
+Then on the Mac Mini (SSH in and run; no sudo needed):
 
 ```bash
 ssh liafonx@Liafonxs-Mac-mini.local
-sudo launchctl bootout system/com.sub2api
-sudo cp /tmp/sub2api /opt/sub2api/sub2api
-sudo launchctl bootstrap system /Library/LaunchDaemons/com.sub2api.plist
-tail -20 /var/log/sub2api/stderr.log
+launchctl bootout gui/$(id -u)/com.sub2api
+cp /tmp/sub2api /usr/local/bin/sub2api
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.sub2api.plist
+tail -20 /usr/local/var/log/sub2api/stderr.log
 ```
 
 **7. Restore stash if you used it**
@@ -334,7 +334,7 @@ git merge upstream/main
 grep InitGlobalRegistry backend/internal/repository/http_upstream.go
 grep '"h2"' backend/internal/pkg/tlsfingerprint/dialer.go
 ls backend/internal/pkg/tlsfingerprint/h2_roundtripper.go
-# Rebuild frontend + backend, deploy
+# Rebuild frontend + backend, deploy (no sudo on Mac Mini)
 ```
 
 ---
@@ -351,7 +351,7 @@ Note: H2/H1 transport creation logs (`h2_transport_created`/`h1_transport_create
 Steps (for deeper debug logging):
 1. Set `log.level: "debug"` in config.yaml (and optionally `server.mode: "debug"`)
 2. Restart sub2api
-3. Check logs: `grep tls_registry /var/log/sub2api/stdout.log`
+3. Check logs: `grep tls_registry /usr/local/var/log/sub2api/stdout.log`
 4. **Reset `log.level` to `"info"` afterward** — debug logging is verbose
 
 ---
