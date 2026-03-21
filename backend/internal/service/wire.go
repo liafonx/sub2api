@@ -305,6 +305,14 @@ func ProvideSoraMediaCleanupService(storage *SoraMediaStorage, cfg *config.Confi
 	return svc
 }
 
+// ProvideClaudeCodeVersionDetectService 创建并启动 Claude Code 版本自动检测服务
+func ProvideClaudeCodeVersionDetectService(settingService *SettingService, cfg *config.Config) *ClaudeCodeVersionDetectService {
+	svc := NewClaudeCodeVersionDetectService(settingService, cfg.Update.ProxyURL, cfg.Security.ProxyFallback.AllowDirectOnError)
+	svc.Start()
+	settingService.SetOnVersionDetectTriggerCallback(svc.Trigger)
+	return svc
+}
+
 func buildIdempotencyConfig(cfg *config.Config) IdempotencyConfig {
 	idempotencyCfg := DefaultIdempotencyConfig()
 	if cfg != nil {

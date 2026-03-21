@@ -538,6 +538,7 @@ func TestAPIContracts(t *testing.T) {
 					"purchase_subscription_url": "",
 					"min_claude_code_version": "",
 					"max_claude_code_version": "",
+					"auto_detect_min_claude_code_version": false,
 					"allow_ungrouped_key_scheduling": false,
 					"backend_mode_enabled": false,
 					"custom_menu_items": []
@@ -653,7 +654,7 @@ func newContractDeps(t *testing.T) *contractDeps {
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	usageHandler := handler.NewUsageHandler(usageService, apiKeyService)
 	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil, nil, nil)
-	adminAccountHandler := adminhandler.NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminAccountHandler := adminhandler.NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	jwtAuth := func(c *gin.Context) {
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{

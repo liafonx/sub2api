@@ -20,9 +20,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// semverPattern 预编译 semver 格式校验正则
-var semverPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
-
 // menuItemIDPattern validates custom menu item IDs: alphanumeric, hyphens, underscores only.
 var menuItemIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
@@ -126,6 +123,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		OpsMetricsIntervalSeconds:            settings.OpsMetricsIntervalSeconds,
 		MinClaudeCodeVersion:                 settings.MinClaudeCodeVersion,
 		MaxClaudeCodeVersion:                 settings.MaxClaudeCodeVersion,
+		AutoDetectMinClaudeCodeVersion:       settings.AutoDetectMinClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:          settings.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                   settings.BackendModeEnabled,
 	})
@@ -199,8 +197,9 @@ type UpdateSettingsRequest struct {
 	OpsQueryModeDefault          *string `json:"ops_query_mode_default"`
 	OpsMetricsIntervalSeconds    *int    `json:"ops_metrics_interval_seconds"`
 
-	MinClaudeCodeVersion string `json:"min_claude_code_version"`
-	MaxClaudeCodeVersion string `json:"max_claude_code_version"`
+	MinClaudeCodeVersion           string `json:"min_claude_code_version"`
+	MaxClaudeCodeVersion           string `json:"max_claude_code_version"`
+	AutoDetectMinClaudeCodeVersion bool   `json:"auto_detect_min_claude_code_version"`
 
 	// 分组隔离
 	AllowUngroupedKeyScheduling bool `json:"allow_ungrouped_key_scheduling"`
@@ -438,7 +437,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 
 	// 验证最低版本号格式（空字符串=禁用，或合法 semver）
 	if req.MinClaudeCodeVersion != "" {
-		if !semverPattern.MatchString(req.MinClaudeCodeVersion) {
+		if !service.SemverPattern.MatchString(req.MinClaudeCodeVersion) {
 			response.Error(c, http.StatusBadRequest, "min_claude_code_version must be empty or a valid semver (e.g. 2.1.63)")
 			return
 		}
@@ -446,7 +445,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 
 	// 验证最高版本号格式（空字符串=禁用，或合法 semver）
 	if req.MaxClaudeCodeVersion != "" {
-		if !semverPattern.MatchString(req.MaxClaudeCodeVersion) {
+		if !service.SemverPattern.MatchString(req.MaxClaudeCodeVersion) {
 			response.Error(c, http.StatusBadRequest, "max_claude_code_version must be empty or a valid semver (e.g. 3.0.0)")
 			return
 		}
@@ -507,6 +506,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		IdentityPatchPrompt:              req.IdentityPatchPrompt,
 		MinClaudeCodeVersion:             req.MinClaudeCodeVersion,
 		MaxClaudeCodeVersion:             req.MaxClaudeCodeVersion,
+		AutoDetectMinClaudeCodeVersion:   req.AutoDetectMinClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:      req.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:               req.BackendModeEnabled,
 		OpsMonitoringEnabled: func() bool {
@@ -608,6 +608,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpsMetricsIntervalSeconds:            updatedSettings.OpsMetricsIntervalSeconds,
 		MinClaudeCodeVersion:                 updatedSettings.MinClaudeCodeVersion,
 		MaxClaudeCodeVersion:                 updatedSettings.MaxClaudeCodeVersion,
+		AutoDetectMinClaudeCodeVersion:       updatedSettings.AutoDetectMinClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:          updatedSettings.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                   updatedSettings.BackendModeEnabled,
 	})
@@ -766,6 +767,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.MaxClaudeCodeVersion != after.MaxClaudeCodeVersion {
 		changed = append(changed, "max_claude_code_version")
+	}
+	if before.AutoDetectMinClaudeCodeVersion != after.AutoDetectMinClaudeCodeVersion {
+		changed = append(changed, "auto_detect_min_claude_code_version")
 	}
 	if before.AllowUngroupedKeyScheduling != after.AllowUngroupedKeyScheduling {
 		changed = append(changed, "allow_ungrouped_key_scheduling")

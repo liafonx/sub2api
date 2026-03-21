@@ -86,12 +86,13 @@ type DefaultSubscriptionGroupReader interface {
 
 // SettingService 系统设置服务
 type SettingService struct {
-	settingRepo           SettingRepository
-	defaultSubGroupReader DefaultSubscriptionGroupReader
-	cfg                   *config.Config
-	onUpdate              func() // Callback when settings are updated (for cache invalidation)
-	onS3Update            func() // Callback when Sora S3 settings are updated
-	version               string // Application version
+	settingRepo            SettingRepository
+	defaultSubGroupReader  DefaultSubscriptionGroupReader
+	cfg                    *config.Config
+	onUpdate               func() // Callback when settings are updated (for cache invalidation)
+	onS3Update             func() // Callback when Sora S3 settings are updated
+	onVersionDetectTrigger func() // Callback to trigger immediate Claude Code version check
+	version                string // Application version
 }
 
 // NewSettingService 创建系统设置服务实例
@@ -209,6 +210,12 @@ func (s *SettingService) SetOnUpdateCallback(callback func()) {
 // SetOnS3UpdateCallback 设置 Sora S3 配置变更时的回调函数（用于刷新 S3 客户端缓存）。
 func (s *SettingService) SetOnS3UpdateCallback(callback func()) {
 	s.onS3Update = callback
+}
+
+// SetOnVersionDetectTriggerCallback 设置自动版本检测触发回调。
+// 当管理员开启自动检测时立即触发一次检测。
+func (s *SettingService) SetOnVersionDetectTriggerCallback(callback func()) {
+	s.onVersionDetectTrigger = callback
 }
 
 // SetVersion sets the application version for injection into public settings
@@ -486,12 +493,16 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 	// Claude Code version check
 	updates[SettingKeyMinClaudeCodeVersion] = settings.MinClaudeCodeVersion
 	updates[SettingKeyMaxClaudeCodeVersion] = settings.MaxClaudeCodeVersion
+	updates[SettingKeyAutoDetectMinClaudeCodeVersion] = strconv.FormatBool(settings.AutoDetectMinClaudeCodeVersion)
 
 	// 分组隔离
 	updates[SettingKeyAllowUngroupedKeyScheduling] = strconv.FormatBool(settings.AllowUngroupedKeyScheduling)
 
 	// Backend Mode
 	updates[SettingKeyBackendModeEnabled] = strconv.FormatBool(settings.BackendModeEnabled)
+
+	// Read the previous auto-detect value before overwriting, so we can detect false→true transitions.
+	prevAutoDetect, _ := s.settingRepo.GetValue(ctx, SettingKeyAutoDetectMinClaudeCodeVersion)
 
 	err = s.settingRepo.SetMultiple(ctx, updates)
 	if err == nil {
@@ -509,6 +520,9 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 		})
 		if s.onUpdate != nil {
 			s.onUpdate() // Invalidate cache after settings update
+		}
+		if settings.AutoDetectMinClaudeCodeVersion && prevAutoDetect != "true" && s.onVersionDetectTrigger != nil {
+			s.onVersionDetectTrigger()
 		}
 	}
 	return err
@@ -762,8 +776,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyOpsMetricsIntervalSeconds:    "60",
 
 		// Claude Code version check (default: empty = disabled)
-		SettingKeyMinClaudeCodeVersion: "",
-		SettingKeyMaxClaudeCodeVersion: "",
+		SettingKeyMinClaudeCodeVersion:           "",
+		SettingKeyMaxClaudeCodeVersion:           "",
+		SettingKeyAutoDetectMinClaudeCodeVersion: "false",
 
 		// 分组隔离（默认不允许未分组 Key 调度）
 		SettingKeyAllowUngroupedKeyScheduling: "false",
@@ -900,6 +915,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	// Claude Code version check
 	result.MinClaudeCodeVersion = settings[SettingKeyMinClaudeCodeVersion]
 	result.MaxClaudeCodeVersion = settings[SettingKeyMaxClaudeCodeVersion]
+	result.AutoDetectMinClaudeCodeVersion = settings[SettingKeyAutoDetectMinClaudeCodeVersion] == "true"
 
 	// 分组隔离
 	result.AllowUngroupedKeyScheduling = settings[SettingKeyAllowUngroupedKeyScheduling] == "true"
@@ -1341,6 +1357,21 @@ func (s *SettingService) GetClaudeCodeVersionBounds(ctx context.Context) (min, m
 		return "", ""
 	}
 	return b.min, b.max
+}
+
+// UpdateMinClaudeCodeVersionFromDetect 由自动检测服务调用，更新最低 Claude Code 版本号并刷新缓存。
+// 使用单键更新避免覆盖其他设置，缓存立即失效以使网关请求获取到新值。
+func (s *SettingService) UpdateMinClaudeCodeVersionFromDetect(ctx context.Context, version string) error {
+	if err := s.settingRepo.Set(ctx, SettingKeyMinClaudeCodeVersion, version); err != nil {
+		return err
+	}
+	versionBoundsSF.Forget("version_bounds")
+	// expiresAt=0 强制下次访问时重新从 DB 读取（同时获取最新的 max 值）
+	versionBoundsCache.Store(&cachedVersionBounds{expiresAt: 0})
+	if s.onUpdate != nil {
+		s.onUpdate()
+	}
+	return nil
 }
 
 // GetRectifierSettings 获取请求整流器配置

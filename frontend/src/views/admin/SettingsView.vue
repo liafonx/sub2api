@@ -1113,6 +1113,17 @@
             </p>
           </div>
           <div class="p-6">
+            <div class="mb-4 flex items-center justify-between">
+              <div>
+                <label class="font-medium text-gray-900 dark:text-white">
+                  {{ t('admin.settings.claudeCode.autoDetect') }}
+                </label>
+                <p class="text-sm text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.claudeCode.autoDetectHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.auto_detect_min_claude_code_version" />
+            </div>
             <div>
               <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 {{ t('admin.settings.claudeCode.minVersion') }}
@@ -1122,9 +1133,13 @@
                 type="text"
                 class="input max-w-xs font-mono text-sm"
                 :placeholder="t('admin.settings.claudeCode.minVersionPlaceholder')"
+                :readonly="form.auto_detect_min_claude_code_version"
+                :class="{ 'opacity-50 cursor-not-allowed bg-gray-50 dark:bg-dark-800': form.auto_detect_min_claude_code_version }"
               />
               <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                {{ t('admin.settings.claudeCode.minVersionHint') }}
+                {{ form.auto_detect_min_claude_code_version
+                  ? t('admin.settings.claudeCode.autoDetectActiveHint')
+                  : t('admin.settings.claudeCode.minVersionHint') }}
               </p>
             </div>
             <div class="mt-4">
@@ -1982,6 +1997,7 @@ const form = reactive<SettingsForm>({
   // Claude Code version check
   min_claude_code_version: '',
   max_claude_code_version: '',
+  auto_detect_min_claude_code_version: false,
   // 分组隔离
   allow_ungrouped_key_scheduling: false
 })
@@ -2248,6 +2264,7 @@ async function saveSettings() {
       identity_patch_prompt: form.identity_patch_prompt,
       min_claude_code_version: form.min_claude_code_version,
       max_claude_code_version: form.max_claude_code_version,
+      auto_detect_min_claude_code_version: form.auto_detect_min_claude_code_version,
       allow_ungrouped_key_scheduling: form.allow_ungrouped_key_scheduling
     }
     const updated = await adminAPI.settings.updateSettings(payload)
