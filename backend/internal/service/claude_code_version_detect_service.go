@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -15,15 +14,13 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
 )
 
-// SemverPattern validates a strict three-part semver string (e.g. "1.2.3").
-var SemverPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
-
 // ClaudeCodeVersionDetectService 定期从 npm 检测最新 Claude Code 稳定版本号，
 // 当 auto_detect_min_claude_code_version 设置为 true 时，自动更新最低版本号要求。
 type ClaudeCodeVersionDetectService struct {
 	settingService *SettingService
 	httpClient     *http.Client
 	stopCh         chan struct{}
+	stopOnce       sync.Once
 	triggerCh      chan struct{} // 收到信号时立即检测并重置计时器
 	wg             sync.WaitGroup
 	registryURL    string
@@ -46,6 +43,9 @@ func NewClaudeCodeVersionDetectService(settingService *SettingService, proxyURL 
 			client = &http.Client{Timeout: 30 * time.Second}
 		}
 	}
+	if intervalHours < 1 {
+		intervalHours = 1
+	}
 	return &ClaudeCodeVersionDetectService{
 		settingService: settingService,
 		httpClient:     client,
@@ -66,12 +66,12 @@ func (s *ClaudeCodeVersionDetectService) Start() {
 
 // Stop 停止检测服务，等待后台 goroutine 退出
 func (s *ClaudeCodeVersionDetectService) Stop() {
-	close(s.stopCh)
+	s.stopOnce.Do(func() { close(s.stopCh) })
 	s.wg.Wait()
 	slog.Info("claude_code_version_detect.stopped")
 }
 
-// Trigger 立即触发一次版本检测并重置 6 小时计时器。
+// Trigger 立即触发一次版本检测并重置计时器（间隔由配置决定）。
 // 用于管理员在设置页面开启自动检测时立刻生效。
 // 非阻塞：若上一次触发尚未处理，本次触发被忽略。
 func (s *ClaudeCodeVersionDetectService) Trigger() {
@@ -131,7 +131,7 @@ func (s *ClaudeCodeVersionDetectService) detectAndUpdate() {
 
 	newVersion, err := s.fetchStableVersion(ctx)
 	if err != nil {
-		return // error already logged inside fetchLatestVersion
+		return // error already logged inside fetchStableVersion
 	}
 
 	currentVersion := settings.MinClaudeCodeVersion

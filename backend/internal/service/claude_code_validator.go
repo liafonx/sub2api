@@ -14,6 +14,9 @@ import (
 // 完全学习自 claude-relay-service 项目的验证逻辑
 type ClaudeCodeValidator struct{}
 
+// SemverPattern validates a strict three-part semver string (e.g. "1.2.3").
+var SemverPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+
 var (
 	// User-Agent 匹配: claude-cli/x.x.x (仅支持官方 CLI，大小写不敏感)
 	claudeCodeUAPattern = regexp.MustCompile(`(?i)^claude-cli/\d+\.\d+\.\d+`)
