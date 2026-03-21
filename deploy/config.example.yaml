@@ -993,3 +993,18 @@ update:
   # Leave empty for direct connection (recommended for overseas servers)
   # 留空表示直连（适用于海外服务器）
   proxy_url: ""
+
+# =============================================================================
+# Claude Code Version Auto-Detect (版本自动检测配置)
+# =============================================================================
+claude_code_detect:
+  # npm registry URL for fetching the stable Claude Code version
+  # npm 注册表 URL，用于获取 Claude Code 稳定版本号
+  # Use "stable" dist-tag (not "latest") to avoid blocking users on official stable releases
+  # Default: "https://registry.npmjs.org/@anthropic-ai/claude-code/stable"
+  registry_url: "https://registry.npmjs.org/@anthropic-ai/claude-code/stable"
+
+  # Detection interval in hours
+  # 检测间隔（小时）
+  # Default: 6
+  interval_hours: 6

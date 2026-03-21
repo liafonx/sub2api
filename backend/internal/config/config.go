@@ -83,6 +83,7 @@ type Config struct {
 	Gemini                  GeminiConfig                  `mapstructure:"gemini"`
 	Update                  UpdateConfig                  `mapstructure:"update"`
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
+	ClaudeCodeDetect        ClaudeCodeDetectConfig        `mapstructure:"claude_code_detect"`
 }
 
 type LogConfig struct {
@@ -144,6 +145,11 @@ type UpdateConfig struct {
 	// 支持 http/https/socks5/socks5h 协议
 	// 例如: "http://127.0.0.1:7890", "socks5://127.0.0.1:1080"
 	ProxyURL string `mapstructure:"proxy_url"`
+}
+
+type ClaudeCodeDetectConfig struct {
+	RegistryURL   string `mapstructure:"registry_url"`
+	IntervalHours int    `mapstructure:"interval_hours"`
 }
 
 type IdempotencyConfig struct {
@@ -1500,6 +1506,10 @@ func setDefaults() {
 	// Subscription Maintenance (bounded queue + worker pool)
 	viper.SetDefault("subscription_maintenance.worker_count", 2)
 	viper.SetDefault("subscription_maintenance.queue_size", 1024)
+
+	// ClaudeCodeDetect
+	viper.SetDefault("claude_code_detect.registry_url", "https://registry.npmjs.org/@anthropic-ai/claude-code/stable")
+	viper.SetDefault("claude_code_detect.interval_hours", 6)
 
 }
 

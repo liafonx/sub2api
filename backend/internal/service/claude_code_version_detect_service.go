@@ -15,11 +15,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
 )
 
-const (
-	npmClaudeCodeLatestURL   = "https://registry.npmjs.org/@anthropic-ai/claude-code/latest"
-	claudeCodeDetectInterval = 6 * time.Hour
-)
-
 // SemverPattern validates a strict three-part semver string (e.g. "1.2.3").
 var SemverPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
@@ -31,11 +26,13 @@ type ClaudeCodeVersionDetectService struct {
 	stopCh         chan struct{}
 	triggerCh      chan struct{} // 收到信号时立即检测并重置计时器
 	wg             sync.WaitGroup
+	registryURL    string
+	detectInterval time.Duration
 }
 
 // NewClaudeCodeVersionDetectService 创建检测服务实例
 // proxyURL 为空时直连 npm，支持 http/https/socks5/socks5h 协议
-func NewClaudeCodeVersionDetectService(settingService *SettingService, proxyURL string, allowDirectOnProxyError bool) *ClaudeCodeVersionDetectService {
+func NewClaudeCodeVersionDetectService(settingService *SettingService, proxyURL string, allowDirectOnProxyError bool, registryURL string, intervalHours int) *ClaudeCodeVersionDetectService {
 	client, err := httpclient.GetClient(httpclient.Options{
 		Timeout:  30 * time.Second,
 		ProxyURL: proxyURL,
@@ -54,6 +51,8 @@ func NewClaudeCodeVersionDetectService(settingService *SettingService, proxyURL 
 		httpClient:     client,
 		stopCh:         make(chan struct{}),
 		triggerCh:      make(chan struct{}, 1), // buffered: one pending trigger at a time
+		registryURL:    registryURL,
+		detectInterval: time.Duration(intervalHours) * time.Hour,
 	}
 }
 
@@ -62,7 +61,7 @@ func (s *ClaudeCodeVersionDetectService) Start() {
 	s.wg.Add(1)
 	go s.loop()
 
-	slog.Info("claude_code_version_detect.started", "interval", claudeCodeDetectInterval.String())
+	slog.Info("claude_code_version_detect.started", "interval", s.detectInterval.String())
 }
 
 // Stop 停止检测服务，等待后台 goroutine 退出
@@ -87,7 +86,7 @@ func (s *ClaudeCodeVersionDetectService) loop() {
 
 	s.detectAndUpdate() // initial detection before entering the ticker loop
 
-	ticker := time.NewTicker(claudeCodeDetectInterval)
+	ticker := time.NewTicker(s.detectInterval)
 	defer ticker.Stop()
 
 	for {
@@ -95,8 +94,8 @@ func (s *ClaudeCodeVersionDetectService) loop() {
 		case <-ticker.C:
 			s.detectAndUpdate()
 		case <-s.triggerCh:
-			// Reset timer so next auto-tick is 6h from now
-			ticker.Reset(claudeCodeDetectInterval)
+			// Reset timer so next auto-tick is from now
+			ticker.Reset(s.detectInterval)
 			s.detectAndUpdate()
 		case <-s.stopCh:
 			return
@@ -130,7 +129,7 @@ func (s *ClaudeCodeVersionDetectService) detectAndUpdate() {
 		return
 	}
 
-	newVersion, err := s.fetchLatestVersion(ctx)
+	newVersion, err := s.fetchStableVersion(ctx)
 	if err != nil {
 		return // error already logged inside fetchLatestVersion
 	}
@@ -149,9 +148,9 @@ func (s *ClaudeCodeVersionDetectService) detectAndUpdate() {
 	slog.Info("claude_code_version_detect.version_updated", "old_version", currentVersion, "new_version", newVersion)
 }
 
-// fetchLatestVersion 从 npm 注册表获取最新版本号
-func (s *ClaudeCodeVersionDetectService) fetchLatestVersion(ctx context.Context) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, npmClaudeCodeLatestURL, nil)
+// fetchStableVersion 从 npm 注册表获取稳定版本号
+func (s *ClaudeCodeVersionDetectService) fetchStableVersion(ctx context.Context) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.registryURL, nil)
 	if err != nil {
 		slog.Warn("claude_code_version_detect.fetch_network_error", "error", err)
 		return "", err
