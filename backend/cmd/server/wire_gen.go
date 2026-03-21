@@ -255,7 +255,8 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	accountExpiryService := service.ProvideAccountExpiryService(accountRepository)
 	subscriptionExpiryService := service.ProvideSubscriptionExpiryService(userSubscriptionRepository)
 	scheduledTestRunnerService := service.ProvideScheduledTestRunnerService(scheduledTestPlanRepository, scheduledTestService, accountTestService, rateLimitService, configConfig)
-	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, soraMediaCleanupService, schedulerSnapshotService, tokenRefreshService, accountExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService)
+	claudeCodeVersionDetectService := service.ProvideClaudeCodeVersionDetectService(settingService, configConfig)
+	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, soraMediaCleanupService, schedulerSnapshotService, tokenRefreshService, accountExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, claudeCodeVersionDetectService)
 	application := &Application{
 		Server:  httpServer,
 		Cleanup: v,
@@ -309,6 +310,7 @@ func provideCleanup(
 	openAIGateway *service.OpenAIGatewayService,
 	scheduledTestRunner *service.ScheduledTestRunnerService,
 	backupSvc *service.BackupService,
+	claudeCodeVersionDetect *service.ClaudeCodeVersionDetectService,
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -447,6 +449,12 @@ func provideCleanup(
 			{"BackupService", func() error {
 				if backupSvc != nil {
 					backupSvc.Stop()
+				}
+				return nil
+			}},
+			{"ClaudeCodeVersionDetectService", func() error {
+				if claudeCodeVersionDetect != nil {
+					claudeCodeVersionDetect.Stop()
 				}
 				return nil
 			}},

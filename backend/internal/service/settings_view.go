@@ -66,8 +66,9 @@ type SystemSettings struct {
 	OpsMetricsIntervalSeconds    int
 
 	// Claude Code version check
-	MinClaudeCodeVersion string
-	MaxClaudeCodeVersion string
+	MinClaudeCodeVersion           string
+	MaxClaudeCodeVersion           string
+	AutoDetectMinClaudeCodeVersion bool
 
 	// 分组隔离：允许未分组 Key 调度（默认 false → 403）
 	AllowUngroupedKeyScheduling bool
