@@ -6,7 +6,7 @@
 #
 # Known limitations vs Linux version:
 #   - No equivalent of systemd's NoNewPrivileges/ProtectSystem/ProtectHome/PrivateTmp
-#   - No automatic log rotation (logs grow unbounded; configure newsyslog manually if needed)
+#   - App logs rotated by lumberjack; stderr.log (panics/transport logs) still needs manual rotation
 #   - Additional app environment variables (DB config, etc.) must be added to the plist's
 #     EnvironmentVariables dict — launchd does not inherit the shell environment
 #   - Installs as the current user (LaunchAgent). Auto-login must be enabled for service
@@ -635,8 +635,6 @@ install_service() {
     <true/>
     <key>ThrottleInterval</key>
     <integer>5</integer>
-    <key>StandardOutPath</key>
-    <string>${LOG_DIR}/stdout.log</string>
     <key>StandardErrorPath</key>
     <string>${LOG_DIR}/stderr.log</string>
     <key>EnvironmentVariables</key>
@@ -703,7 +701,7 @@ start_service() {
         return 0
     else
         print_error "$(msg 'service_start_failed')"
-        print_info "tail -f ${LOG_DIR}/stderr.log"
+        print_info "tail -f ${LOG_DIR}/sub2api.log"
         return 1
     fi
 }
@@ -751,7 +749,7 @@ print_completion() {
     echo "=============================================="
     echo ""
     echo "  $(msg 'cmd_status'):   launchctl print gui/${uid}/${LAUNCHD_LABEL}"
-    echo "  $(msg 'cmd_logs'):     tail -f ${LOG_DIR}/stdout.log"
+    echo "  $(msg 'cmd_logs'):     tail -f ${LOG_DIR}/sub2api.log"
     echo "  $(msg 'cmd_restart'):  launchctl bootout gui/${uid}/${LAUNCHD_LABEL} && launchctl bootstrap gui/${uid} ${LAUNCHD_PLIST}"
     echo "  $(msg 'cmd_stop'):     launchctl bootout gui/${uid}/${LAUNCHD_LABEL}"
     echo ""
@@ -853,7 +851,7 @@ install_version() {
         print_success "$(msg 'service_started')"
     else
         print_error "$(msg 'service_start_failed')"
-        print_info "tail -n 50 ${LOG_DIR}/stderr.log"
+        print_info "tail -n 50 ${LOG_DIR}/sub2api.log"
     fi
 
     local new_version
