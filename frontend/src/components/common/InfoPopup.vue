@@ -44,7 +44,7 @@ function hide() {
 </script>
 
 <template>
-  <span ref="referenceEl" data-trigger class="inline-flex" @click="toggle" @mouseenter="show" @mouseleave="hide">
+  <span ref="referenceEl" data-trigger class="inline-flex" @click="toggle" @pointerenter="e => e.pointerType === 'mouse' && show()" @pointerleave="e => e.pointerType === 'mouse' && hide()">
     <slot name="trigger" />
   </span>
 
