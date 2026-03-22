@@ -1,10 +1,7 @@
-<script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useFloating, flip, shift, offset, arrow, autoUpdate } from '@floating-ui/vue'
-import Icon from '@/components/icons/Icon.vue'
-
-// Module-level singleton: one document listener for all instances,
-// tracks the currently open popup so only one is open at a time.
+<script lang="ts">
+// Module-level singleton: truly shared across all instances.
+// Declared here (not in <script setup>) so it runs once at module scope,
+// not once per component instance inside setup().
 let closeActivePopup: (() => void) | null = null
 let activeContains: ((t: Node) => boolean) | null = null
 let listenerCount = 0
@@ -18,6 +15,12 @@ function handleGlobalClick(event: MouseEvent) {
   if (el?.closest('[data-infopopup-trigger]')) return
   closeActivePopup()
 }
+</script>
+
+<script setup lang="ts">
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useFloating, flip, shift, offset, arrow, autoUpdate } from '@floating-ui/vue'
+import Icon from '@/components/icons/Icon.vue'
 
 const open = ref(false)
 const referenceEl = ref<HTMLElement | null>(null)
