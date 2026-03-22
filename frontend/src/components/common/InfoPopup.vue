@@ -1,6 +1,23 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useFloating, flip, shift, offset, arrow, autoUpdate } from '@floating-ui/vue'
+import Icon from '@/components/icons/Icon.vue'
+
+// Module-level singleton: one document listener for all instances,
+// tracks the currently open popup so only one is open at a time.
+let closeActivePopup: (() => void) | null = null
+let activeContains: ((t: Node) => boolean) | null = null
+let listenerCount = 0
+
+function handleGlobalClick(event: MouseEvent) {
+  if (!closeActivePopup) return
+  const target = event.target as Node
+  if (activeContains?.(target)) return
+  // If clicking another InfoPopup trigger, let its toggle() handle closing this one
+  const el = target instanceof Element ? target : target.parentElement
+  if (el?.closest('[data-infopopup-trigger]')) return
+  closeActivePopup()
+}
 
 const open = ref(false)
 const referenceEl = ref<HTMLElement | null>(null)
@@ -30,32 +47,53 @@ const arrowStyle = computed(() => {
   }
 })
 
-function toggle() {
-  open.value = !open.value
+function hide() {
+  open.value = false
+  if (closeActivePopup === hide) {
+    closeActivePopup = null
+    activeContains = null
+  }
 }
 
 function show() {
+  if (open.value) return
+  closeActivePopup?.()
   open.value = true
+  closeActivePopup = hide
+  // Capture refs via closure so floatingEl resolves after v-if renders
+  activeContains = (t: Node) =>
+    (referenceEl.value?.contains(t) ?? false) || (floatingEl.value?.contains(t) ?? false)
 }
 
-function hide() {
-  open.value = false
+function toggle() {
+  if (open.value) {
+    hide()
+  } else {
+    show()
+  }
 }
 
-function handleClickOutside(event: MouseEvent) {
-  if (!open.value) return
-  const target = event.target as Node
-  if (referenceEl.value?.contains(target) || floatingEl.value?.contains(target)) return
-  open.value = false
-}
-
-onMounted(() => document.addEventListener('click', handleClickOutside, true))
-onUnmounted(() => document.removeEventListener('click', handleClickOutside, true))
+onMounted(() => {
+  if (listenerCount === 0) document.addEventListener('click', handleGlobalClick, true)
+  listenerCount++
+})
+onUnmounted(() => {
+  listenerCount--
+  if (listenerCount === 0) document.removeEventListener('click', handleGlobalClick, true)
+  if (closeActivePopup === hide) {
+    closeActivePopup = null
+    activeContains = null
+  }
+})
 </script>
 
 <template>
-  <span ref="referenceEl" data-trigger class="inline-flex" @click="toggle" @pointerenter="e => e.pointerType === 'mouse' && show()" @pointerleave="e => e.pointerType === 'mouse' && hide()">
-    <slot name="trigger" />
+  <span ref="referenceEl" data-infopopup-trigger class="inline-flex" @click="toggle" @pointerenter="e => e.pointerType === 'mouse' && show()" @pointerleave="e => e.pointerType === 'mouse' && hide()">
+    <slot name="trigger">
+      <div class="flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-gray-100 transition-colors hover:bg-blue-100 dark:bg-gray-700 dark:hover:bg-blue-900/50">
+        <Icon name="infoCircle" size="xs" class="text-gray-400 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400" />
+      </div>
+    </slot>
   </span>
 
   <Teleport to="body">
@@ -66,9 +104,8 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside, true
       class="z-[9999] pointer-events-none"
       :style="floatingStyles"
     >
-      <div class="whitespace-nowrap rounded-lg border border-gray-700 bg-gray-900 px-3 py-2.5 text-xs text-white shadow-xl dark:border-gray-600 dark:bg-gray-800">
+      <div class="pointer-events-auto whitespace-nowrap rounded-lg border border-gray-700 bg-gray-900 px-3 py-2.5 text-xs text-white shadow-xl dark:border-gray-600 dark:bg-gray-800">
         <slot />
-        <!-- Dynamic arrow triangle -->
         <div
           ref="arrowEl"
           :style="arrowStyle"

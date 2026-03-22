@@ -245,11 +245,6 @@
               </div>
               <!-- Token Detail Tooltip -->
               <InfoPopup>
-                <template #trigger>
-                  <div class="flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-gray-100 transition-colors hover:bg-blue-100 dark:bg-gray-700 dark:hover:bg-blue-900/50">
-                    <Icon name="infoCircle" size="xs" class="text-gray-400 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400" />
-                  </div>
-                </template>
                 <div class="space-y-1.5">
                   <div>
                     <div class="text-xs font-semibold text-gray-300 mb-1">{{ t('usage.tokenDetails') }}</div>
@@ -311,11 +306,6 @@
               </span>
               <!-- Cost Detail Tooltip -->
               <InfoPopup>
-                <template #trigger>
-                  <div class="flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-gray-100 transition-colors hover:bg-blue-100 dark:bg-gray-700 dark:hover:bg-blue-900/50">
-                    <Icon name="infoCircle" size="xs" class="text-gray-400 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400" />
-                  </div>
-                </template>
                 <div class="space-y-1.5">
                   <div class="mb-2 border-b border-gray-700 pb-1.5">
                     <div class="text-xs font-semibold text-gray-300 mb-1">{{ t('usage.costDetails') }}</div>

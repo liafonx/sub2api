@@ -1,5 +1,5 @@
 <template>
-  <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+  <div class="rounded-lg border border-gray-200 p-2 sm:p-4 dark:border-dark-600">
     <!-- Enable toggle header -->
     <div class="flex items-center justify-between">
       <div>
@@ -38,7 +38,7 @@
       <div
         v-for="(rule, index) in config.rules"
         :key="index"
-        class="rounded-lg border border-gray-200 p-4 dark:border-dark-600"
+        class="rounded-lg border border-gray-200 p-2 sm:p-4 dark:border-dark-600"
       >
         <!-- Rule header -->
         <div class="mb-3 flex items-center justify-between">
@@ -163,7 +163,7 @@
                 <input
                   type="time"
                   :value="rule.time_start ?? ''"
-                  class="input mt-1 w-full"
+                  class="input mt-1 w-full min-w-0"
                   @change="updateRule(index, { time_start: ($event.target as HTMLInputElement).value || undefined })"
                 />
               </div>
@@ -174,12 +174,12 @@
                 <input
                   type="time"
                   :value="rule.time_end ?? ''"
-                  class="input mt-1 w-full"
+                  class="input mt-1 w-full min-w-0"
                   @change="updateRule(index, { time_end: ($event.target as HTMLInputElement).value || undefined })"
                 />
               </div>
               <!-- Time mode radios -->
-              <div class="flex gap-4">
+              <div class="flex flex-wrap gap-x-4 gap-y-1">
                 <label class="flex cursor-pointer items-center gap-1.5 text-sm">
                   <input
                     type="radio"
@@ -219,7 +219,7 @@
                 <input
                   type="date"
                   :value="rule.date_start ?? ''"
-                  class="input mt-1 w-full"
+                  class="input mt-1 w-full min-w-0"
                   @change="updateRule(index, { date_start: ($event.target as HTMLInputElement).value || undefined })"
                 />
               </div>
@@ -230,7 +230,7 @@
                 <input
                   type="date"
                   :value="rule.date_end ?? ''"
-                  class="input mt-1 w-full"
+                  class="input mt-1 w-full min-w-0"
                   @change="updateRule(index, { date_end: ($event.target as HTMLInputElement).value || undefined })"
                 />
               </div>

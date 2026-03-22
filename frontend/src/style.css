@@ -169,6 +169,13 @@
     @apply disabled:cursor-not-allowed disabled:bg-gray-100 dark:disabled:bg-dark-900;
   }
 
+  .input[type='time'],
+  .input[type='date'] {
+    @apply px-3;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
   .input-error {
     @apply border-red-500 focus:border-red-500 focus:ring-red-500/30;
   }

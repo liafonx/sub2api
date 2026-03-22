@@ -129,7 +129,7 @@ cd ../backend
 CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -tags embed -ldflags "-s -w" -o sub2api ./cmd/server
 
 # 3. Deploy
-scp backend/sub2api user@192.168.5.5:/tmp/sub2api
+scp backend/sub2api liafonx@Liafonxs-Mac-mini.local:/tmp/sub2api
 # On Mac Mini:
 # sudo launchctl bootout system/com.sub2api
 # sudo cp /tmp/sub2api /opt/sub2api/sub2api

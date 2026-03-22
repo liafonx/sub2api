@@ -147,3 +147,4 @@ frontend/coverage/
 aicodex
 Usage_Endpoint.md
 output/
+.playwright-cli/
