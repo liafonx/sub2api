@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useFloating, flip, shift, offset, arrow, autoUpdate } from '@floating-ui/vue'
 
 const open = ref(false)
@@ -41,6 +41,16 @@ function show() {
 function hide() {
   open.value = false
 }
+
+function handleClickOutside(event: MouseEvent) {
+  if (!open.value) return
+  const target = event.target as Node
+  if (referenceEl.value?.contains(target) || floatingEl.value?.contains(target)) return
+  open.value = false
+}
+
+onMounted(() => document.addEventListener('click', handleClickOutside, true))
+onUnmounted(() => document.removeEventListener('click', handleClickOutside, true))
 </script>
 
 <template>
