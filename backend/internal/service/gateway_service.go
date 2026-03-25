@@ -571,6 +571,7 @@ type GatewayService struct {
 	ccProbeService        *CCProbeService // optional, injected post-construction
 	debugModelRouting     atomic.Bool
 	debugClaudeMimic      atomic.Bool
+	pricingService        *PricingService
 }
 
 // NewGatewayService creates a new GatewayService
@@ -597,6 +598,7 @@ func NewGatewayService(
 	rpmCache RPMCache,
 	digestStore *DigestSessionStore,
 	settingService *SettingService,
+	pricingService *PricingService,
 ) *GatewayService {
 	userGroupRateTTL := resolveUserGroupRateCacheTTL(cfg)
 	modelsListTTL := resolveModelsListCacheTTL(cfg)
@@ -628,6 +630,7 @@ func NewGatewayService(
 		modelsListCache:      gocache.New(modelsListTTL, time.Minute),
 		modelsListCacheTTL:   modelsListTTL,
 		responseHeaderFilter: compileResponseHeaderFilter(cfg),
+		pricingService:       pricingService,
 	}
 	svc.userGroupRateResolver = newUserGroupRateResolver(
 		userGroupRateRepo,
@@ -3560,6 +3563,14 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 	// OAuth/SetupToken 账号使用 Anthropic 标准映射（短ID → 长ID）
 	if account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {
 		requestedModel = claude.NormalizeModelID(requestedModel)
+	}
+	// Provider-based routing: reject mismatched model→platform combinations
+	if s.cfg.Pricing.EnforceProviderRouting && s.pricingService != nil {
+		if provider := s.pricingService.GetModelProvider(requestedModel); provider != "" {
+			if !isProviderAllowedForPlatform(provider, account.Platform) {
+				return false
+			}
+		}
 	}
 	// 其他平台使用账户的模型支持检查
 	return account.IsModelSupported(requestedModel)

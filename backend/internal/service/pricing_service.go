@@ -82,12 +82,13 @@ type LiteLLMRawEntry struct {
 
 // PricingService 动态价格服务
 type PricingService struct {
-	cfg          *config.Config
-	remoteClient PricingRemoteClient
-	mu           sync.RWMutex
-	pricingData  map[string]*LiteLLMModelPricing
-	lastUpdated  time.Time
-	localHash    string
+	cfg           *config.Config
+	remoteClient  PricingRemoteClient
+	mu            sync.RWMutex
+	pricingData   map[string]*LiteLLMModelPricing
+	modelProvider map[string]string
+	lastUpdated   time.Time
+	localHash     string
 
 	// 停止信号
 	stopCh chan struct{}
@@ -97,10 +98,11 @@ type PricingService struct {
 // NewPricingService 创建价格服务
 func NewPricingService(cfg *config.Config, remoteClient PricingRemoteClient) *PricingService {
 	s := &PricingService{
-		cfg:          cfg,
-		remoteClient: remoteClient,
-		pricingData:  make(map[string]*LiteLLMModelPricing),
-		stopCh:       make(chan struct{}),
+		cfg:           cfg,
+		remoteClient:  remoteClient,
+		pricingData:   make(map[string]*LiteLLMModelPricing),
+		modelProvider: make(map[string]string),
+		stopCh:        make(chan struct{}),
 	}
 	return s
 }
@@ -291,6 +293,7 @@ func (s *PricingService) downloadPricingData() error {
 	// 更新内存数据
 	s.mu.Lock()
 	s.pricingData = data
+	s.modelProvider = buildModelProviderIndex(data)
 	s.lastUpdated = time.Now()
 	s.localHash = hashStr
 	s.mu.Unlock()
@@ -396,6 +399,7 @@ func (s *PricingService) loadPricingData(filePath string) error {
 
 	s.mu.Lock()
 	s.pricingData = pricingData
+	s.modelProvider = buildModelProviderIndex(pricingData)
 	s.localHash = hashStr
 
 	info, _ := os.Stat(filePath)
@@ -771,6 +775,25 @@ func (s *PricingService) generateOpenAIModelVariants(model string, datePattern *
 	}
 
 	return variants
+}
+
+// buildModelProviderIndex builds a lowercase model name → litellm_provider lookup map.
+func buildModelProviderIndex(data map[string]*LiteLLMModelPricing) map[string]string {
+	index := make(map[string]string, len(data))
+	for name, pricing := range data {
+		if pricing.LiteLLMProvider != "" {
+			index[strings.ToLower(name)] = pricing.LiteLLMProvider
+		}
+	}
+	return index
+}
+
+// GetModelProvider returns the litellm_provider for a model name, or "" if unknown.
+// Uses exact match on lowercase model name only — no fuzzy matching.
+func (s *PricingService) GetModelProvider(modelName string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.modelProvider[strings.ToLower(modelName)]
 }
 
 // GetStatus 获取服务状态
