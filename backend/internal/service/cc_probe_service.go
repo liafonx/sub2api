@@ -423,12 +423,19 @@ def request(flow: http.HTTPFlow):
 		return fmt.Errorf("cc_probe: captured headers are empty")
 	}
 
+	// Normalize header keys to lowercase for consistent lookup.
+	// mitmproxy preserves the original HTTP header casing (title-case for HTTP/1.1).
+	normalized := make(map[string]string, len(captured.Headers))
+	for k, v := range captured.Headers {
+		normalized[strings.ToLower(k)] = v
+	}
+
 	// Extract CC version from User-Agent
-	ccVersion := extractCCVersionFromUA(captured.Headers["user-agent"])
+	ccVersion := extractCCVersionFromUA(normalized["user-agent"])
 
 	traits := &CCVersionTraits{
 		CCVersion:  ccVersion,
-		Headers:    captured.Headers,
+		Headers:    normalized,
 		CapturedAt: time.Now(),
 	}
 
