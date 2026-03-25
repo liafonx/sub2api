@@ -598,7 +598,6 @@ func NewGatewayService(
 	rpmCache RPMCache,
 	digestStore *DigestSessionStore,
 	settingService *SettingService,
-	pricingService *PricingService,
 ) *GatewayService {
 	userGroupRateTTL := resolveUserGroupRateCacheTTL(cfg)
 	modelsListTTL := resolveModelsListCacheTTL(cfg)
@@ -630,7 +629,6 @@ func NewGatewayService(
 		modelsListCache:      gocache.New(modelsListTTL, time.Minute),
 		modelsListCacheTTL:   modelsListTTL,
 		responseHeaderFilter: compileResponseHeaderFilter(cfg),
-		pricingService:       pricingService,
 	}
 	svc.userGroupRateResolver = newUserGroupRateResolver(
 		userGroupRateRepo,
@@ -7866,6 +7864,11 @@ func (s *GatewayService) SetPeakUsageCache(cache PeakUsageCache) {
 // SetCCProbeService sets the CC probe service for enhanced mimic headers.
 func (s *GatewayService) SetCCProbeService(probe *CCProbeService) {
 	s.ccProbeService = probe
+}
+
+// SetPricingService sets the pricing service for provider routing checks.
+func (s *GatewayService) SetPricingService(ps *PricingService) {
+	s.pricingService = ps
 }
 
 // RegisterUserActivity marks a user as active on an account for quota tracking.

@@ -82,10 +82,12 @@ type LiteLLMRawEntry struct {
 
 // PricingService 动态价格服务
 type PricingService struct {
-	cfg           *config.Config
-	remoteClient  PricingRemoteClient
-	mu            sync.RWMutex
-	pricingData   map[string]*LiteLLMModelPricing
+	cfg          *config.Config
+	remoteClient PricingRemoteClient
+	mu           sync.RWMutex
+	pricingData  map[string]*LiteLLMModelPricing
+	// modelProvider is a denormalized index: lowercase model name → litellm_provider.
+	// Rebuilt atomically with pricingData under s.mu write lock.
 	modelProvider map[string]string
 	lastUpdated   time.Time
 	localHash     string

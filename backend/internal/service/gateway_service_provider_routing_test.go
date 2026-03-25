@@ -70,6 +70,19 @@ func TestIsModelSupportedByAccount_ProviderRouting(t *testing.T) {
 		require.True(t, svc.isModelSupportedByAccount(account, "gpt-4o"))
 	})
 
+	t.Run("nil pricingService with enforce=true passes through safely", func(t *testing.T) {
+		svc := &GatewayService{
+			cfg: &config.Config{
+				Pricing: config.PricingConfig{EnforceProviderRouting: true},
+			},
+			pricingService: nil,
+		}
+		// Account with no model mapping allows all models by default.
+		// nil pricingService → guard short-circuits, falls through to IsModelSupported, no panic.
+		account := &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+		require.True(t, svc.isModelSupportedByAccount(account, "gpt-4o"))
+	})
+
 	t.Run("enforce=false allows mismatched model through", func(t *testing.T) {
 		svc := makeSvc(map[string]string{"gpt-4o": "openai"}, false)
 		account := &Account{
