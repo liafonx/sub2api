@@ -423,6 +423,7 @@
   /* 防止body滚动的工具类 */
   body.modal-open {
     overflow: hidden;
+    padding-right: var(--scrollbar-width, 0px);
   }
 
   .modal-enter-active {
