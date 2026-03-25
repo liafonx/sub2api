@@ -77,6 +77,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // scheduledTestRunner
 		nil, // backupSvc
 		nil, // claudeCodeVersionDetect
+		nil, // peakUsageSvc
 	)
 
 	require.NotPanics(t, func() {

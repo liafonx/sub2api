@@ -1,6 +1,10 @@
 # Sub2API — Agent Guide
 
-Context for AI agents working on this repo. See also `deploy/AGENTS.md` for deployment-specific details (gitignored — local dev machine only, not committed to the repo).
+> **IMPORTANT**: Before any deploy, service management, or infrastructure work, read `deploy/AGENTS.md` first.
+> It contains the full deployment environment, service commands, Caddy config, and operational procedures.
+> It is gitignored (local dev machine only).
+
+Context for AI agents working on this repo.
 
 ---
 
@@ -114,6 +118,26 @@ user_quota:meta:{accountID}               → Hash (epoch, per_user_limit, per_u
 
 **Frontend**: Toggle in Create/Edit Account modals under "Quota Control" section (Anthropic OAuth/SetupToken accounts only, disabled when Window Cost Limit is off).
 
+### Peak Usage Log (fork patch, 2026-03-25)
+
+**Purpose**: Records per-account peak concurrent usage. Stores the highest observed concurrent request count per account in a rolling window, queryable from the admin UI.
+
+**Files**:
+
+| File | Role |
+|------|------|
+| `internal/service/peak_usage_service.go` | `PeakUsageLogger` interface; service implementation |
+| `internal/service/peak_usage_cache.go` | Cache interface definitions |
+| `internal/repository/peak_usage_cache.go` | Redis implementation |
+| `internal/handler/admin/peak_usage_handler.go` | Admin API handler |
+| `ent/schema/peak_usage.go` | Ent schema for persistence |
+
+### Claude Code Version Detection (fork patch)
+
+**Purpose**: Detects Claude Code client versions from request headers to enable per-version routing or analytics.
+
+**Files**: `internal/service/claude_code_detect_service.go` (or similar)
+
 ---
 
 ## Build & Deploy (summary)
@@ -129,45 +153,24 @@ cd ../backend
 CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -tags embed -ldflags "-s -w" -o sub2api ./cmd/server
 
 # 3. Deploy
-scp backend/sub2api liafonx@Liafonxs-Mac-mini.local:/tmp/sub2api
-# On Mac Mini:
-# sudo launchctl bootout system/com.sub2api
-# sudo cp /tmp/sub2api /opt/sub2api/sub2api
-# sudo launchctl bootstrap system /Library/LaunchDaemons/com.sub2api.plist
+scp -o ServerAliveInterval=10 -o ServerAliveCountMax=2 backend/sub2api liafonx@Liafonxs-Mac-mini.local:/tmp/sub2api
+ssh liafonx@Liafonxs-Mac-mini.local 'launchctl bootout gui/$(id -u)/com.sub2api; cp /tmp/sub2api /usr/local/bin/sub2api; launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.sub2api.plist && tail -20 /usr/local/var/log/sub2api/sub2api.log'
 ```
 
 ---
 
 ## Fork-Only Patches
 
-This is the `liafonx/sub2api` fork. Patches not in upstream:
+This is the `liafonx/sub2api` fork. Full patch details, verification commands, and merge notes are in **[`FORK_CHANGELOG.md`](FORK_CHANGELOG.md)**.
 
-| Patch | File | Status |
-|-------|------|--------|
-| TLS Fingerprint Registry Fix | `repository/http_upstream.go` | PR #611 submitted |
-| HTTP/2 Upstream | `pkg/tlsfingerprint/h2_roundtripper.go` | Active |
-| Per-User Quota Allocation | `service/user_quota_service.go`, `repository/user_quota_cache.go` | Active (2026-03-08) |
-| utls pinned to v1.8.2 | `go.mod`, `go.sum` | Active — v1.8.2 has full X25519MLKEM768 support; upgrade to newer tagged release when available |
-| Full X25519MLKEM768 support | `pkg/tlsfingerprint/dialer.go` | Active (2026-03-13) — `KeyShareExtension` sends both X25519MLKEM768+X25519 key shares; `SupportedCurvesExtension` advertises 4588; no workarounds needed |
-| TLS profile cache key fix | `pkg/tlsfingerprint/registry.go`, `repository/http_upstream.go`, `repository/claude_usage_service.go`, `service/account_usage_service.go` | Active (2026-03-13) — profile key included in TLS client cache key |
+| # | Patch | Key Files | Status |
+|---|-------|-----------|--------|
+| 1 | TLS Fingerprint Registry Fix | `repository/http_upstream.go` | PR #611 submitted |
+| 2 | HTTP/2 Upstream | `pkg/tlsfingerprint/h2_roundtripper.go` | Active (2026-03-02) |
+| 3 | Per-User Quota Allocation | `service/user_quota_service.go`, `repository/user_quota_cache.go` | Active (2026-03-08) |
+| 4 | Full X25519MLKEM768 Support | `pkg/tlsfingerprint/dialer.go` | Active (2026-03-13) |
+| 5 | TLS Profile Cache Key Fix | `pkg/tlsfingerprint/registry.go`, `repository/http_upstream.go` | Active (2026-03-13) |
+| 6 | Peak Usage Log | `service/peak_usage_service.go`, `handler/admin/peak_usage_handler.go` | Active (2026-03-25) |
+| 7 | Claude Code Version Detection | `service/claude_code_detect_service.go` | Active |
 
-When merging upstream, verify patches survived:
-```bash
-grep InitGlobalRegistry backend/internal/repository/http_upstream.go
-grep '"h2"' backend/internal/pkg/tlsfingerprint/dialer.go
-ls backend/internal/pkg/tlsfingerprint/h2_roundtripper.go
-ls backend/internal/service/user_quota_service.go
-ls backend/internal/repository/user_quota_cache.go
-```
-
-Also check if utls has a new stable release:
-```bash
-# Check current utls version in go.mod
-grep refraction-networking/utls backend/go.mod
-# Check latest releases
-curl -s https://api.github.com/repos/refraction-networking/utls/releases/latest | grep tag_name
-```
-> **Note (2026-03-13)**: utls v1.8.2 has full X25519MLKEM768 support. `dialer.go` sends both
-> X25519MLKEM768 and X25519 key shares upfront — server negotiates the hybrid directly without
-> HRR. No workarounds (`safeCurvePreferences`, `GenericExtension`, `serializeSupportedGroups`)
-> are needed. Upgrade to a newer tagged release when available.
+See `FORK_CHANGELOG.md` for verification commands to run after each upstream merge.

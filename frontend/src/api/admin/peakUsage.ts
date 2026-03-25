@@ -6,10 +6,6 @@
 import { apiClient } from "../client";
 import type { PeakUsageEntry } from "@/types";
 
-export interface PeakUsageListResponse {
-  data: PeakUsageEntry[];
-}
-
 export interface ResetPeaksRequest {
   entity_type: "account" | "user";
 }
@@ -21,8 +17,8 @@ export interface ResetPeaksResponse {
 /**
  * Get peak usage records for all accounts
  */
-async function getAccountPeaks(): Promise<PeakUsageListResponse> {
-  const { data } = await apiClient.get<PeakUsageListResponse>(
+async function getAccountPeaks(): Promise<PeakUsageEntry[]> {
+  const { data } = await apiClient.get<PeakUsageEntry[]>(
     "/admin/peak-usage/accounts",
   );
   return data;
@@ -31,8 +27,8 @@ async function getAccountPeaks(): Promise<PeakUsageListResponse> {
 /**
  * Get peak usage records for all users
  */
-async function getUserPeaks(): Promise<PeakUsageListResponse> {
-  const { data } = await apiClient.get<PeakUsageListResponse>(
+async function getUserPeaks(): Promise<PeakUsageEntry[]> {
+  const { data } = await apiClient.get<PeakUsageEntry[]>(
     "/admin/peak-usage/users",
   );
   return data;

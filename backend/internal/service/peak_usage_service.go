@@ -70,14 +70,11 @@ func (s *PeakUsageService) FlushPeaksFromRedis() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	accounts, err := s.accountRepo.ListSchedulable(ctx)
+	// Use all account IDs (including disabled/paused) so peaks are never lost.
+	accountIDs, err := s.entClient.Account.Query().IDs(ctx)
 	if err != nil {
-		log.Printf("[PeakUsageService] FlushPeaksFromRedis: list accounts failed: %v", err)
-	} else if len(accounts) > 0 {
-		accountIDs := make([]int64, len(accounts))
-		for i, a := range accounts {
-			accountIDs[i] = a.ID
-		}
+		log.Printf("[PeakUsageService] FlushPeaksFromRedis: list account IDs failed: %v", err)
+	} else if len(accountIDs) > 0 {
 		peaks, err := s.peakCache.GetAllPeaks(ctx, EntityTypeAccount, accountIDs)
 		if err != nil {
 			log.Printf("[PeakUsageService] FlushPeaksFromRedis: get account peaks failed: %v", err)
@@ -113,6 +110,10 @@ func (s *PeakUsageService) upsertPeaks(ctx context.Context, entityType string, p
 	var withReset, withoutReset []*ent.PeakUsageCreate
 	for id, v := range peaks {
 		if v == nil {
+			continue
+		}
+		// Skip all-zero entries to avoid overwriting DB peaks after a Redis restart.
+		if v.Concurrency == 0 && v.Sessions == 0 && v.RPM == 0 {
 			continue
 		}
 		b := s.entClient.PeakUsage.Create().
@@ -182,7 +183,15 @@ func (s *PeakUsageService) getPeaks(ctx context.Context, entityType string, enri
 		}
 	}
 	enrich(rows, dtos)
-	return dtos, nil
+
+	// Filter out orphaned entries (soft-deleted entities) whose name resolved to empty.
+	filtered := dtos[:0]
+	for _, d := range dtos {
+		if d.EntityName != "" {
+			filtered = append(filtered, d)
+		}
+	}
+	return filtered, nil
 }
 
 // GetAccountPeaks returns peak usage records for all accounts, enriched with name and platform.
@@ -206,6 +215,8 @@ func (s *PeakUsageService) GetAccountPeaks(ctx context.Context) ([]PeakDTO, erro
 				dtos[i].EntityName = a.Name
 				dtos[i].EntityLabel = a.Platform
 				dtos[i].MaxConcurrency = a.Concurrency
+				dtos[i].MaxSessions = a.GetMaxSessions()
+				dtos[i].MaxRPM = a.GetBaseRPM()
 			}
 		}
 	})
@@ -231,6 +242,7 @@ func (s *PeakUsageService) GetUserPeaks(ctx context.Context) ([]PeakDTO, error) 
 			if u, ok := userMap[r.EntityID]; ok {
 				dtos[i].EntityName = u.Username
 				dtos[i].EntityLabel = u.Email
+				dtos[i].MaxConcurrency = u.Concurrency
 			}
 		}
 	})

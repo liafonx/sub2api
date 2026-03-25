@@ -28,12 +28,22 @@
         <!-- Card Header -->
         <div class="mb-3 flex items-start justify-between">
           <div>
-            <p class="font-semibold text-gray-900 dark:text-gray-100">{{ entry.entity_name }}</p>
-            <p v-if="entry.entity_label" class="text-xs text-gray-500 dark:text-gray-400">
-              {{ entry.entity_label }}
-            </p>
+            <template v-if="entityType === 'user'">
+              <p class="font-bold text-white">{{ entry.entity_label }}</p>
+            </template>
+            <template v-else>
+              <p class="font-semibold text-gray-900 dark:text-gray-100">{{ entry.entity_name }}</p>
+              <p v-if="entry.entity_label" class="text-xs text-gray-500 dark:text-gray-400">
+                {{ entry.entity_label }}
+              </p>
+            </template>
           </div>
         </div>
+
+        <!-- Tracking Since -->
+        <p v-if="entry.reset_at" class="mb-2 text-xs text-gray-400 dark:text-gray-500">
+          {{ t('peakUsage.trackingSince') }}: {{ new Date(entry.reset_at).toLocaleString() }}
+        </p>
 
         <!-- Metric Rows -->
         <div class="space-y-2">
@@ -148,8 +158,7 @@ async function fetchData() {
       props.entityType === 'account'
         ? adminAPI.peakUsage.getAccountPeaks
         : adminAPI.peakUsage.getUserPeaks
-    const res = await fn()
-    entries.value = res.data ?? []
+    entries.value = (await fn()) ?? []
   } catch {
     appStore.showError(t('peakUsage.fetchError'))
   } finally {

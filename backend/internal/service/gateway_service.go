@@ -559,6 +559,7 @@ type GatewayService struct {
 	sessionLimitCache     SessionLimitCache // 会话数量限制缓存（仅 Anthropic OAuth/SetupToken）
 	rpmCache              RPMCache          // RPM 计数缓存（仅 Anthropic OAuth/SetupToken）
 	userQuotaChecker      UserQuotaChecker  // per-user quota allocation (Anthropic OAuth/SetupToken only)
+	peakCache             PeakUsageCache    // peak usage tracker (optional, injected post-construction)
 	userGroupRateResolver *userGroupRateResolver
 	userGroupRateCache    *gocache.Cache
 	userGroupRateSF       singleflight.Group
@@ -2422,8 +2423,37 @@ func (s *GatewayService) IncrementAccountRPM(ctx context.Context, accountID int6
 	if s.rpmCache == nil {
 		return nil
 	}
-	_, err := s.rpmCache.IncrementRPM(ctx, accountID)
+	count, err := s.rpmCache.IncrementRPM(ctx, accountID)
+	if err == nil {
+		s.updatePeakAsync(EntityTypeAccount, accountID, "rpm", count)
+	}
 	return err
+}
+
+// IncrementUserRPM increments the per-user RPM counter and updates the peak.
+func (s *GatewayService) IncrementUserRPM(ctx context.Context, userID int64) error {
+	if s.rpmCache == nil {
+		return nil
+	}
+	count, err := s.rpmCache.IncrementUserRPM(ctx, userID)
+	if err == nil {
+		s.updatePeakAsync(EntityTypeUser, userID, "rpm", count)
+	}
+	return err
+}
+
+// updatePeakAsync fires a goroutine to update a peak value if count > current stored value.
+func (s *GatewayService) updatePeakAsync(entityType string, entityID int64, field string, count int) {
+	if s.peakCache == nil || count <= 0 {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := s.peakCache.UpdatePeakIfGreater(ctx, entityType, entityID, field, count); err != nil {
+			slog.Error("[GatewayService] updatePeakAsync failed", "entity_type", entityType, "entity_id", entityID, "field", field, "err", err)
+		}
+	}()
 }
 
 // checkAndRegisterSession 检查并注册会话，用于会话数量限制
@@ -2452,7 +2482,38 @@ func (s *GatewayService) checkAndRegisterSession(ctx context.Context, account *A
 		// 失败开放：缓存错误时允许通过
 		return true
 	}
+	if allowed && s.peakCache != nil {
+		accountID := account.ID
+		go func() {
+			peakCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			count, err := s.sessionLimitCache.GetActiveSessionCount(peakCtx, accountID)
+			if err == nil && count > 0 {
+				_ = s.peakCache.UpdatePeakIfGreater(peakCtx, EntityTypeAccount, accountID, "sessions", count)
+			}
+		}()
+	}
 	return allowed
+}
+
+// TrackUserSessionPeak registers a user session (no limit enforced) and updates the peak session counter.
+func (s *GatewayService) TrackUserSessionPeak(userID int64, sessionID string) {
+	if s.sessionLimitCache == nil || s.peakCache == nil || userID <= 0 || sessionID == "" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		// Register with unlimited max to simply track presence without enforcing a limit.
+		_, err := s.sessionLimitCache.RegisterUserSession(ctx, userID, sessionID, 999999, 30*time.Minute)
+		if err != nil {
+			return
+		}
+		count, err := s.sessionLimitCache.GetUserActiveSessionCount(ctx, userID)
+		if err == nil && count > 0 {
+			_ = s.peakCache.UpdatePeakIfGreater(ctx, EntityTypeUser, userID, "sessions", count)
+		}
+	}()
 }
 
 func (s *GatewayService) getSchedulableAccount(ctx context.Context, accountID int64) (*Account, error) {
@@ -7714,6 +7775,12 @@ func (s *GatewayService) RecordUsage(ctx context.Context, input *RecordUsageInpu
 // after the GatewayService is constructed.
 func (s *GatewayService) SetUserQuotaChecker(checker UserQuotaChecker) {
 	s.userQuotaChecker = checker
+}
+
+// SetPeakUsageCache sets the peak usage cache. Called during application startup
+// after the GatewayService is constructed.
+func (s *GatewayService) SetPeakUsageCache(cache PeakUsageCache) {
+	s.peakCache = cache
 }
 
 // RegisterUserActivity marks a user as active on an account for quota tracking.
