@@ -71,8 +71,12 @@ func (s *userRepoStubForGroupUpdate) RemoveGroupFromUserAllowedGroups(context.Co
 func (s *userRepoStubForGroupUpdate) UpdateTotpSecret(context.Context, int64, *string) error {
 	panic("unexpected")
 }
-func (s *userRepoStubForGroupUpdate) EnableTotp(context.Context, int64) error  { panic("unexpected") }
-func (s *userRepoStubForGroupUpdate) DisableTotp(context.Context, int64) error { panic("unexpected") }
+func (s *userRepoStubForGroupUpdate) EnableTotp(context.Context, int64) error     { panic("unexpected") }
+func (s *userRepoStubForGroupUpdate) DisableTotp(context.Context, int64) error    { panic("unexpected") }
+func (s *userRepoStubForGroupUpdate) ListAllIDs(context.Context) ([]int64, error) { return nil, nil }
+func (s *userRepoStubForGroupUpdate) GetByIDs(context.Context, []int64) ([]*User, error) {
+	return nil, nil
+}
 
 // apiKeyRepoStubForGroupUpdate implements APIKeyRepository for AdminUpdateAPIKeyGroupID tests.
 type apiKeyRepoStubForGroupUpdate struct {
