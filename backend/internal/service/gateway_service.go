@@ -2496,6 +2496,25 @@ func (s *GatewayService) checkAndRegisterSession(ctx context.Context, account *A
 	return allowed
 }
 
+// TrackAccountSessionPeak registers an account session (no limit enforced) and updates the peak session counter.
+func (s *GatewayService) TrackAccountSessionPeak(accountID int64, sessionID string) {
+	if s.sessionLimitCache == nil || s.peakCache == nil || accountID <= 0 || sessionID == "" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_, err := s.sessionLimitCache.RegisterSession(ctx, accountID, sessionID, 999999, 30*time.Minute)
+		if err != nil {
+			return
+		}
+		count, err := s.sessionLimitCache.GetActiveSessionCount(ctx, accountID)
+		if err == nil && count > 0 {
+			_ = s.peakCache.UpdatePeakIfGreater(ctx, EntityTypeAccount, accountID, "sessions", count)
+		}
+	}()
+}
+
 // TrackUserSessionPeak registers a user session (no limit enforced) and updates the peak session counter.
 func (s *GatewayService) TrackUserSessionPeak(userID int64, sessionID string) {
 	if s.sessionLimitCache == nil || s.peakCache == nil || userID <= 0 || sessionID == "" {
