@@ -26,6 +26,9 @@ func NewCCProbeCache(rdb *redis.Client) service.CCProbeCache {
 func (c *ccProbeCache) GetCCTraits(ctx context.Context) (*service.CCVersionTraits, error) {
 	val, err := c.rdb.Get(ctx, ccTraitsKey).Result()
 	if err != nil {
+		if err == redis.Nil {
+			return nil, nil
+		}
 		return nil, err
 	}
 	var traits service.CCVersionTraits

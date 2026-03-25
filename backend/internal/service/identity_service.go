@@ -153,14 +153,17 @@ func (s *IdentityService) createFingerprintFromHeaders(headers http.Header) *Fin
 // resolveDefaults returns probe-aware defaults if available, otherwise static defaults.
 func (s *IdentityService) resolveDefaults() Fingerprint {
 	if s.ccProbeService == nil {
+		slog.Debug("identity.resolve_defaults", "source", "static")
 		return defaultFingerprint
 	}
 
 	ua, pkgVer := s.ccProbeService.ProbeVersionOverrides()
 	if ua == "" && pkgVer == "" {
+		slog.Debug("identity.resolve_defaults", "source", "static")
 		return defaultFingerprint
 	}
 
+	slog.Debug("identity.resolve_defaults", "source", "probe")
 	resolved := defaultFingerprint // copy static defaults as base
 	if ua != "" {
 		resolved.UserAgent = ua

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -29,13 +30,48 @@ type CCVersionTraits struct {
 // CCProbeService probes a locally installed Claude Code binary to capture
 // version-dependent request headers via mitmproxy.
 type CCProbeService struct {
-	cfg          *config.CCProbeConfig
-	cache        CCProbeCache
-	mu           sync.RWMutex
-	latestTraits *CCVersionTraits
-	fallbackFile string // path to persist last-known-good traits
-	stopCh       chan struct{}
-	wg           sync.WaitGroup
+	cfg             *config.CCProbeConfig
+	cache           CCProbeCache
+	mu              sync.RWMutex
+	latestTraits    *CCVersionTraits
+	fallbackFile    string // path to persist last-known-good traits
+	stopCh          chan struct{}
+	wg              sync.WaitGroup
+	probeInProgress atomic.Bool // prevents overlapping probes
+}
+
+// CCProbeConfigPublic is a JSON-safe view of the cc_probe config section.
+// It is read-only — changes require restarting the service.
+type CCProbeConfigPublic struct {
+	Enabled            bool   `json:"enabled"`
+	CCBinaryPath       string `json:"cc_binary_path"`
+	AutoUpdateCC       bool   `json:"auto_update_cc"`
+	UpdateCommand      string `json:"update_command"`
+	ProbeModel         string `json:"probe_model"`
+	CheckIntervalHours int    `json:"check_interval_hours"`
+}
+
+// PublicConfig returns a JSON-safe view of the current cc_probe configuration.
+func (s *CCProbeService) PublicConfig() CCProbeConfigPublic {
+	if s.cfg == nil {
+		return CCProbeConfigPublic{}
+	}
+	interval := s.cfg.CheckIntervalHours
+	if interval == 0 {
+		interval = 1
+	}
+	probeModel := s.cfg.ProbeModel
+	if probeModel == "" {
+		probeModel = "claude-haiku-4-5"
+	}
+	return CCProbeConfigPublic{
+		Enabled:            s.cfg.Enabled,
+		CCBinaryPath:       s.cfg.CCBinaryPath,
+		AutoUpdateCC:       s.cfg.AutoUpdateCC,
+		UpdateCommand:      s.updateCommand(),
+		ProbeModel:         probeModel,
+		CheckIntervalHours: interval,
+	}
 }
 
 // CCProbeCache defines the cache interface for CC probe traits.
@@ -84,6 +120,8 @@ func (s *CCProbeService) Start() {
 			s.latestTraits = traits
 			s.mu.Unlock()
 			slog.Info("cc_probe.loaded_from_cache", "cc_version", traits.CCVersion, "header_count", len(traits.Headers))
+		} else if err != nil {
+			slog.Warn("cc_probe.cache_load_error", "error", err)
 		}
 	}
 
@@ -122,8 +160,10 @@ func (s *CCProbeService) Stop() {
 	s.stopCh = nil
 	s.mu.Unlock()
 
+	slog.Info("cc_probe.stopping")
 	close(stopCh)
 	s.wg.Wait()
+	slog.Info("cc_probe.stopped")
 }
 
 func (s *CCProbeService) versionCheckLoop() {
@@ -154,6 +194,12 @@ func (s *CCProbeService) versionCheckLoop() {
 }
 
 func (s *CCProbeService) checkAndProbeIfNeeded() {
+	// Update CC first so getInstalledCCVersion() sees the new version.
+	// On the deploy machine CC auto-update is disabled; sub2api drives updates.
+	if s.cfg.AutoUpdateCC {
+		s.runUpdate()
+	}
+
 	installedVersion := s.getInstalledCCVersion()
 	if installedVersion == "" {
 		return
@@ -195,6 +241,32 @@ func (s *CCProbeService) getInstalledCCVersion() string {
 	return version
 }
 
+// updateCommand returns the configured update command, or derives a default
+// from the CC binary path to avoid shell PATH lookup issues.
+func (s *CCProbeService) updateCommand() string {
+	if s.cfg.UpdateCommand != "" {
+		return s.cfg.UpdateCommand
+	}
+	ccBinary := s.cfg.CCBinaryPath
+	if ccBinary == "" {
+		ccBinary = "claude"
+	}
+	return ccBinary + " update"
+}
+
+// runUpdate executes the configured update command (e.g. "claude update").
+// It is a no-op when CC is already on the latest version.
+func (s *CCProbeService) runUpdate() {
+	updateCmd := s.updateCommand()
+	slog.Info("cc_probe.running_update", "command", updateCmd)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sh", "-c", updateCmd)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		slog.Error("cc_probe.update_failed", "error", err, "output", string(out))
+	}
+}
+
 func (s *CCProbeService) probeWithRecover(reason string) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -202,14 +274,9 @@ func (s *CCProbeService) probeWithRecover(reason string) {
 		}
 	}()
 
-	if s.cfg.AutoUpdateCC && s.cfg.UpdateCommand != "" {
-		slog.Info("cc_probe.auto_update", "reason", reason, "command", s.cfg.UpdateCommand)
-		updateCtx, updateCancel := context.WithTimeout(context.Background(), 120*time.Second)
-		defer updateCancel()
-		cmd := exec.CommandContext(updateCtx, "sh", "-c", s.cfg.UpdateCommand)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			slog.Error("cc_probe.auto_update_failed", "error", err, "output", string(out))
-		}
+	if s.cfg.AutoUpdateCC {
+		slog.Info("cc_probe.auto_update", "reason", reason)
+		s.runUpdate()
 	}
 
 	probeCtx, probeCancel := context.WithTimeout(context.Background(), 180*time.Second)
@@ -217,6 +284,20 @@ func (s *CCProbeService) probeWithRecover(reason string) {
 	if err := s.ProbeInstalledCC(probeCtx); err != nil {
 		slog.Error("cc_probe.probe_failed", "reason", reason, "error", err)
 	}
+}
+
+// TriggerProbe initiates an async probe for the given reason.
+// It is safe to call from multiple goroutines concurrently; overlapping probes
+// are silently dropped so only one probe runs at a time.
+func (s *CCProbeService) TriggerProbe(reason string) {
+	if !s.probeInProgress.CompareAndSwap(false, true) {
+		slog.Info("cc_probe.trigger_skipped", "reason", reason, "cause", "probe_in_progress")
+		return
+	}
+	go func() {
+		defer s.probeInProgress.Store(false)
+		s.probeWithRecover(reason)
+	}()
 }
 
 // GetLatestTraits returns the most recent captured traits.
@@ -299,6 +380,7 @@ def request(flow: http.HTTPFlow):
 	if err := waitForTCPReady(probeCtx, "127.0.0.1:"+mitmPort, 100*time.Millisecond, 10*time.Second); err != nil {
 		return fmt.Errorf("cc_probe: mitmdump not ready: %w", err)
 	}
+	slog.Debug("cc_probe.mitmdump_ready")
 
 	// Run Claude Code with proxy
 	probeModel := s.cfg.ProbeModel
@@ -427,6 +509,7 @@ func (s *CCProbeService) ApplyVersionHeaders(req *http.Request) {
 	s.mu.RUnlock()
 
 	if traits == nil || len(traits.Headers) == 0 {
+		slog.Debug("cc_probe.apply_headers_skipped", "reason", "no_traits")
 		return
 	}
 
@@ -470,6 +553,7 @@ func (s *CCProbeService) ProbeVersionOverrides() (userAgent, packageVersion stri
 	s.mu.RUnlock()
 
 	if traits == nil || len(traits.Headers) == 0 {
+		slog.Debug("cc_probe.version_overrides_empty")
 		return "", ""
 	}
 

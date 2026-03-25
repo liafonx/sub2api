@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -173,32 +174,35 @@ func (h *SystemHandler) acquireSystemLock(
 // GET /api/v1/admin/system/cc-probe
 func (h *SystemHandler) GetCCProbeStatus(c *gin.Context) {
 	if h.ccProbeSvc == nil {
-		response.Success(c, gin.H{
-			"data":    nil,
-			"message": "CC probe service not configured",
-		})
+		response.Success(c, nil)
 		return
 	}
 	traits := h.ccProbeSvc.GetLatestTraits()
 	if traits == nil {
-		response.Success(c, gin.H{
-			"data":    nil,
-			"message": "No probe results cached. Trigger a probe or wait for automatic detection.",
-		})
+		response.Success(c, nil)
 		return
 	}
 	response.Success(c, gin.H{
-		"data": gin.H{
-			"cc_version":  traits.CCVersion,
-			"headers":     traits.Headers,
-			"captured_at": traits.CapturedAt,
-		},
+		"cc_version":  traits.CCVersion,
+		"headers":     traits.Headers,
+		"captured_at": traits.CapturedAt,
 	})
+}
+
+// GetCCProbeConfig returns the read-only cc_probe configuration.
+// GET /api/v1/admin/system/cc-probe/config
+func (h *SystemHandler) GetCCProbeConfig(c *gin.Context) {
+	if h.ccProbeSvc == nil {
+		response.Success(c, nil)
+		return
+	}
+	response.Success(c, h.ccProbeSvc.PublicConfig())
 }
 
 // TriggerCCProbe triggers an on-demand probe.
 // POST /api/v1/admin/system/cc-probe/trigger
 func (h *SystemHandler) TriggerCCProbe(c *gin.Context) {
+	slog.Info("admin.cc_probe.trigger_requested")
 	if h.ccProbeSvc == nil {
 		response.Error(c, http.StatusBadRequest, "CC probe service not configured")
 		return
@@ -212,12 +216,11 @@ func (h *SystemHandler) TriggerCCProbe(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, "probe completed but no traits captured")
 		return
 	}
+	slog.Info("admin.cc_probe.trigger_complete", "cc_version", traits.CCVersion)
 	response.Success(c, gin.H{
-		"data": gin.H{
-			"cc_version":  traits.CCVersion,
-			"headers":     traits.Headers,
-			"captured_at": traits.CapturedAt,
-		},
+		"cc_version":  traits.CCVersion,
+		"headers":     traits.Headers,
+		"captured_at": traits.CapturedAt,
 	})
 }
 

@@ -1159,6 +1159,84 @@
           </div>
         </div>
 
+        <!-- CC Probe Settings -->
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.ccProbe.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.ccProbe.description') }}
+            </p>
+          </div>
+          <div class="space-y-4 p-6">
+            <!-- Status Banner -->
+            <div v-if="ccProbeLoading" class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+              <div class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"></div>
+              <span>{{ t('admin.settings.ccProbe.statusLoading') }}</span>
+            </div>
+            <div v-else-if="ccProbeStatus" class="rounded-lg border border-green-200 bg-green-50 px-4 py-3 dark:border-green-800 dark:bg-green-900/20">
+              <div class="flex items-center gap-3">
+                <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-300">
+                  v{{ ccProbeStatus.cc_version }}
+                </span>
+                <span class="text-sm text-green-700 dark:text-green-300">
+                  {{ t('admin.settings.ccProbe.statusCapturedAt') }}:
+                  {{ new Date(ccProbeStatus.captured_at).toLocaleString() }}
+                </span>
+              </div>
+            </div>
+            <div v-else class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-900/20">
+              <span class="text-sm text-amber-700 dark:text-amber-300">{{ t('admin.settings.ccProbe.statusNoData') }}</span>
+            </div>
+
+            <!-- Config Display -->
+            <div v-if="ccProbeConfig" class="space-y-3">
+              <p class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.ccProbe.configTitle') }}
+              </p>
+              <p class="text-xs text-gray-400 dark:text-gray-500">{{ t('admin.settings.ccProbe.configNote') }}</p>
+              <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 dark:bg-dark-800">
+                  <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.ccProbe.binaryPath') }}</span>
+                  <code class="text-xs font-mono text-gray-800 dark:text-gray-200">{{ ccProbeConfig.cc_binary_path || 'claude' }}</code>
+                </div>
+                <div class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 dark:bg-dark-800">
+                  <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.ccProbe.probeModel') }}</span>
+                  <span class="text-xs text-gray-800 dark:text-gray-200">{{ ccProbeConfig.probe_model }}</span>
+                </div>
+                <div class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 dark:bg-dark-800">
+                  <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.ccProbe.autoUpdate') }}</span>
+                  <span :class="['inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', ccProbeConfig.auto_update_cc ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' : 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-400']">
+                    {{ ccProbeConfig.auto_update_cc ? t('admin.settings.ccProbe.enabled') : t('admin.settings.ccProbe.disabled') }}
+                  </span>
+                </div>
+                <div class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 dark:bg-dark-800">
+                  <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.ccProbe.checkInterval') }}</span>
+                  <span class="text-xs text-gray-800 dark:text-gray-200">{{ ccProbeConfig.check_interval_hours }} {{ t('admin.settings.ccProbe.hoursUnit') }}</span>
+                </div>
+                <div class="col-span-full flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 dark:bg-dark-800">
+                  <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.ccProbe.updateCommand') }}</span>
+                  <code class="text-xs font-mono text-gray-800 dark:text-gray-200">{{ ccProbeConfig.update_command }}</code>
+                </div>
+              </div>
+            </div>
+
+            <!-- Manual Trigger -->
+            <div class="flex justify-end pt-2">
+              <button
+                type="button"
+                :disabled="ccProbeTriggerLoading || ccProbeLoading"
+                class="btn btn-secondary"
+                @click="handleTriggerProbe"
+              >
+                <div v-if="ccProbeTriggerLoading" class="mr-2 h-4 w-4 animate-spin rounded-full border-b-2 border-current"></div>
+                {{ ccProbeTriggerLoading ? t('admin.settings.ccProbe.triggering') : t('admin.settings.ccProbe.triggerButton') }}
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Gateway Scheduling Settings -->
         <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
@@ -1845,6 +1923,7 @@ import {
   normalizeRegistrationEmailSuffixDomains,
   parseRegistrationEmailSuffixWhitelistInput
 } from '@/utils/registrationEmailPolicy'
+import type { CCProbeTraits, CCProbeConfig } from '@/api/admin/system'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -2549,6 +2628,41 @@ async function saveBetaPolicySettings() {
   }
 }
 
+// CC Probe
+const ccProbeStatus = ref<CCProbeTraits | null>(null)
+const ccProbeConfig = ref<CCProbeConfig | null>(null)
+const ccProbeLoading = ref(false)
+const ccProbeTriggerLoading = ref(false)
+
+async function fetchCCProbeStatus() {
+  try {
+    ccProbeStatus.value = await adminAPI.system.getCCProbeStatus()
+  } catch {
+    // not critical — leave null
+  }
+}
+
+async function fetchCCProbeConfig() {
+  try {
+    ccProbeConfig.value = await adminAPI.system.getCCProbeConfig()
+  } catch {
+    // not critical — leave null
+  }
+}
+
+async function handleTriggerProbe() {
+  ccProbeTriggerLoading.value = true
+  try {
+    const result = await adminAPI.system.triggerCCProbe()
+    ccProbeStatus.value = result
+    appStore.showSuccess(t('admin.settings.ccProbe.triggerSuccess'))
+  } catch (error: any) {
+    appStore.showError(t('admin.settings.ccProbe.triggerFailed') + ': ' + (error.message || t('common.unknownError')))
+  } finally {
+    ccProbeTriggerLoading.value = false
+  }
+}
+
 onMounted(() => {
   loadSettings()
   loadSubscriptionGroups()
@@ -2557,6 +2671,10 @@ onMounted(() => {
   loadStreamTimeoutSettings()
   loadRectifierSettings()
   loadBetaPolicySettings()
+  ccProbeLoading.value = true
+  Promise.all([fetchCCProbeStatus(), fetchCCProbeConfig()]).finally(() => {
+    ccProbeLoading.value = false
+  })
 })
 </script>
 

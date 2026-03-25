@@ -307,8 +307,12 @@ func ProvideSoraMediaCleanupService(storage *SoraMediaStorage, cfg *config.Confi
 }
 
 // ProvideClaudeCodeVersionDetectService 创建并启动 Claude Code 版本自动检测服务
-func ProvideClaudeCodeVersionDetectService(settingService *SettingService, cfg *config.Config) *ClaudeCodeVersionDetectService {
+func ProvideClaudeCodeVersionDetectService(settingService *SettingService, cfg *config.Config, ccProbeSvc *CCProbeService) *ClaudeCodeVersionDetectService {
 	svc := NewClaudeCodeVersionDetectService(settingService, cfg.Update.ProxyURL, cfg.Security.ProxyFallback.AllowDirectOnError, cfg.ClaudeCodeDetect.RegistryURL, cfg.ClaudeCodeDetect.IntervalHours)
+	// Register probe callback BEFORE Start() — Start() runs detectAndUpdate() on first tick.
+	if ccProbeSvc != nil {
+		svc.SetOnNewVersionCallback(func() { ccProbeSvc.TriggerProbe("npm_version_changed") })
+	}
 	svc.Start()
 	settingService.SetOnVersionDetectTriggerCallback(svc.Trigger)
 	return svc
