@@ -87,18 +87,12 @@
 
     <!-- Footer -->
     <template #footer>
-      <div class="flex items-center justify-between">
+      <div class="flex items-center justify-end">
         <button
           @click="showConfirmReset = true"
           class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 dark:focus:ring-offset-dark-800"
         >
           {{ t('peakUsage.resetAll') }}
-        </button>
-        <button
-          @click="emit('close')"
-          class="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-300 dark:hover:bg-dark-500"
-        >
-          {{ t('common.close') }}
         </button>
       </div>
     </template>

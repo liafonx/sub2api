@@ -148,3 +148,4 @@ aicodex
 Usage_Endpoint.md
 output/
 .playwright-cli/
+.superpowers/
