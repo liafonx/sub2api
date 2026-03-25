@@ -84,6 +84,7 @@ type Config struct {
 	Update                  UpdateConfig                  `mapstructure:"update"`
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
 	ClaudeCodeDetect        ClaudeCodeDetectConfig        `mapstructure:"claude_code_detect"`
+	CCProbe                 CCProbeConfig                 `mapstructure:"cc_probe"`
 }
 
 type LogConfig struct {
@@ -150,6 +151,18 @@ type UpdateConfig struct {
 type ClaudeCodeDetectConfig struct {
 	RegistryURL   string `mapstructure:"registry_url"`
 	IntervalHours int    `mapstructure:"interval_hours"`
+}
+
+// CCProbeConfig configures the on-machine Claude Code probing service.
+// When enabled, sub2api captures real CC request headers via mitmproxy
+// to keep mimic-mode headers in sync with the installed CC version.
+type CCProbeConfig struct {
+	Enabled            bool   `mapstructure:"enabled"`
+	CCBinaryPath       string `mapstructure:"cc_binary_path"`
+	AutoUpdateCC       bool   `mapstructure:"auto_update_cc"`
+	UpdateCommand      string `mapstructure:"update_command"`
+	ProbeModel         string `mapstructure:"probe_model"`
+	CheckIntervalHours int    `mapstructure:"check_interval_hours"`
 }
 
 type IdempotencyConfig struct {

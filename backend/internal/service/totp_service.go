@@ -81,7 +81,6 @@ type TotpSetupResponse struct {
 const (
 	totpSetupTTL    = 5 * time.Minute
 	totpLoginTTL    = 5 * time.Minute
-	totpAttemptsTTL = 15 * time.Minute
 	maxTotpAttempts = 5
 	totpIssuer      = "Sub2API"
 )

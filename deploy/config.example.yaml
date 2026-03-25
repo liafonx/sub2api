@@ -369,15 +369,16 @@ gateway:
     # 全量重建周期（秒），0 表示禁用
     full_rebuild_interval_seconds: 300
   # TLS fingerprint simulation / TLS 指纹伪装
-  # Default profile "claude_cli_v2" simulates Node.js 20.x
-  # 默认模板 "claude_cli_v2" 模拟 Node.js 20.x 指纹
+  # Profile key naming convention: {platform}_{arch}_{runtime}_v{major}_{minor}_{patch}
+  # e.g., "darwin_arm64_node_v24_3_0" → X-Stainless-OS: MacOS, Arch: arm64, Runtime: node, RuntimeVersion: v24.3.0
+  # Legacy keys like "claude_cli_v2" still work but won't auto-set platform identity headers.
   tls_fingerprint:
     enabled: true
     # profiles:
-    #   profile_1:
-    #     name: "Custom Profile 1"
-    #   profile_2:
-    #     name: "Custom Profile 2"
+    #   darwin_arm64_node_v24_3_0:
+    #     name: "Darwin arm64 Node.js v24.3.0"
+    #   linux_x64_node_v22_21_1:
+    #     name: "Linux x64 Node.js v22.21.1"
 
 # =============================================================================
 # Logging Configuration
@@ -1008,3 +1009,23 @@ claude_code_detect:
   # 检测间隔（小时）
   # Default: 6
   interval_hours: 6
+
+# =============================================================================
+# CC Probe (On-machine Claude Code header probing)
+# =============================================================================
+# When enabled, captures real CC request headers via mitmproxy to keep
+# mimic-mode headers in sync with the installed CC version.
+# Requires: mitmdump (pip install mitmproxy) and claude CLI installed.
+cc_probe:
+  # Enable on-machine CC probing
+  enabled: false
+  # Path to the claude binary (default: "claude" from PATH)
+  cc_binary_path: "claude"
+  # Auto-update CC before probing (experimental)
+  auto_update_cc: false
+  # Shell command to update CC (used when auto_update_cc is true)
+  update_command: "brew upgrade claude-code"
+  # Model to use for the probe request (cheapest available)
+  probe_model: "claude-haiku-4-5"
+  # Version check interval in hours (default: 1)
+  check_interval_hours: 1

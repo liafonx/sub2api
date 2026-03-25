@@ -24,6 +24,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
@@ -567,6 +568,7 @@ type GatewayService struct {
 	modelsListCacheTTL    time.Duration
 	settingService        *SettingService
 	responseHeaderFilter  *responseheaders.CompiledHeaderFilter
+	ccProbeService        *CCProbeService // optional, injected post-construction
 	debugModelRouting     atomic.Bool
 	debugClaudeMimic      atomic.Bool
 }
@@ -2181,7 +2183,7 @@ func (s *GatewayService) withWindowCostPrefetch(ctx context.Context, accounts []
 	accountIDs := make([]int64, 0, len(accounts))
 	for i := range accounts {
 		account := &accounts[i]
-		if account == nil || !account.IsAnthropicOAuthOrSetupToken() {
+		if !account.IsAnthropicOAuthOrSetupToken() {
 			continue
 		}
 		if account.GetWindowCostLimit() <= 0 {
@@ -5637,10 +5639,10 @@ func (s *GatewayService) buildUpstreamRequestBedrockAPIKey(
 // handleBedrockNonStreamingResponse 处理 Bedrock 非流式响应
 // Bedrock InvokeModel 非流式响应的 body 格式与 Claude API 兼容
 func (s *GatewayService) handleBedrockNonStreamingResponse(
-	ctx context.Context,
+	_ context.Context,
 	resp *http.Response,
 	c *gin.Context,
-	account *Account,
+	_ *Account,
 ) (*ClaudeUsage, error) {
 	maxBytes := resolveUpstreamResponseReadLimit(s.cfg)
 	body, err := readUpstreamResponseBodyLimited(resp.Body, maxBytes)
@@ -5766,6 +5768,8 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 			// - 强制 Claude Code 指纹相关请求头（尤其是 user-agent/x-stainless/x-app）
 			// - 保留 incoming beta 的同时，确保 OAuth 所需 beta 存在
 			applyClaudeCodeMimicHeaders(req, reqStream)
+			// Overlay profile-derived platform headers and probe-captured version headers.
+			s.applyProfileAndProbeHeaders(req, account)
 
 			incomingBeta := req.Header.Get("anthropic-beta")
 			// Match real Claude CLI traffic (per mitmproxy reports):
@@ -5790,6 +5794,12 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 				}
 			}
 		}
+	}
+
+	// Set dynamic per-request headers (Retry-Count, Timeout).
+	// These are NOT in DefaultHeaders — they vary per request.
+	if tokenType == "oauth" {
+		applyDynamicStainlessHeaders(req, clientHeaders, claude.DefaultStainlessTimeout)
 	}
 
 	// Always capture a compact fingerprint line for later error diagnostics.
@@ -6195,6 +6205,46 @@ func applyClaudeCodeMimicHeaders(req *http.Request, isStream bool) {
 	req.Header.Set("accept", "application/json")
 	if isStream {
 		req.Header.Set("x-stainless-helper-method", "stream")
+	}
+}
+
+// applyDynamicStainlessHeaders sets per-request X-Stainless-Retry-Count and X-Stainless-Timeout.
+// retryCount: always "0" for gateway-level failover (real CC OAuth clients don't retry 403).
+// timeout: client pass-through if present, otherwise defaultTimeout.
+func applyDynamicStainlessHeaders(req *http.Request, clientHeaders http.Header, defaultTimeout string) {
+	// Retry-Count: pass through client's value, default "0".
+	// Gateway failover does NOT increment this — the upstream sees a fresh request.
+	retryCount := clientHeaders.Get("X-Stainless-Retry-Count")
+	if retryCount == "" {
+		retryCount = "0"
+	}
+	req.Header.Set("X-Stainless-Retry-Count", retryCount)
+
+	// Timeout: pass through client's value if present.
+	timeout := clientHeaders.Get("X-Stainless-Timeout")
+	if timeout == "" {
+		timeout = defaultTimeout
+	}
+	req.Header.Set("X-Stainless-Timeout", timeout)
+}
+
+// applyProfileAndProbeHeaders overlays TLS-profile-derived platform headers and
+// probe-captured version headers on top of the base mimic headers.
+// This is the "double-trail guard": profile for platform identity, probe for CC version.
+func (s *GatewayService) applyProfileAndProbeHeaders(req *http.Request, account *Account) {
+	// 1. Profile identity: overrides platform headers (OS, Arch, Runtime, RuntimeVersion, Lang).
+	profileKey := account.GetTLSFingerprintProfile()
+	if identity, ok := tlsfingerprint.CachedParseProfileIdentity(profileKey); ok {
+		req.Header.Set("X-Stainless-OS", identity.OS)
+		req.Header.Set("X-Stainless-Arch", identity.Arch)
+		req.Header.Set("X-Stainless-Runtime", identity.Runtime)
+		req.Header.Set("X-Stainless-Runtime-Version", identity.RuntimeVersion)
+		req.Header.Set("X-Stainless-Lang", identity.Lang)
+	}
+
+	// 2. Probe version headers: overrides User-Agent and X-Stainless-Package-Version.
+	if s.ccProbeService != nil {
+		s.ccProbeService.ApplyVersionHeaders(req)
 	}
 }
 
@@ -6621,7 +6671,7 @@ type streamingResult struct {
 	clientDisconnect bool // 客户端是否在流式传输过程中断开
 }
 
-func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel string, mimicClaudeCode bool) (*streamingResult, error) {
+func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel string, _ bool) (*streamingResult, error) {
 	// 更新5h窗口状态
 	s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
 
@@ -7802,6 +7852,11 @@ func (s *GatewayService) SetPeakUsageCache(cache PeakUsageCache) {
 	s.peakCache = cache
 }
 
+// SetCCProbeService sets the CC probe service for enhanced mimic headers.
+func (s *GatewayService) SetCCProbeService(probe *CCProbeService) {
+	s.ccProbeService = probe
+}
+
 // RegisterUserActivity marks a user as active on an account for quota tracking.
 // Must be called after account selection on every request (Anthropic accounts only).
 func (s *GatewayService) RegisterUserActivity(ctx context.Context, account *Account, userID int64) {
@@ -8477,6 +8532,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	if tokenType == "oauth" {
 		if mimicClaudeCode {
 			applyClaudeCodeMimicHeaders(req, false)
+			s.applyProfileAndProbeHeaders(req, account)
 
 			incomingBeta := req.Header.Get("anthropic-beta")
 			requiredBetas := []string{claude.BetaClaudeCode, claude.BetaOAuth, claude.BetaInterleavedThinking, claude.BetaTokenCounting}
@@ -8505,6 +8561,11 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 				}
 			}
 		}
+	}
+
+	// Set dynamic per-request headers for count_tokens (shorter timeout).
+	if tokenType == "oauth" {
+		applyDynamicStainlessHeaders(req, clientHeaders, claude.CountTokensStainlessTimeout)
 	}
 
 	if c != nil && tokenType == "oauth" {

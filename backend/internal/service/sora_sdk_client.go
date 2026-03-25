@@ -817,7 +817,7 @@ func (c *SoraSDKClient) getAccessToken(ctx context.Context, account *Account) (s
 }
 
 // recoverAccessToken 通过 session_token 或 refresh_token 恢复 access_token
-func (c *SoraSDKClient) recoverAccessToken(ctx context.Context, account *Account, reason string) (string, error) {
+func (c *SoraSDKClient) recoverAccessToken(ctx context.Context, account *Account, _ string) (string, error) {
 	if account == nil {
 		return "", errors.New("account is nil")
 	}

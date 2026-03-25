@@ -432,10 +432,7 @@ func (s *SchedulerSnapshotService) rebuildByAccount(ctx context.Context, account
 		return nil
 	}
 
-	var firstErr error
-	if err := s.rebuildBucketsForPlatform(ctx, account.Platform, groupIDs, reason); err != nil && firstErr == nil {
-		firstErr = err
-	}
+	firstErr := s.rebuildBucketsForPlatform(ctx, account.Platform, groupIDs, reason)
 	if account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled() {
 		if err := s.rebuildBucketsForPlatform(ctx, PlatformAnthropic, groupIDs, reason); err != nil && firstErr == nil {
 			firstErr = err
@@ -685,7 +682,7 @@ func (s *SchedulerSnapshotService) resolveMode(platform string, hasForcePlatform
 	return SchedulerModeSingle
 }
 
-func (s *SchedulerSnapshotService) guardFallback(ctx context.Context) error {
+func (s *SchedulerSnapshotService) guardFallback(_ context.Context) error {
 	if s.cfg == nil || s.cfg.Gateway.Scheduling.DbFallbackEnabled {
 		if s.fallbackLimit == nil || s.fallbackLimit.Allow() {
 			return nil

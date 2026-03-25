@@ -46,7 +46,7 @@ func (s *OpsService) GetDashboardOverview(ctx context.Context, filter *OpsDashbo
 	if metrics, err := s.opsRepo.GetLatestSystemMetrics(ctx, 1); err == nil {
 		// Attach config-derived limits so the UI can show "current / max" for connection pools.
 		// These are best-effort and should never block the dashboard rendering.
-		if s != nil && s.cfg != nil {
+		if s.cfg != nil {
 			if s.cfg.Database.MaxOpenConns > 0 {
 				metrics.DBMaxOpenConns = intPtr(s.cfg.Database.MaxOpenConns)
 			}
@@ -55,7 +55,7 @@ func (s *OpsService) GetDashboardOverview(ctx context.Context, filter *OpsDashbo
 			}
 		}
 		overview.SystemMetrics = metrics
-	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	} else if !errors.Is(err, sql.ErrNoRows) {
 		log.Printf("[Ops] GetLatestSystemMetrics failed: %v", err)
 	}
 

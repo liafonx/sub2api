@@ -772,7 +772,7 @@ func (s *AccountUsageService) getGeminiUsage(ctx context.Context, account *Accou
 }
 
 // getAntigravityUsage 获取 Antigravity 账户额度
-func (s *AccountUsageService) getAntigravityUsage(ctx context.Context, account *Account) (*UsageInfo, error) {
+func (s *AccountUsageService) getAntigravityUsage(_ context.Context, account *Account) (*UsageInfo, error) {
 	if s.antigravityQuotaFetcher == nil || !s.antigravityQuotaFetcher.CanFetch(account) {
 		now := time.Now()
 		return &UsageInfo{UpdatedAt: &now}, nil

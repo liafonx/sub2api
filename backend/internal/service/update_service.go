@@ -18,9 +18,7 @@ import (
 	"time"
 )
 
-
 const (
-	updateCacheKey = "update_check_cache"
 	updateCacheTTL = 1200 // 20 minutes
 	githubRepo     = "Wei-Shaw/sub2api"
 
@@ -510,4 +508,3 @@ func (s *UpdateService) saveToCache(ctx context.Context, info *UpdateInfo) {
 	data, _ := json.Marshal(cacheData)
 	_ = s.cache.SetUpdateInfo(ctx, string(data), time.Duration(updateCacheTTL)*time.Second)
 }
-

@@ -269,7 +269,7 @@ func (s *UsageCleanupService) markTaskFailed(taskID int64, deletedRows int64, er
 	}
 }
 
-func (s *UsageCleanupService) isTaskCanceled(ctx context.Context, taskID int64) (bool, error) {
+func (s *UsageCleanupService) isTaskCanceled(_ context.Context, taskID int64) (bool, error) {
 	if s == nil || s.repo == nil {
 		return false, fmt.Errorf("cleanup service not ready")
 	}

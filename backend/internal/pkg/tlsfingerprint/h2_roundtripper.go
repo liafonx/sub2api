@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -88,6 +89,9 @@ func (rt *h2RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 				}
 				return rt.dialTLS(ctx, network, addr)
 			},
+			// Match Node.js/Bun (nghttp2) SETTINGS_MAX_HEADER_LIST_SIZE.
+			// Go default is 10MB; Node.js sends 0xffffffff (unlimited).
+			MaxHeaderListSize: math.MaxUint32,
 		}
 		transport = h2t
 		fmt.Fprintf(os.Stderr, "h2_transport_created host=%s\n", addr)

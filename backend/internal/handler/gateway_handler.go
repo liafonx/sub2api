@@ -1256,7 +1256,7 @@ func (h *GatewayHandler) calculateSubscriptionRemaining(group *service.Group, su
 }
 
 // handleConcurrencyError handles concurrency-related errors with proper 429 response
-func (h *GatewayHandler) handleConcurrencyError(c *gin.Context, err error, slotType string, streamStarted bool) {
+func (h *GatewayHandler) handleConcurrencyError(c *gin.Context, _ error, slotType string, streamStarted bool) {
 	h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error",
 		fmt.Sprintf("Concurrency limit exceeded for %s, please retry later", slotType), streamStarted)
 }

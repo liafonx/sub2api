@@ -314,6 +314,13 @@ func ProvideClaudeCodeVersionDetectService(settingService *SettingService, cfg *
 	return svc
 }
 
+// ProvideCCProbeService creates and starts the CC probe service.
+func ProvideCCProbeService(cfg *config.Config, cache CCProbeCache) *CCProbeService {
+	svc := NewCCProbeService(&cfg.CCProbe, cache)
+	svc.Start()
+	return svc
+}
+
 func buildIdempotencyConfig(cfg *config.Config) IdempotencyConfig {
 	idempotencyCfg := DefaultIdempotencyConfig()
 	if cfg != nil {
@@ -512,4 +519,5 @@ var ProviderSet = wire.NewSet(
 	ProvideScheduledTestRunnerService,
 	NewGroupCapacityService,
 	ProvidePeakUsageService,
+	ProvideCCProbeService,
 )

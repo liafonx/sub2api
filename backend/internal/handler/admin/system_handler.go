@@ -18,15 +18,17 @@ import (
 
 // SystemHandler handles system-related operations
 type SystemHandler struct {
-	updateSvc *service.UpdateService
-	lockSvc   *service.SystemOperationLockService
+	updateSvc  *service.UpdateService
+	lockSvc    *service.SystemOperationLockService
+	ccProbeSvc *service.CCProbeService
 }
 
 // NewSystemHandler creates a new SystemHandler
-func NewSystemHandler(updateSvc *service.UpdateService, lockSvc *service.SystemOperationLockService) *SystemHandler {
+func NewSystemHandler(updateSvc *service.UpdateService, lockSvc *service.SystemOperationLockService, ccProbeSvc *service.CCProbeService) *SystemHandler {
 	return &SystemHandler{
-		updateSvc: updateSvc,
-		lockSvc:   lockSvc,
+		updateSvc:  updateSvc,
+		lockSvc:    lockSvc,
+		ccProbeSvc: ccProbeSvc,
 	}
 }
 
@@ -165,6 +167,58 @@ func (h *SystemHandler) acquireSystemLock(
 		_ = h.lockSvc.Release(releaseCtx, lock, succeeded, reason)
 	}
 	return lock, release, nil
+}
+
+// GetCCProbeStatus returns current probe status.
+// GET /api/v1/admin/system/cc-probe
+func (h *SystemHandler) GetCCProbeStatus(c *gin.Context) {
+	if h.ccProbeSvc == nil {
+		response.Success(c, gin.H{
+			"data":    nil,
+			"message": "CC probe service not configured",
+		})
+		return
+	}
+	traits := h.ccProbeSvc.GetLatestTraits()
+	if traits == nil {
+		response.Success(c, gin.H{
+			"data":    nil,
+			"message": "No probe results cached. Trigger a probe or wait for automatic detection.",
+		})
+		return
+	}
+	response.Success(c, gin.H{
+		"data": gin.H{
+			"cc_version":  traits.CCVersion,
+			"headers":     traits.Headers,
+			"captured_at": traits.CapturedAt,
+		},
+	})
+}
+
+// TriggerCCProbe triggers an on-demand probe.
+// POST /api/v1/admin/system/cc-probe/trigger
+func (h *SystemHandler) TriggerCCProbe(c *gin.Context) {
+	if h.ccProbeSvc == nil {
+		response.Error(c, http.StatusBadRequest, "CC probe service not configured")
+		return
+	}
+	if err := h.ccProbeSvc.ProbeInstalledCC(c.Request.Context()); err != nil {
+		response.Error(c, http.StatusInternalServerError, "probe failed: "+err.Error())
+		return
+	}
+	traits := h.ccProbeSvc.GetLatestTraits()
+	if traits == nil {
+		response.Error(c, http.StatusInternalServerError, "probe completed but no traits captured")
+		return
+	}
+	response.Success(c, gin.H{
+		"data": gin.H{
+			"cc_version":  traits.CCVersion,
+			"headers":     traits.Headers,
+			"captured_at": traits.CapturedAt,
+		},
+	})
 }
 
 func buildSystemOperationID(c *gin.Context, operation string) string {

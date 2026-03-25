@@ -796,7 +796,7 @@ func soraImageSizeFromModel(model string) string {
 	return "360"
 }
 
-func soraProErrorMessage(model, upstreamMsg string) string {
+func soraProErrorMessage(model, _ string) string {
 	modelLower := strings.ToLower(model)
 	if strings.Contains(modelLower, "sora2pro-hd") {
 		return "当前账号无法使用 Sora Pro-HD 模型，请更换模型或账号"

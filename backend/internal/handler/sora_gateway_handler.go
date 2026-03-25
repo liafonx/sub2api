@@ -478,7 +478,7 @@ func (h *SoraGatewayHandler) submitUsageRecordTask(task service.UsageRecordTask)
 	task(ctx)
 }
 
-func (h *SoraGatewayHandler) handleConcurrencyError(c *gin.Context, err error, slotType string, streamStarted bool) {
+func (h *SoraGatewayHandler) handleConcurrencyError(c *gin.Context, _ error, slotType string, streamStarted bool) {
 	h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error",
 		fmt.Sprintf("Concurrency limit exceeded for %s, please retry later", slotType), streamStarted)
 }

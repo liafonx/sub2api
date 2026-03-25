@@ -23,9 +23,8 @@ var (
 )
 
 const (
-	redeemMaxErrorsPerHour  = 20
-	redeemRateLimitDuration = time.Hour
-	redeemLockDuration      = 10 * time.Second // 锁超时时间，防止死锁
+	redeemMaxErrorsPerHour = 20
+	redeemLockDuration     = 10 * time.Second // 锁超时时间，防止死锁
 )
 
 // RedeemCache defines cache operations for redeem service

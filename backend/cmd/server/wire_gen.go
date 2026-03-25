@@ -133,6 +133,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	antigravityQuotaFetcher := service.NewAntigravityQuotaFetcher(proxyRepository)
 	usageCache := service.NewUsageCache()
 	identityCache := repository.NewIdentityCache(redisClient)
+	ccProbeCache := repository.NewCCProbeCache(redisClient)
 	accountUsageService := service.NewAccountUsageService(accountRepository, usageLogRepository, claudeUsageFetcher, geminiQuotaService, antigravityQuotaFetcher, usageCache, identityCache)
 	geminiTokenProvider := service.ProvideGeminiTokenProvider(accountRepository, geminiTokenCache, geminiOAuthService, oauthRefreshAPI)
 	gatewayCache := repository.NewGatewayCache(redisClient)
@@ -190,6 +191,9 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	gatewayService := service.NewGatewayService(accountRepository, groupRepository, usageLogRepository, usageBillingRepository, userRepository, userSubscriptionRepository, userGroupRateRepository, gatewayCache, configConfig, schedulerSnapshotService, concurrencyService, billingService, rateLimitService, billingCacheService, identityService, httpUpstream, deferredService, claudeTokenProvider, sessionLimitCache, rpmCache, digestSessionStore, settingService)
 	gatewayService.SetUserQuotaChecker(userQuotaService)
 	gatewayService.SetPeakUsageCache(peakUsageCache)
+	ccProbeService := service.ProvideCCProbeService(configConfig, ccProbeCache)
+	identityService.SetCCProbeService(ccProbeService)
+	gatewayService.SetCCProbeService(ccProbeService)
 	service.StartUserQuotaCleanupTicker(context.Background(), userQuotaService, 15*time.Second)
 	openAITokenProvider := service.ProvideOpenAITokenProvider(accountRepository, geminiTokenCache, openAIOAuthService, oauthRefreshAPI)
 	openAIGatewayService := service.NewOpenAIGatewayService(accountRepository, usageLogRepository, usageBillingRepository, userRepository, userSubscriptionRepository, userGroupRateRepository, gatewayCache, configConfig, schedulerSnapshotService, concurrencyService, billingService, rateLimitService, billingCacheService, httpUpstream, deferredService, openAITokenProvider)
@@ -209,7 +213,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	updateService := service.ProvideUpdateService(updateCache, gitHubReleaseClient, serviceBuildInfo)
 	idempotencyRepository := repository.NewIdempotencyRepository(client, db)
 	systemOperationLockService := service.ProvideSystemOperationLockService(idempotencyRepository, configConfig)
-	systemHandler := handler.ProvideSystemHandler(updateService, systemOperationLockService)
+	systemHandler := handler.ProvideSystemHandler(updateService, systemOperationLockService, ccProbeService)
 	adminSubscriptionHandler := admin.NewSubscriptionHandler(subscriptionService)
 	usageCleanupRepository := repository.NewUsageCleanupRepository(client, db)
 	usageCleanupService := service.ProvideUsageCleanupService(usageCleanupRepository, timingWheelService, dashboardAggregationService, configConfig)
@@ -260,7 +264,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	subscriptionExpiryService := service.ProvideSubscriptionExpiryService(userSubscriptionRepository)
 	scheduledTestRunnerService := service.ProvideScheduledTestRunnerService(scheduledTestPlanRepository, scheduledTestService, accountTestService, rateLimitService, configConfig)
 	claudeCodeVersionDetectService := service.ProvideClaudeCodeVersionDetectService(settingService, configConfig)
-	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, soraMediaCleanupService, schedulerSnapshotService, tokenRefreshService, accountExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, claudeCodeVersionDetectService, peakUsageService)
+	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, soraMediaCleanupService, schedulerSnapshotService, tokenRefreshService, accountExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, claudeCodeVersionDetectService, peakUsageService, ccProbeService)
 	application := &Application{
 		Server:  httpServer,
 		Cleanup: v,
@@ -316,6 +320,7 @@ func provideCleanup(
 	backupSvc *service.BackupService,
 	claudeCodeVersionDetect *service.ClaudeCodeVersionDetectService,
 	peakUsageSvc *service.PeakUsageService,
+	ccProbeSvc *service.CCProbeService,
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -327,6 +332,12 @@ func provideCleanup(
 		}
 
 		parallelSteps := []cleanupStep{
+			{"CCProbeService", func() error {
+				if ccProbeSvc != nil {
+					ccProbeSvc.Stop()
+				}
+				return nil
+			}},
 			{"PeakUsageService", func() error {
 				if peakUsageSvc != nil {
 					peakUsageSvc.Stop()

@@ -2775,7 +2775,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 }
 
 func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
-	ctx context.Context,
+	_ context.Context,
 	resp *http.Response,
 	c *gin.Context,
 ) (*OpenAIUsage, error) {
@@ -2865,7 +2865,7 @@ func writeOpenAIPassthroughResponseHeaders(dst http.Header, src http.Header, fil
 	}
 }
 
-func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error) {
+func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, _ bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error) {
 	// Determine target URL based on account type
 	var targetURL string
 	switch account.Type {
@@ -3629,7 +3629,7 @@ func extractOpenAIUsageFromJSONBytes(body []byte) (OpenAIUsage, bool) {
 	}, true
 }
 
-func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, originalModel, mappedModel string) (*OpenAIUsage, error) {
+func (s *OpenAIGatewayService) handleNonStreamingResponse(_ context.Context, resp *http.Response, c *gin.Context, account *Account, originalModel, mappedModel string) (*OpenAIUsage, error) {
 	maxBytes := resolveUpstreamResponseReadLimit(s.cfg)
 	body, err := readUpstreamResponseBodyLimited(resp.Body, maxBytes)
 	if err != nil {
@@ -4434,7 +4434,7 @@ func syncOpenAICodexRateLimitFromExtra(ctx context.Context, repo AccountReposito
 }
 
 // updateCodexUsageSnapshot saves the Codex usage snapshot to account's Extra field
-func (s *OpenAIGatewayService) updateCodexUsageSnapshot(ctx context.Context, accountID int64, snapshot *OpenAICodexUsageSnapshot) {
+func (s *OpenAIGatewayService) updateCodexUsageSnapshot(_ context.Context, accountID int64, snapshot *OpenAICodexUsageSnapshot) {
 	if snapshot == nil {
 		return
 	}

@@ -561,7 +561,7 @@ func (s *BillingCacheService) checkAPIKeyRateLimits(ctx context.Context, apiKey 
 }
 
 // evaluateRateLimits checks usage against limits, triggering async resets for expired windows.
-func (s *BillingCacheService) evaluateRateLimits(ctx context.Context, apiKey *APIKey, usage5h, usage1d, usage7d float64, w5h, w1d, w7d *time.Time) error {
+func (s *BillingCacheService) evaluateRateLimits(_ context.Context, apiKey *APIKey, usage5h, usage1d, usage7d float64, w5h, w1d, w7d *time.Time) error {
 	needsReset := false
 
 	// Reset expired windows in-memory for check purposes
@@ -689,7 +689,7 @@ func (s *BillingCacheService) checkBalanceEligibility(ctx context.Context, userI
 }
 
 // checkSubscriptionEligibility 检查订阅模式资格
-func (s *BillingCacheService) checkSubscriptionEligibility(ctx context.Context, userID int64, group *Group, subscription *UserSubscription) error {
+func (s *BillingCacheService) checkSubscriptionEligibility(ctx context.Context, userID int64, group *Group, _ *UserSubscription) error {
 	// 获取订阅缓存数据
 	subData, err := s.GetSubscriptionStatus(ctx, userID, group.ID)
 	if err != nil {

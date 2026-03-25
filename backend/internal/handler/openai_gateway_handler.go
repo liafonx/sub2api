@@ -248,7 +248,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
 			return
 		}
-		if previousResponseID != "" && selection != nil && selection.Account != nil {
+		if previousResponseID != "" {
 			reqLog.Debug("openai.account_selected_with_previous_response_id", zap.Int64("account_id", selection.Account.ID))
 		}
 		reqLog.Debug("openai.account_schedule_decision",
@@ -1402,7 +1402,7 @@ func (h *OpenAIGatewayHandler) submitUsageRecordTask(task service.UsageRecordTas
 }
 
 // handleConcurrencyError handles concurrency-related errors with proper 429 response
-func (h *OpenAIGatewayHandler) handleConcurrencyError(c *gin.Context, err error, slotType string, streamStarted bool) {
+func (h *OpenAIGatewayHandler) handleConcurrencyError(c *gin.Context, _ error, slotType string, streamStarted bool) {
 	h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error",
 		fmt.Sprintf("Concurrency limit exceeded for %s, please retry later", slotType), streamStarted)
 }
