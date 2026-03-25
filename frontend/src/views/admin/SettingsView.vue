@@ -1202,10 +1202,6 @@
                   <code class="text-xs font-mono text-gray-800 dark:text-gray-200">{{ ccProbeConfig.cc_binary_path || 'claude' }}</code>
                 </div>
                 <div class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 dark:bg-dark-800">
-                  <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.ccProbe.probeModel') }}</span>
-                  <span class="text-xs text-gray-800 dark:text-gray-200">{{ ccProbeConfig.probe_model }}</span>
-                </div>
-                <div class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 dark:bg-dark-800">
                   <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.ccProbe.autoUpdate') }}</span>
                   <span :class="['inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', ccProbeConfig.auto_update_cc ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' : 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-400']">
                     {{ ccProbeConfig.auto_update_cc ? t('admin.settings.ccProbe.enabled') : t('admin.settings.ccProbe.disabled') }}
@@ -1215,11 +1211,25 @@
                   <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.ccProbe.checkInterval') }}</span>
                   <span class="text-xs text-gray-800 dark:text-gray-200">{{ ccProbeConfig.check_interval_hours }} {{ t('admin.settings.ccProbe.hoursUnit') }}</span>
                 </div>
-                <div class="col-span-full flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 dark:bg-dark-800">
+                <div class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 dark:bg-dark-800">
                   <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.ccProbe.updateCommand') }}</span>
                   <code class="text-xs font-mono text-gray-800 dark:text-gray-200">{{ ccProbeConfig.update_command }}</code>
                 </div>
               </div>
+            </div>
+
+            <!-- Probe Prompt -->
+            <div class="space-y-2">
+              <label class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.ccProbe.probePromptLabel') }}
+              </label>
+              <p class="text-xs text-gray-400 dark:text-gray-500">{{ t('admin.settings.ccProbe.probePromptHint') }}</p>
+              <input
+                v-model="probePromptForm.prompt"
+                type="text"
+                class="input w-full"
+                :placeholder="t('admin.settings.ccProbe.probePromptPlaceholder')"
+              />
             </div>
 
             <!-- Manual Trigger -->
@@ -2346,7 +2356,10 @@ async function saveSettings() {
       auto_detect_min_claude_code_version: form.auto_detect_min_claude_code_version,
       allow_ungrouped_key_scheduling: form.allow_ungrouped_key_scheduling
     }
-    const updated = await adminAPI.settings.updateSettings(payload)
+    const [updated] = await Promise.all([
+      adminAPI.settings.updateSettings(payload),
+      adminAPI.system.updateProbePrompt(probePromptForm.prompt),
+    ])
     Object.assign(form, updated)
     registrationEmailSuffixWhitelistTags.value = normalizeRegistrationEmailSuffixDomains(
       updated.registration_email_suffix_whitelist
@@ -2633,6 +2646,7 @@ const ccProbeStatus = ref<CCProbeTraits | null>(null)
 const ccProbeConfig = ref<CCProbeConfig | null>(null)
 const ccProbeLoading = ref(false)
 const ccProbeTriggerLoading = ref(false)
+const probePromptForm = reactive({ prompt: '' })
 
 async function fetchCCProbeStatus() {
   try {
@@ -2663,6 +2677,16 @@ async function handleTriggerProbe() {
   }
 }
 
+async function fetchProbePrompt() {
+  try {
+    const result = await adminAPI.system.getProbePrompt()
+    probePromptForm.prompt = result.probe_prompt
+  } catch {
+    // not critical
+  }
+}
+
+
 onMounted(() => {
   loadSettings()
   loadSubscriptionGroups()
@@ -2672,7 +2696,7 @@ onMounted(() => {
   loadRectifierSettings()
   loadBetaPolicySettings()
   ccProbeLoading.value = true
-  Promise.all([fetchCCProbeStatus(), fetchCCProbeConfig()]).finally(() => {
+  Promise.all([fetchCCProbeStatus(), fetchCCProbeConfig(), fetchProbePrompt()]).finally(() => {
     ccProbeLoading.value = false
   })
 })

@@ -1032,7 +1032,5 @@ cc_probe:
   # Default (when empty): "<cc_binary_path> update"
   # Use an absolute path if the binary is not on the system PATH (e.g. launchd environments).
   update_command: "claude update"
-  # Model to use for the probe request (cheapest available)
-  probe_model: "claude-haiku-4-5"
   # Version check interval in hours (default: 1)
   check_interval_hours: 1

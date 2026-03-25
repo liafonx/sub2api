@@ -489,6 +489,8 @@ func registerSystemRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		system.GET("/cc-probe", h.Admin.System.GetCCProbeStatus)
 		system.GET("/cc-probe/config", h.Admin.System.GetCCProbeConfig)
 		system.POST("/cc-probe/trigger", h.Admin.System.TriggerCCProbe)
+		system.GET("/cc-probe/prompt", h.Admin.System.GetProbePrompt)
+		system.PUT("/cc-probe/prompt", h.Admin.System.UpdateProbePrompt)
 	}
 }
 

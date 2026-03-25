@@ -38,6 +38,7 @@ type CCProbeService struct {
 	stopCh          chan struct{}
 	wg              sync.WaitGroup
 	probeInProgress atomic.Bool // prevents overlapping probes
+	probePrompt     string      // custom probe prompt (guarded by mu)
 }
 
 // CCProbeConfigPublic is a JSON-safe view of the cc_probe config section.
@@ -47,8 +48,8 @@ type CCProbeConfigPublic struct {
 	CCBinaryPath       string `json:"cc_binary_path"`
 	AutoUpdateCC       bool   `json:"auto_update_cc"`
 	UpdateCommand      string `json:"update_command"`
-	ProbeModel         string `json:"probe_model"`
 	CheckIntervalHours int    `json:"check_interval_hours"`
+	ProbePrompt        string `json:"probe_prompt"`
 }
 
 // PublicConfig returns a JSON-safe view of the current cc_probe configuration.
@@ -60,18 +61,32 @@ func (s *CCProbeService) PublicConfig() CCProbeConfigPublic {
 	if interval == 0 {
 		interval = 1
 	}
-	probeModel := s.cfg.ProbeModel
-	if probeModel == "" {
-		probeModel = "claude-haiku-4-5"
-	}
 	return CCProbeConfigPublic{
 		Enabled:            s.cfg.Enabled,
 		CCBinaryPath:       s.cfg.CCBinaryPath,
 		AutoUpdateCC:       s.cfg.AutoUpdateCC,
 		UpdateCommand:      s.updateCommand(),
-		ProbeModel:         probeModel,
 		CheckIntervalHours: interval,
+		ProbePrompt:        s.GetProbePrompt(),
 	}
+}
+
+// GetProbePrompt returns the current probe prompt, falling back to DefaultProbePrompt.
+func (s *CCProbeService) GetProbePrompt() string {
+	s.mu.RLock()
+	p := s.probePrompt
+	s.mu.RUnlock()
+	if p == "" {
+		return DefaultProbePrompt
+	}
+	return p
+}
+
+// SetProbePrompt updates the in-memory probe prompt.
+func (s *CCProbeService) SetProbePrompt(prompt string) {
+	s.mu.Lock()
+	s.probePrompt = prompt
+	s.mu.Unlock()
 }
 
 // CCProbeCache defines the cache interface for CC probe traits.
@@ -383,15 +398,9 @@ def request(flow: http.HTTPFlow):
 	slog.Debug("cc_probe.mitmdump_ready")
 
 	// Run Claude Code with proxy
-	probeModel := s.cfg.ProbeModel
-	if probeModel == "" {
-		probeModel = "claude-haiku-4-5"
-	}
-
 	claudeCmd := exec.CommandContext(probeCtx, ccBinary,
-		"-p", "hi",
+		"-p", s.GetProbePrompt(),
 		"--output-format", "json",
-		"--model", probeModel,
 	)
 	claudeCmd.Env = append(os.Environ(),
 		fmt.Sprintf("HTTPS_PROXY=http://127.0.0.1:%s", mitmPort),

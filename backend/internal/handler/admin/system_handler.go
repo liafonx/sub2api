@@ -22,14 +22,16 @@ type SystemHandler struct {
 	updateSvc  *service.UpdateService
 	lockSvc    *service.SystemOperationLockService
 	ccProbeSvc *service.CCProbeService
+	settingSvc *service.SettingService
 }
 
 // NewSystemHandler creates a new SystemHandler
-func NewSystemHandler(updateSvc *service.UpdateService, lockSvc *service.SystemOperationLockService, ccProbeSvc *service.CCProbeService) *SystemHandler {
+func NewSystemHandler(updateSvc *service.UpdateService, lockSvc *service.SystemOperationLockService, ccProbeSvc *service.CCProbeService, settingSvc *service.SettingService) *SystemHandler {
 	return &SystemHandler{
 		updateSvc:  updateSvc,
 		lockSvc:    lockSvc,
 		ccProbeSvc: ccProbeSvc,
+		settingSvc: settingSvc,
 	}
 }
 
@@ -222,6 +224,43 @@ func (h *SystemHandler) TriggerCCProbe(c *gin.Context) {
 		"headers":     traits.Headers,
 		"captured_at": traits.CapturedAt,
 	})
+}
+
+// GetProbePrompt returns the current CC Probe prompt.
+// GET /api/v1/admin/system/cc-probe/prompt
+func (h *SystemHandler) GetProbePrompt(c *gin.Context) {
+	prompt, err := h.settingSvc.GetProbePrompt(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"probe_prompt": prompt})
+}
+
+// UpdateProbePrompt updates the CC Probe prompt.
+// PUT /api/v1/admin/system/cc-probe/prompt
+func (h *SystemHandler) UpdateProbePrompt(c *gin.Context) {
+	var req struct {
+		ProbePrompt string `json:"probe_prompt"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if err := h.settingSvc.SetProbePrompt(c.Request.Context(), req.ProbePrompt); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	// Sync to in-memory service
+	if h.ccProbeSvc != nil {
+		h.ccProbeSvc.SetProbePrompt(req.ProbePrompt)
+	}
+	prompt, err := h.settingSvc.GetProbePrompt(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"probe_prompt": prompt})
 }
 
 func buildSystemOperationID(c *gin.Context, operation string) string {

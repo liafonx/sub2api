@@ -193,6 +193,9 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	gatewayService.SetPeakUsageCache(peakUsageCache)
 	gatewayService.SetPricingService(pricingService)
 	ccProbeService := service.ProvideCCProbeService(configConfig, ccProbeCache)
+	if prompt, err := settingService.GetProbePrompt(context.Background()); err == nil {
+		ccProbeService.SetProbePrompt(prompt)
+	}
 	identityService.SetCCProbeService(ccProbeService)
 	gatewayService.SetCCProbeService(ccProbeService)
 	service.StartUserQuotaCleanupTicker(context.Background(), userQuotaService, 15*time.Second)
@@ -214,7 +217,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	updateService := service.ProvideUpdateService(updateCache, gitHubReleaseClient, serviceBuildInfo)
 	idempotencyRepository := repository.NewIdempotencyRepository(client, db)
 	systemOperationLockService := service.ProvideSystemOperationLockService(idempotencyRepository, configConfig)
-	systemHandler := handler.ProvideSystemHandler(updateService, systemOperationLockService, ccProbeService)
+	systemHandler := handler.ProvideSystemHandler(updateService, systemOperationLockService, ccProbeService, settingService)
 	adminSubscriptionHandler := admin.NewSubscriptionHandler(subscriptionService)
 	usageCleanupRepository := repository.NewUsageCleanupRepository(client, db)
 	usageCleanupService := service.ProvideUsageCleanupService(usageCleanupRepository, timingWheelService, dashboardAggregationService, configConfig)

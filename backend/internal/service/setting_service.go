@@ -2116,3 +2116,26 @@ func maxInt64(value int64, min int64) int64 {
 	}
 	return value
 }
+
+// GetProbePrompt returns the configured CC Probe prompt, falling back to DefaultProbePrompt.
+func (s *SettingService) GetProbePrompt(ctx context.Context) (string, error) {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyProbePrompt)
+	if err != nil {
+		if errors.Is(err, ErrSettingNotFound) {
+			return DefaultProbePrompt, nil
+		}
+		return "", fmt.Errorf("get probe prompt: %w", err)
+	}
+	if value == "" {
+		return DefaultProbePrompt, nil
+	}
+	return value, nil
+}
+
+// SetProbePrompt persists the CC Probe prompt. Empty string resets to default.
+func (s *SettingService) SetProbePrompt(ctx context.Context, prompt string) error {
+	if prompt == "" {
+		prompt = DefaultProbePrompt
+	}
+	return s.settingRepo.Set(ctx, SettingKeyProbePrompt, prompt)
+}

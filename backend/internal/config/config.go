@@ -161,7 +161,6 @@ type CCProbeConfig struct {
 	CCBinaryPath       string `mapstructure:"cc_binary_path"`
 	AutoUpdateCC       bool   `mapstructure:"auto_update_cc"`
 	UpdateCommand      string `mapstructure:"update_command"`
-	ProbeModel         string `mapstructure:"probe_model"`
 	CheckIntervalHours int    `mapstructure:"check_interval_hours"`
 }
 

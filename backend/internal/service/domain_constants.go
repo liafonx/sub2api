@@ -199,6 +199,16 @@ const (
 	SettingKeyBetaPolicySettings = "beta_policy_settings"
 
 	// =========================
+	// CC Probe Prompt
+	// =========================
+
+	// SettingKeyProbePrompt stores the custom prompt used by CC Probe captures.
+	SettingKeyProbePrompt = "probe_prompt"
+
+	// DefaultProbePrompt is the fallback prompt when none is configured.
+	DefaultProbePrompt = "What does fmt.Println do in Go?"
+
+	// =========================
 	// Sora S3 存储配置
 	// =========================
 
