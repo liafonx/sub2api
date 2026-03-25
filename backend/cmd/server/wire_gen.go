@@ -191,6 +191,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	gatewayService := service.NewGatewayService(accountRepository, groupRepository, usageLogRepository, usageBillingRepository, userRepository, userSubscriptionRepository, userGroupRateRepository, gatewayCache, configConfig, schedulerSnapshotService, concurrencyService, billingService, rateLimitService, billingCacheService, identityService, httpUpstream, deferredService, claudeTokenProvider, sessionLimitCache, rpmCache, digestSessionStore, settingService)
 	gatewayService.SetUserQuotaChecker(userQuotaService)
 	gatewayService.SetPeakUsageCache(peakUsageCache)
+	gatewayService.SetPricingService(pricingService)
 	ccProbeService := service.ProvideCCProbeService(configConfig, ccProbeCache)
 	identityService.SetCCProbeService(ccProbeService)
 	gatewayService.SetCCProbeService(ccProbeService)

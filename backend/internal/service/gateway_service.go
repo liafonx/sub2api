@@ -571,6 +571,7 @@ type GatewayService struct {
 	ccProbeService        *CCProbeService // optional, injected post-construction
 	debugModelRouting     atomic.Bool
 	debugClaudeMimic      atomic.Bool
+	pricingService        *PricingService
 }
 
 // NewGatewayService creates a new GatewayService
@@ -3560,6 +3561,14 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 	// OAuth/SetupToken 账号使用 Anthropic 标准映射（短ID → 长ID）
 	if account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {
 		requestedModel = claude.NormalizeModelID(requestedModel)
+	}
+	// Provider-based routing: reject mismatched model→platform combinations
+	if s.cfg.Pricing.EnforceProviderRouting && s.pricingService != nil {
+		if provider := s.pricingService.GetModelProvider(requestedModel); provider != "" {
+			if !isProviderAllowedForPlatform(provider, account.Platform) {
+				return false
+			}
+		}
 	}
 	// 其他平台使用账户的模型支持检查
 	return account.IsModelSupported(requestedModel)
@@ -7855,6 +7864,11 @@ func (s *GatewayService) SetPeakUsageCache(cache PeakUsageCache) {
 // SetCCProbeService sets the CC probe service for enhanced mimic headers.
 func (s *GatewayService) SetCCProbeService(probe *CCProbeService) {
 	s.ccProbeService = probe
+}
+
+// SetPricingService sets the pricing service for provider routing checks.
+func (s *GatewayService) SetPricingService(ps *PricingService) {
+	s.pricingService = ps
 }
 
 // RegisterUserActivity marks a user as active on an account for quota tracking.

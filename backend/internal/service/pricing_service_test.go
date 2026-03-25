@@ -158,3 +158,34 @@ func TestParsePricingData_PreservesServiceTierPriorityFields(t *testing.T) {
 	require.InDelta(t, 0.0000005, pricing.CacheReadInputTokenCostPriority, 1e-12)
 	require.True(t, pricing.SupportsServiceTier)
 }
+
+func TestBuildModelProviderIndex(t *testing.T) {
+	data := map[string]*LiteLLMModelPricing{
+		"gpt-4o":                     {LiteLLMProvider: "openai"},
+		"claude-3-5-sonnet-20241022": {LiteLLMProvider: "anthropic"},
+		"gemini-1.5-pro":             {LiteLLMProvider: "vertex_ai-language-models"},
+		"no-provider-model":          {LiteLLMProvider: ""},
+	}
+
+	index := buildModelProviderIndex(data)
+
+	require.Equal(t, "openai", index["gpt-4o"])
+	require.Equal(t, "anthropic", index["claude-3-5-sonnet-20241022"])
+	require.Equal(t, "vertex_ai-language-models", index["gemini-1.5-pro"])
+	require.NotContains(t, index, "no-provider-model", "models with empty provider should be excluded")
+}
+
+func TestGetModelProvider(t *testing.T) {
+	svc := &PricingService{
+		modelProvider: map[string]string{
+			"gpt-4o":                     "openai",
+			"claude-3-5-sonnet-20241022": "anthropic",
+		},
+	}
+
+	require.Equal(t, "openai", svc.GetModelProvider("gpt-4o"))
+	require.Equal(t, "openai", svc.GetModelProvider("GPT-4O"), "should be case-insensitive")
+	require.Equal(t, "anthropic", svc.GetModelProvider("claude-3-5-sonnet-20241022"))
+	require.Equal(t, "", svc.GetModelProvider("unknown-model"), "unknown model returns empty string")
+	require.Equal(t, "", svc.GetModelProvider(""), "empty model returns empty string")
+}

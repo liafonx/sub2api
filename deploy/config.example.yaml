@@ -882,6 +882,11 @@ pricing:
   # Hash check interval in minutes
   # 哈希检查间隔（分钟）
   hash_check_interval_minutes: 10
+  # Enforce provider routing: reject requests where the model's litellm_provider
+  # does not match the account's platform (e.g., block gpt-4o on anthropic accounts).
+  # Default: false (fail-open — unknown models always pass through)
+  # 强制提供商路由：拒绝模型的 litellm_provider 与账户平台不匹配的请求
+  enforce_provider_routing: false
 
 # =============================================================================
 # Billing Configuration
