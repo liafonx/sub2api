@@ -9,28 +9,11 @@ import (
 	entpeakusage "github.com/Wei-Shaw/sub2api/ent/peakusage"
 )
 
-// AccountPeakDTO is the response DTO for account peak usage.
-type AccountPeakDTO struct {
+// PeakDTO is the response DTO for entity peak usage (account or user).
+type PeakDTO struct {
 	EntityID    int64  `json:"entity_id"`
 	EntityName  string `json:"entity_name"`
-	EntityLabel string `json:"entity_label"` // platform
-
-	PeakConcurrency int `json:"peak_concurrency"`
-	PeakSessions    int `json:"peak_sessions"`
-	PeakRPM         int `json:"peak_rpm"`
-
-	MaxConcurrency int `json:"max_concurrency,omitempty"`
-	MaxSessions    int `json:"max_sessions,omitempty"`
-	MaxRPM         int `json:"max_rpm,omitempty"`
-
-	ResetAt *time.Time `json:"reset_at,omitempty"`
-}
-
-// UserPeakDTO is the response DTO for user peak usage.
-type UserPeakDTO struct {
-	EntityID    int64  `json:"entity_id"`
-	EntityName  string `json:"entity_name"`
-	EntityLabel string `json:"entity_label"` // email
+	EntityLabel string `json:"entity_label"` // platform (account) or email (user)
 
 	PeakConcurrency int `json:"peak_concurrency"`
 	PeakSessions    int `json:"peak_sessions"`
@@ -95,11 +78,11 @@ func (s *PeakUsageService) FlushPeaksFromRedis() {
 		for i, a := range accounts {
 			accountIDs[i] = a.ID
 		}
-		peaks, err := s.peakCache.GetAllPeaks(ctx, "account", accountIDs)
+		peaks, err := s.peakCache.GetAllPeaks(ctx, EntityTypeAccount, accountIDs)
 		if err != nil {
 			log.Printf("[PeakUsageService] FlushPeaksFromRedis: get account peaks failed: %v", err)
 		} else {
-			s.upsertPeaks(ctx, "account", peaks)
+			s.upsertPeaks(ctx, EntityTypeAccount, peaks)
 		}
 	}
 
@@ -109,138 +92,152 @@ func (s *PeakUsageService) FlushPeaksFromRedis() {
 	}
 
 	if len(userIDs) > 0 {
-		peaks, err := s.peakCache.GetAllPeaks(ctx, "user", userIDs)
+		peaks, err := s.peakCache.GetAllPeaks(ctx, EntityTypeUser, userIDs)
 		if err != nil {
 			log.Printf("[PeakUsageService] FlushPeaksFromRedis: get user peaks failed: %v", err)
 		} else {
-			s.upsertPeaks(ctx, "user", peaks)
+			s.upsertPeaks(ctx, EntityTypeUser, peaks)
 		}
 	}
 }
 
-// upsertPeaks writes peak values to the DB, updating on conflict.
+// upsertPeaks writes peak values to the DB using bulk upsert (at most 2 SQL calls).
+// Entries are split by whether reset_at is set, since the conflict update clause differs.
 func (s *PeakUsageService) upsertPeaks(ctx context.Context, entityType string, peaks map[int64]*PeakValues) {
+	if len(peaks) == 0 {
+		return
+	}
 	now := time.Now()
+	conflictCols := []string{entpeakusage.FieldEntityType, entpeakusage.FieldEntityID}
+
+	var withReset, withoutReset []*ent.PeakUsageCreate
 	for id, v := range peaks {
 		if v == nil {
 			continue
 		}
-		var resetAt *time.Time
-		if !v.ResetAt.IsZero() {
-			t := v.ResetAt
-			resetAt = &t
-		}
-		err := s.entClient.PeakUsage.Create().
+		b := s.entClient.PeakUsage.Create().
 			SetEntityType(entityType).
 			SetEntityID(id).
 			SetPeakConcurrency(v.Concurrency).
 			SetPeakSessions(v.Sessions).
 			SetPeakRpm(v.RPM).
-			SetNillableResetAt(resetAt).
-			SetUpdatedAt(now).
-			OnConflictColumns(entpeakusage.FieldEntityType, entpeakusage.FieldEntityID).
-			Update(func(u *ent.PeakUsageUpsert) {
-				u.SetPeakConcurrency(v.Concurrency)
-				u.SetPeakSessions(v.Sessions)
-				u.SetPeakRpm(v.RPM)
-				if resetAt == nil {
-					u.ClearResetAt()
-				} else {
-					u.SetResetAt(*resetAt)
-				}
-				u.SetUpdatedAt(now)
-			}).
-			Exec(ctx)
-		if err != nil {
-			log.Printf("[PeakUsageService] upsertPeaks: failed for %s/%d: %v", entityType, id, err)
+			SetUpdatedAt(now)
+		if !v.ResetAt.IsZero() {
+			withReset = append(withReset, b.SetResetAt(v.ResetAt))
+		} else {
+			withoutReset = append(withoutReset, b)
 		}
 	}
+
+	if len(withoutReset) > 0 {
+		if err := s.entClient.PeakUsage.CreateBulk(withoutReset...).
+			OnConflictColumns(conflictCols...).
+			Update(func(u *ent.PeakUsageUpsert) {
+				u.UpdatePeakConcurrency()
+				u.UpdatePeakSessions()
+				u.UpdatePeakRpm()
+				u.UpdateUpdatedAt()
+				u.ClearResetAt()
+			}).
+			Exec(ctx); err != nil {
+			log.Printf("[PeakUsageService] upsertPeaks: bulk upsert failed for %s: %v", entityType, err)
+		}
+	}
+
+	if len(withReset) > 0 {
+		if err := s.entClient.PeakUsage.CreateBulk(withReset...).
+			OnConflictColumns(conflictCols...).
+			Update(func(u *ent.PeakUsageUpsert) {
+				u.UpdatePeakConcurrency()
+				u.UpdatePeakSessions()
+				u.UpdatePeakRpm()
+				u.UpdateUpdatedAt()
+				u.UpdateResetAt()
+			}).
+			Exec(ctx); err != nil {
+			log.Printf("[PeakUsageService] upsertPeaks: bulk upsert (with-reset) failed for %s: %v", entityType, err)
+		}
+	}
+}
+
+// getPeaks queries DB peak rows and calls enrich to populate entity-specific fields.
+func (s *PeakUsageService) getPeaks(ctx context.Context, entityType string, enrich func([]*ent.PeakUsage, []PeakDTO)) ([]PeakDTO, error) {
+	rows, err := s.entClient.PeakUsage.Query().
+		Where(entpeakusage.EntityTypeEQ(entityType)).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return []PeakDTO{}, nil
+	}
+	dtos := make([]PeakDTO, len(rows))
+	for i, r := range rows {
+		dtos[i] = PeakDTO{
+			EntityID:        r.EntityID,
+			PeakConcurrency: r.PeakConcurrency,
+			PeakSessions:    r.PeakSessions,
+			PeakRPM:         r.PeakRpm,
+			ResetAt:         r.ResetAt,
+		}
+	}
+	enrich(rows, dtos)
+	return dtos, nil
 }
 
 // GetAccountPeaks returns peak usage records for all accounts, enriched with name and platform.
-func (s *PeakUsageService) GetAccountPeaks(ctx context.Context) ([]AccountPeakDTO, error) {
-	rows, err := s.entClient.PeakUsage.Query().
-		Where(entpeakusage.EntityTypeEQ("account")).
-		All(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if len(rows) == 0 {
-		return []AccountPeakDTO{}, nil
-	}
-
-	ids := make([]int64, len(rows))
-	for i, r := range rows {
-		ids[i] = r.EntityID
-	}
-	accounts, err := s.accountRepo.GetByIDs(ctx, ids)
-	accountMap := make(map[int64]*Account, len(accounts))
-	if err == nil {
+func (s *PeakUsageService) GetAccountPeaks(ctx context.Context) ([]PeakDTO, error) {
+	return s.getPeaks(ctx, EntityTypeAccount, func(rows []*ent.PeakUsage, dtos []PeakDTO) {
+		ids := make([]int64, len(rows))
+		for i, r := range rows {
+			ids[i] = r.EntityID
+		}
+		accounts, err := s.accountRepo.GetByIDs(ctx, ids)
+		if err != nil {
+			log.Printf("[PeakUsageService] GetAccountPeaks: load accounts failed: %v", err)
+			return
+		}
+		accountMap := make(map[int64]*Account, len(accounts))
 		for _, a := range accounts {
 			accountMap[a.ID] = a
 		}
-	}
-
-	dtos := make([]AccountPeakDTO, 0, len(rows))
-	for _, r := range rows {
-		dto := AccountPeakDTO{
-			EntityID:        r.EntityID,
-			PeakConcurrency: r.PeakConcurrency,
-			PeakSessions:    r.PeakSessions,
-			PeakRPM:         r.PeakRpm,
-			ResetAt:         r.ResetAt,
+		for i, r := range rows {
+			if a, ok := accountMap[r.EntityID]; ok {
+				dtos[i].EntityName = a.Name
+				dtos[i].EntityLabel = a.Platform
+				dtos[i].MaxConcurrency = a.Concurrency
+			}
 		}
-		if a, ok := accountMap[r.EntityID]; ok {
-			dto.EntityName = a.Name
-			dto.EntityLabel = a.Platform
-			dto.MaxConcurrency = a.Concurrency
-		}
-		dtos = append(dtos, dto)
-	}
-	return dtos, nil
+	})
 }
 
 // GetUserPeaks returns peak usage records for all users, enriched with username and email.
-func (s *PeakUsageService) GetUserPeaks(ctx context.Context) ([]UserPeakDTO, error) {
-	rows, err := s.entClient.PeakUsage.Query().
-		Where(entpeakusage.EntityTypeEQ("user")).
-		All(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if len(rows) == 0 {
-		return []UserPeakDTO{}, nil
-	}
-
-	ids := make([]int64, len(rows))
-	for i, r := range rows {
-		ids[i] = r.EntityID
-	}
-	users, _ := s.userRepo.GetByIDs(ctx, ids)
-	userMap := make(map[int64]*User, len(users))
-	for _, u := range users {
-		userMap[u.ID] = u
-	}
-
-	dtos := make([]UserPeakDTO, 0, len(rows))
-	for _, r := range rows {
-		dto := UserPeakDTO{
-			EntityID:        r.EntityID,
-			PeakConcurrency: r.PeakConcurrency,
-			PeakSessions:    r.PeakSessions,
-			PeakRPM:         r.PeakRpm,
-			ResetAt:         r.ResetAt,
+func (s *PeakUsageService) GetUserPeaks(ctx context.Context) ([]PeakDTO, error) {
+	return s.getPeaks(ctx, EntityTypeUser, func(rows []*ent.PeakUsage, dtos []PeakDTO) {
+		ids := make([]int64, len(rows))
+		for i, r := range rows {
+			ids[i] = r.EntityID
 		}
-		if u, ok := userMap[r.EntityID]; ok {
-			dto.EntityName = u.Username
-			dto.EntityLabel = u.Email
+		users, err := s.userRepo.GetByIDs(ctx, ids)
+		if err != nil {
+			log.Printf("[PeakUsageService] GetUserPeaks: load users failed: %v", err)
+			return
 		}
-		dtos = append(dtos, dto)
-	}
-	return dtos, nil
+		userMap := make(map[int64]*User, len(users))
+		for _, u := range users {
+			userMap[u.ID] = u
+		}
+		for i, r := range rows {
+			if u, ok := userMap[r.EntityID]; ok {
+				dtos[i].EntityName = u.Username
+				dtos[i].EntityLabel = u.Email
+			}
+		}
+	})
 }
 
 // ResetAllPeaks zeroes peak values in both Redis and the DB for the given entity type.
+// entityType must be EntityTypeAccount or EntityTypeUser.
 func (s *PeakUsageService) ResetAllPeaks(ctx context.Context, entityType string) error {
 	rows, err := s.entClient.PeakUsage.Query().
 		Where(entpeakusage.EntityTypeEQ(entityType)).

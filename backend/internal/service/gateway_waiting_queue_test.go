@@ -20,7 +20,7 @@ func TestDecrementWaitCount_NilCache(t *testing.T) {
 // TestDecrementWaitCount_CacheError 确保 cache 错误不会传播
 func TestDecrementWaitCount_CacheError(t *testing.T) {
 	cache := &stubConcurrencyCacheForTest{}
-	svc := NewConcurrencyService(cache)
+	svc := NewConcurrencyService(cache, nil)
 	// DecrementWaitCount 使用 background context，错误只记录日志不传播
 	svc.DecrementWaitCount(context.Background(), 1)
 }
@@ -34,14 +34,14 @@ func TestDecrementAccountWaitCount_NilCache(t *testing.T) {
 // TestDecrementAccountWaitCount_CacheError 确保 cache 错误不会传播
 func TestDecrementAccountWaitCount_CacheError(t *testing.T) {
 	cache := &stubConcurrencyCacheForTest{}
-	svc := NewConcurrencyService(cache)
+	svc := NewConcurrencyService(cache, nil)
 	svc.DecrementAccountWaitCount(context.Background(), 1)
 }
 
 // TestWaitingQueueFlow_IncrementThenDecrement 测试完整的等待队列增减流程
 func TestWaitingQueueFlow_IncrementThenDecrement(t *testing.T) {
 	cache := &stubConcurrencyCacheForTest{waitAllowed: true}
-	svc := NewConcurrencyService(cache)
+	svc := NewConcurrencyService(cache, nil)
 
 	// 进入等待队列
 	allowed, err := svc.IncrementWaitCount(context.Background(), 1, 25)
@@ -55,7 +55,7 @@ func TestWaitingQueueFlow_IncrementThenDecrement(t *testing.T) {
 // TestWaitingQueueFlow_AccountLevel 测试账号级等待队列流程
 func TestWaitingQueueFlow_AccountLevel(t *testing.T) {
 	cache := &stubConcurrencyCacheForTest{waitAllowed: true}
-	svc := NewConcurrencyService(cache)
+	svc := NewConcurrencyService(cache, nil)
 
 	// 进入账号等待队列
 	allowed, err := svc.IncrementAccountWaitCount(context.Background(), 42, 10)
@@ -70,7 +70,7 @@ func TestWaitingQueueFlow_AccountLevel(t *testing.T) {
 func TestWaitingQueueFull_Returns429Signal(t *testing.T) {
 	// waitAllowed=false 模拟队列已满
 	cache := &stubConcurrencyCacheForTest{waitAllowed: false}
-	svc := NewConcurrencyService(cache)
+	svc := NewConcurrencyService(cache, nil)
 
 	// 用户级等待队列满
 	allowed, err := svc.IncrementWaitCount(context.Background(), 1, 25)
@@ -86,7 +86,7 @@ func TestWaitingQueueFull_Returns429Signal(t *testing.T) {
 // TestWaitingQueue_FailOpen_OnCacheError 测试 Redis 故障时 fail-open
 func TestWaitingQueue_FailOpen_OnCacheError(t *testing.T) {
 	cache := &stubConcurrencyCacheForTest{waitErr: errors.New("redis connection refused")}
-	svc := NewConcurrencyService(cache)
+	svc := NewConcurrencyService(cache, nil)
 
 	// 用户级：Redis 错误时允许通过
 	allowed, err := svc.IncrementWaitCount(context.Background(), 1, 25)

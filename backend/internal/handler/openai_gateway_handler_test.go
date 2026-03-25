@@ -497,8 +497,8 @@ func TestOpenAIResponsesWebSocket_PreviousResponseIDKindLoggedBeforeAcquireFailu
 	gin.SetMode(gin.TestMode)
 
 	cache := &concurrencyCacheMock{
-		acquireUserSlotFn: func(ctx context.Context, userID int64, maxConcurrency int, requestID string) (bool, error) {
-			return false, errors.New("user slot unavailable")
+		acquireUserSlotFn: func(ctx context.Context, userID int64, maxConcurrency int, requestID string) (int, error) {
+			return 0, errors.New("user slot unavailable")
 		},
 	}
 	h := newOpenAIHandlerForPreviousResponseIDValidation(t, cache)
@@ -642,11 +642,11 @@ func newOpenAIHandlerForPreviousResponseIDValidation(t *testing.T, cache *concur
 	t.Helper()
 	if cache == nil {
 		cache = &concurrencyCacheMock{
-			acquireUserSlotFn: func(ctx context.Context, userID int64, maxConcurrency int, requestID string) (bool, error) {
-				return true, nil
+			acquireUserSlotFn: func(ctx context.Context, userID int64, maxConcurrency int, requestID string) (int, error) {
+				return 1, nil
 			},
-			acquireAccountSlotFn: func(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (bool, error) {
-				return true, nil
+			acquireAccountSlotFn: func(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (int, error) {
+				return 1, nil
 			},
 		}
 	}
@@ -654,7 +654,7 @@ func newOpenAIHandlerForPreviousResponseIDValidation(t *testing.T, cache *concur
 		gatewayService:      &service.OpenAIGatewayService{},
 		billingCacheService: &service.BillingCacheService{},
 		apiKeyService:       &service.APIKeyService{},
-		concurrencyHelper:   NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second),
+		concurrencyHelper:   NewConcurrencyHelper(service.NewConcurrencyService(cache, nil), SSEPingFormatNone, time.Second),
 	}
 }
 

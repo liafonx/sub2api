@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+// Entity type constants for peak usage tracking.
+const (
+	EntityTypeAccount = "account"
+	EntityTypeUser    = "user"
+)
+
 // PeakUsageCache tracks all-time peak resource usage for accounts and users.
 // Redis data structure: Hash per entity
 // Keys: peak:account:{id}, peak:user:{id}

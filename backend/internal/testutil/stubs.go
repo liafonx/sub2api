@@ -21,8 +21,8 @@ var _ service.ConcurrencyCache = StubConcurrencyCache{}
 // StubConcurrencyCache 是 ConcurrencyCache 的默认空实现，所有方法返回零值。
 type StubConcurrencyCache struct{}
 
-func (c StubConcurrencyCache) AcquireAccountSlot(_ context.Context, _ int64, _ int, _ string) (bool, error) {
-	return true, nil
+func (c StubConcurrencyCache) AcquireAccountSlot(_ context.Context, _ int64, _ int, _ string) (int, error) {
+	return 1, nil
 }
 func (c StubConcurrencyCache) ReleaseAccountSlot(_ context.Context, _ int64, _ string) error {
 	return nil
@@ -39,8 +39,8 @@ func (c StubConcurrencyCache) DecrementAccountWaitCount(_ context.Context, _ int
 func (c StubConcurrencyCache) GetAccountWaitingCount(_ context.Context, _ int64) (int, error) {
 	return 0, nil
 }
-func (c StubConcurrencyCache) AcquireUserSlot(_ context.Context, _ int64, _ int, _ string) (bool, error) {
-	return true, nil
+func (c StubConcurrencyCache) AcquireUserSlot(_ context.Context, _ int64, _ int, _ string) (int, error) {
+	return 1, nil
 }
 func (c StubConcurrencyCache) ReleaseUserSlot(_ context.Context, _ int64, _ string) error {
 	return nil

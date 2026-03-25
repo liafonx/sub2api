@@ -31,7 +31,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_Hit(t *testing.T
 		accountRepo:        stubOpenAIAccountRepo{accounts: []Account{account}},
 		cache:              cache,
 		cfg:                cfg,
-		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}, nil),
 		openaiWSStateStore: store,
 	}
 
@@ -71,7 +71,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_RateLimitedMiss(
 		accountRepo:        stubOpenAIAccountRepo{accounts: []Account{account}},
 		cache:              cache,
 		cfg:                cfg,
-		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}, nil),
 		openaiWSStateStore: store,
 	}
 
@@ -106,7 +106,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_Excluded(t *test
 		accountRepo:        stubOpenAIAccountRepo{accounts: []Account{account}},
 		cache:              cache,
 		cfg:                cfg,
-		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}, nil),
 		openaiWSStateStore: store,
 	}
 
@@ -139,7 +139,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_ForceHTTPIgnored
 		accountRepo:        stubOpenAIAccountRepo{accounts: []Account{account}},
 		cache:              cache,
 		cfg:                cfg,
-		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}, nil),
 		openaiWSStateStore: store,
 	}
 
@@ -200,7 +200,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_BusyKeepsSticky(
 		accountRepo:        stubOpenAIAccountRepo{accounts: accounts},
 		cache:              cache,
 		cfg:                cfg,
-		concurrencyService: NewConcurrencyService(concurrencyCache),
+		concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 		openaiWSStateStore: store,
 	}
 

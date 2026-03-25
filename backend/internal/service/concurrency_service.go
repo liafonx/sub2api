@@ -17,7 +17,8 @@ import (
 type ConcurrencyCache interface {
 	// 账号槽位管理
 	// 键格式: concurrency:account:{accountID}（有序集合，成员为 requestID）
-	AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (bool, error)
+	// AcquireAccountSlot returns the new concurrency count (>0) on success, or 0 when rejected.
+	AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (int, error)
 	ReleaseAccountSlot(ctx context.Context, accountID int64, requestID string) error
 	GetAccountConcurrency(ctx context.Context, accountID int64) (int, error)
 	GetAccountConcurrencyBatch(ctx context.Context, accountIDs []int64) (map[int64]int, error)
@@ -29,7 +30,8 @@ type ConcurrencyCache interface {
 
 	// 用户槽位管理
 	// 键格式: concurrency:user:{userID}（有序集合，成员为 requestID）
-	AcquireUserSlot(ctx context.Context, userID int64, maxConcurrency int, requestID string) (bool, error)
+	// AcquireUserSlot returns the new concurrency count (>0) on success, or 0 when rejected.
+	AcquireUserSlot(ctx context.Context, userID int64, maxConcurrency int, requestID string) (int, error)
 	ReleaseUserSlot(ctx context.Context, userID int64, requestID string) error
 	GetUserConcurrency(ctx context.Context, userID int64) (int, error)
 
@@ -89,14 +91,20 @@ type ConcurrencyService struct {
 	peakCache PeakUsageCache // optional, may be nil
 }
 
-// NewConcurrencyService creates a new ConcurrencyService
-func NewConcurrencyService(cache ConcurrencyCache) *ConcurrencyService {
-	return &ConcurrencyService{cache: cache}
+// NewConcurrencyService creates a new ConcurrencyService.
+// peakCache is optional; pass nil to disable peak tracking.
+func NewConcurrencyService(cache ConcurrencyCache, peakCache PeakUsageCache) *ConcurrencyService {
+	return &ConcurrencyService{cache: cache, peakCache: peakCache}
 }
 
-// SetPeakUsageCache injects the peak usage cache (called after construction).
-func (s *ConcurrencyService) SetPeakUsageCache(pc PeakUsageCache) {
-	s.peakCache = pc
+// updatePeakConcurrencyAsync fires a goroutine to update the peak concurrency
+// for the given entity. count is the concurrency count returned by the acquire script.
+func (s *ConcurrencyService) updatePeakConcurrencyAsync(entityType string, entityID int64, count int) {
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = s.peakCache.UpdatePeakIfGreater(bgCtx, entityType, entityID, "concurrency", count)
+	}()
 }
 
 // AcquireResult represents the result of acquiring a concurrency slot
@@ -144,22 +152,15 @@ func (s *ConcurrencyService) AcquireAccountSlot(ctx context.Context, accountID i
 	// Generate unique request ID for this slot
 	requestID := generateRequestID()
 
-	acquired, err := s.cache.AcquireAccountSlot(ctx, accountID, maxConcurrency, requestID)
+	count, err := s.cache.AcquireAccountSlot(ctx, accountID, maxConcurrency, requestID)
 	if err != nil {
 		return nil, err
 	}
 
-	if acquired {
+	if count > 0 {
 		// After successful acquire, update peak concurrency (best-effort, non-blocking)
 		if s.peakCache != nil {
-			go func() {
-				bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-				defer cancel()
-				count, err := s.cache.GetAccountConcurrency(bgCtx, accountID)
-				if err == nil {
-					_ = s.peakCache.UpdatePeakIfGreater(bgCtx, "account", accountID, "concurrency", count)
-				}
-			}()
+			s.updatePeakConcurrencyAsync(EntityTypeAccount, accountID, count)
 		}
 		return &AcquireResult{
 			Acquired: true,
@@ -194,22 +195,15 @@ func (s *ConcurrencyService) AcquireUserSlot(ctx context.Context, userID int64, 
 	// Generate unique request ID for this slot
 	requestID := generateRequestID()
 
-	acquired, err := s.cache.AcquireUserSlot(ctx, userID, maxConcurrency, requestID)
+	count, err := s.cache.AcquireUserSlot(ctx, userID, maxConcurrency, requestID)
 	if err != nil {
 		return nil, err
 	}
 
-	if acquired {
+	if count > 0 {
 		// After successful acquire, update peak concurrency (best-effort, non-blocking)
 		if s.peakCache != nil {
-			go func() {
-				bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-				defer cancel()
-				count, err := s.cache.GetUserConcurrency(bgCtx, userID)
-				if err == nil {
-					_ = s.peakCache.UpdatePeakIfGreater(bgCtx, "user", userID, "concurrency", count)
-				}
-			}()
+			s.updatePeakConcurrencyAsync(EntityTypeUser, userID, count)
 		}
 		return &AcquireResult{
 			Acquired: true,

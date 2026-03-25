@@ -106,13 +106,16 @@ func (w *failingGinWriter) Write(p []byte) (int, error) {
 	return w.ResponseWriter.Write(p)
 }
 
-func (c stubConcurrencyCache) AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (bool, error) {
+func (c stubConcurrencyCache) AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (int, error) {
 	if c.acquireResults != nil {
 		if result, ok := c.acquireResults[accountID]; ok {
-			return result, nil
+			if result {
+				return 1, nil
+			}
+			return 0, nil
 		}
 	}
-	return true, nil
+	return 1, nil
 }
 
 func (c stubConcurrencyCache) ReleaseAccountSlot(ctx context.Context, accountID int64, requestID string) error {
@@ -309,7 +312,7 @@ func TestOpenAISelectAccountWithLoadAwareness_FiltersUnschedulable(t *testing.T)
 
 	svc := &OpenAIGatewayService{
 		accountRepo:        stubOpenAIAccountRepo{accounts: []Account{rateLimited, available}},
-		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}, nil),
 	}
 
 	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "", "gpt-5.2", nil)
@@ -420,7 +423,7 @@ func TestOpenAISelectAccountWithLoadAwareness_StickyUnschedulableClearsSession(t
 	svc := &OpenAIGatewayService{
 		accountRepo:        repo,
 		cache:              cache,
-		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}, nil),
 	}
 
 	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, sessionHash, "gpt-4", nil)
@@ -488,7 +491,7 @@ func TestOpenAISelectAccountWithLoadAwareness_LoadBatchErrorFallback(t *testing.
 	svc := &OpenAIGatewayService{
 		accountRepo:        repo,
 		cache:              cache,
-		concurrencyService: NewConcurrencyService(concurrencyCache),
+		concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 	}
 
 	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "fallback", "gpt-4", nil)
@@ -527,7 +530,7 @@ func TestOpenAISelectAccountWithLoadAwareness_NoSlotFallbackWait(t *testing.T) {
 	svc := &OpenAIGatewayService{
 		accountRepo:        repo,
 		cache:              cache,
-		concurrencyService: NewConcurrencyService(concurrencyCache),
+		concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 	}
 
 	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "", "gpt-4", nil)
@@ -587,7 +590,7 @@ func TestOpenAISelectAccountWithLoadAwareness_StickyWaitPlan(t *testing.T) {
 	svc := &OpenAIGatewayService{
 		accountRepo:        repo,
 		cache:              cache,
-		concurrencyService: NewConcurrencyService(concurrencyCache),
+		concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 	}
 
 	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, sessionHash, "gpt-4", nil)
@@ -621,7 +624,7 @@ func TestOpenAISelectAccountWithLoadAwareness_PrefersLowerLoad(t *testing.T) {
 	svc := &OpenAIGatewayService{
 		accountRepo:        repo,
 		cache:              cache,
-		concurrencyService: NewConcurrencyService(concurrencyCache),
+		concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 	}
 
 	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "load", "gpt-4", nil)
@@ -724,7 +727,7 @@ func TestOpenAISelectAccountWithLoadAwareness_NoCandidates(t *testing.T) {
 	svc := &OpenAIGatewayService{
 		accountRepo:        repo,
 		cache:              cache,
-		concurrencyService: NewConcurrencyService(concurrencyCache),
+		concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 	}
 
 	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "", "gpt-4", nil)
@@ -753,7 +756,7 @@ func TestOpenAISelectAccountWithLoadAwareness_AllFullWaitPlan(t *testing.T) {
 	svc := &OpenAIGatewayService{
 		accountRepo:        repo,
 		cache:              cache,
-		concurrencyService: NewConcurrencyService(concurrencyCache),
+		concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 	}
 
 	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "", "gpt-4", nil)
@@ -781,7 +784,7 @@ func TestOpenAISelectAccountWithLoadAwareness_LoadBatchErrorNoAcquire(t *testing
 	svc := &OpenAIGatewayService{
 		accountRepo:        repo,
 		cache:              cache,
-		concurrencyService: NewConcurrencyService(concurrencyCache),
+		concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 	}
 
 	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "", "gpt-4", nil)
@@ -812,7 +815,7 @@ func TestOpenAISelectAccountWithLoadAwareness_MissingLoadInfo(t *testing.T) {
 	svc := &OpenAIGatewayService{
 		accountRepo:        repo,
 		cache:              cache,
-		concurrencyService: NewConcurrencyService(concurrencyCache),
+		concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 	}
 
 	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "", "gpt-4", nil)
@@ -869,7 +872,7 @@ func TestOpenAISelectAccountWithLoadAwareness_PreferNeverUsed(t *testing.T) {
 	svc := &OpenAIGatewayService{
 		accountRepo:        repo,
 		cache:              cache,
-		concurrencyService: NewConcurrencyService(concurrencyCache),
+		concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 	}
 
 	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "", "gpt-4", nil)
