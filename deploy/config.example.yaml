@@ -1021,10 +1021,12 @@ cc_probe:
   enabled: false
   # Path to the claude binary (default: "claude" from PATH)
   cc_binary_path: "claude"
-  # Auto-update CC before probing (experimental)
+  # Auto-update CC before probing
   auto_update_cc: false
-  # Shell command to update CC (used when auto_update_cc is true)
-  update_command: "brew upgrade claude-code"
+  # Shell command to update CC (used when auto_update_cc is true).
+  # Default (when empty): "<cc_binary_path> update"
+  # Use an absolute path if the binary is not on the system PATH (e.g. launchd environments).
+  update_command: "claude update"
   # Model to use for the probe request (cheapest available)
   probe_model: "claude-haiku-4-5"
   # Version check interval in hours (default: 1)

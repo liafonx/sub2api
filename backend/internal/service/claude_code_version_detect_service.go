@@ -25,6 +25,7 @@ type ClaudeCodeVersionDetectService struct {
 	wg             sync.WaitGroup
 	registryURL    string
 	detectInterval time.Duration
+	onNewVersion   func() // called when a new npm version is detected and stored
 }
 
 // NewClaudeCodeVersionDetectService 创建检测服务实例
@@ -69,6 +70,13 @@ func (s *ClaudeCodeVersionDetectService) Stop() {
 	s.stopOnce.Do(func() { close(s.stopCh) })
 	s.wg.Wait()
 	slog.Info("claude_code_version_detect.stopped")
+}
+
+// SetOnNewVersionCallback registers a callback invoked after a new npm version
+// is successfully stored. Must be called before Start() to avoid missing the
+// first detection.
+func (s *ClaudeCodeVersionDetectService) SetOnNewVersionCallback(cb func()) {
+	s.onNewVersion = cb
 }
 
 // Trigger 立即触发一次版本检测并重置计时器（间隔由配置决定）。
@@ -146,6 +154,11 @@ func (s *ClaudeCodeVersionDetectService) detectAndUpdate() {
 	}
 
 	slog.Info("claude_code_version_detect.version_updated", "old_version", currentVersion, "new_version", newVersion)
+
+	if s.onNewVersion != nil {
+		slog.Info("claude_code_version_detect.triggering_probe")
+		s.onNewVersion()
+	}
 }
 
 // fetchStableVersion 从 npm 注册表获取稳定版本号
