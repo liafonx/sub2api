@@ -23,6 +23,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/errorpassthroughrule"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
+	"github.com/Wei-Shaw/sub2api/ent/peakusage"
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
@@ -61,6 +62,8 @@ type Client struct {
 	Group *GroupClient
 	// IdempotencyRecord is the client for interacting with the IdempotencyRecord builders.
 	IdempotencyRecord *IdempotencyRecordClient
+	// PeakUsage is the client for interacting with the PeakUsage builders.
+	PeakUsage *PeakUsageClient
 	// PromoCode is the client for interacting with the PromoCode builders.
 	PromoCode *PromoCodeClient
 	// PromoCodeUsage is the client for interacting with the PromoCodeUsage builders.
@@ -106,6 +109,7 @@ func (c *Client) init() {
 	c.ErrorPassthroughRule = NewErrorPassthroughRuleClient(c.config)
 	c.Group = NewGroupClient(c.config)
 	c.IdempotencyRecord = NewIdempotencyRecordClient(c.config)
+	c.PeakUsage = NewPeakUsageClient(c.config)
 	c.PromoCode = NewPromoCodeClient(c.config)
 	c.PromoCodeUsage = NewPromoCodeUsageClient(c.config)
 	c.Proxy = NewProxyClient(c.config)
@@ -219,6 +223,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		ErrorPassthroughRule:    NewErrorPassthroughRuleClient(cfg),
 		Group:                   NewGroupClient(cfg),
 		IdempotencyRecord:       NewIdempotencyRecordClient(cfg),
+		PeakUsage:               NewPeakUsageClient(cfg),
 		PromoCode:               NewPromoCodeClient(cfg),
 		PromoCodeUsage:          NewPromoCodeUsageClient(cfg),
 		Proxy:                   NewProxyClient(cfg),
@@ -259,6 +264,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		ErrorPassthroughRule:    NewErrorPassthroughRuleClient(cfg),
 		Group:                   NewGroupClient(cfg),
 		IdempotencyRecord:       NewIdempotencyRecordClient(cfg),
+		PeakUsage:               NewPeakUsageClient(cfg),
 		PromoCode:               NewPromoCodeClient(cfg),
 		PromoCodeUsage:          NewPromoCodeUsageClient(cfg),
 		Proxy:                   NewProxyClient(cfg),
@@ -302,7 +308,7 @@ func (c *Client) Close() error {
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
 		c.APIKey, c.Account, c.AccountGroup, c.Announcement, c.AnnouncementRead,
-		c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord, c.PromoCode,
+		c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord, c.PeakUsage, c.PromoCode,
 		c.PromoCodeUsage, c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting,
 		c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
 		c.UserAttributeDefinition, c.UserAttributeValue, c.UserSubscription,
@@ -316,7 +322,7 @@ func (c *Client) Use(hooks ...Hook) {
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
 		c.APIKey, c.Account, c.AccountGroup, c.Announcement, c.AnnouncementRead,
-		c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord, c.PromoCode,
+		c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord, c.PeakUsage, c.PromoCode,
 		c.PromoCodeUsage, c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting,
 		c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
 		c.UserAttributeDefinition, c.UserAttributeValue, c.UserSubscription,
@@ -344,6 +350,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.Group.mutate(ctx, m)
 	case *IdempotencyRecordMutation:
 		return c.IdempotencyRecord.mutate(ctx, m)
+	case *PeakUsageMutation:
+		return c.PeakUsage.mutate(ctx, m)
 	case *PromoCodeMutation:
 		return c.PromoCode.mutate(ctx, m)
 	case *PromoCodeUsageMutation:
@@ -1713,6 +1721,139 @@ func (c *IdempotencyRecordClient) mutate(ctx context.Context, m *IdempotencyReco
 		return (&IdempotencyRecordDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown IdempotencyRecord mutation op: %q", m.Op())
+	}
+}
+
+// PeakUsageClient is a client for the PeakUsage schema.
+type PeakUsageClient struct {
+	config
+}
+
+// NewPeakUsageClient returns a client for the PeakUsage from the given config.
+func NewPeakUsageClient(c config) *PeakUsageClient {
+	return &PeakUsageClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `peakusage.Hooks(f(g(h())))`.
+func (c *PeakUsageClient) Use(hooks ...Hook) {
+	c.hooks.PeakUsage = append(c.hooks.PeakUsage, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `peakusage.Intercept(f(g(h())))`.
+func (c *PeakUsageClient) Intercept(interceptors ...Interceptor) {
+	c.inters.PeakUsage = append(c.inters.PeakUsage, interceptors...)
+}
+
+// Create returns a builder for creating a PeakUsage entity.
+func (c *PeakUsageClient) Create() *PeakUsageCreate {
+	mutation := newPeakUsageMutation(c.config, OpCreate)
+	return &PeakUsageCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of PeakUsage entities.
+func (c *PeakUsageClient) CreateBulk(builders ...*PeakUsageCreate) *PeakUsageCreateBulk {
+	return &PeakUsageCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *PeakUsageClient) MapCreateBulk(slice any, setFunc func(*PeakUsageCreate, int)) *PeakUsageCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &PeakUsageCreateBulk{err: fmt.Errorf("calling to PeakUsageClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*PeakUsageCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &PeakUsageCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for PeakUsage.
+func (c *PeakUsageClient) Update() *PeakUsageUpdate {
+	mutation := newPeakUsageMutation(c.config, OpUpdate)
+	return &PeakUsageUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *PeakUsageClient) UpdateOne(_m *PeakUsage) *PeakUsageUpdateOne {
+	mutation := newPeakUsageMutation(c.config, OpUpdateOne, withPeakUsage(_m))
+	return &PeakUsageUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *PeakUsageClient) UpdateOneID(id int64) *PeakUsageUpdateOne {
+	mutation := newPeakUsageMutation(c.config, OpUpdateOne, withPeakUsageID(id))
+	return &PeakUsageUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for PeakUsage.
+func (c *PeakUsageClient) Delete() *PeakUsageDelete {
+	mutation := newPeakUsageMutation(c.config, OpDelete)
+	return &PeakUsageDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *PeakUsageClient) DeleteOne(_m *PeakUsage) *PeakUsageDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *PeakUsageClient) DeleteOneID(id int64) *PeakUsageDeleteOne {
+	builder := c.Delete().Where(peakusage.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &PeakUsageDeleteOne{builder}
+}
+
+// Query returns a query builder for PeakUsage.
+func (c *PeakUsageClient) Query() *PeakUsageQuery {
+	return &PeakUsageQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypePeakUsage},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a PeakUsage entity by its id.
+func (c *PeakUsageClient) Get(ctx context.Context, id int64) (*PeakUsage, error) {
+	return c.Query().Where(peakusage.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *PeakUsageClient) GetX(ctx context.Context, id int64) *PeakUsage {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *PeakUsageClient) Hooks() []Hook {
+	return c.hooks.PeakUsage
+}
+
+// Interceptors returns the client interceptors.
+func (c *PeakUsageClient) Interceptors() []Interceptor {
+	return c.inters.PeakUsage
+}
+
+func (c *PeakUsageClient) mutate(ctx context.Context, m *PeakUsageMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&PeakUsageCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&PeakUsageUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&PeakUsageUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&PeakUsageDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown PeakUsage mutation op: %q", m.Op())
 	}
 }
 
@@ -3888,16 +4029,16 @@ func (c *UserSubscriptionClient) mutate(ctx context.Context, m *UserSubscription
 type (
 	hooks struct {
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead,
-		ErrorPassthroughRule, Group, IdempotencyRecord, PromoCode, PromoCodeUsage,
-		Proxy, RedeemCode, SecuritySecret, Setting, UsageCleanupTask, UsageLog, User,
-		UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
+		ErrorPassthroughRule, Group, IdempotencyRecord, PeakUsage, PromoCode,
+		PromoCodeUsage, Proxy, RedeemCode, SecuritySecret, Setting, UsageCleanupTask,
+		UsageLog, User, UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
 		UserSubscription []ent.Hook
 	}
 	inters struct {
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead,
-		ErrorPassthroughRule, Group, IdempotencyRecord, PromoCode, PromoCodeUsage,
-		Proxy, RedeemCode, SecuritySecret, Setting, UsageCleanupTask, UsageLog, User,
-		UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
+		ErrorPassthroughRule, Group, IdempotencyRecord, PeakUsage, PromoCode,
+		PromoCodeUsage, Proxy, RedeemCode, SecuritySecret, Setting, UsageCleanupTask,
+		UsageLog, User, UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
 		UserSubscription []ent.Interceptor
 	}
 )

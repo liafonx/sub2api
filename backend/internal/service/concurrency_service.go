@@ -85,12 +85,18 @@ const (
 
 // ConcurrencyService manages concurrent request limiting for accounts and users
 type ConcurrencyService struct {
-	cache ConcurrencyCache
+	cache     ConcurrencyCache
+	peakCache PeakUsageCache // optional, may be nil
 }
 
 // NewConcurrencyService creates a new ConcurrencyService
 func NewConcurrencyService(cache ConcurrencyCache) *ConcurrencyService {
 	return &ConcurrencyService{cache: cache}
+}
+
+// SetPeakUsageCache injects the peak usage cache (called after construction).
+func (s *ConcurrencyService) SetPeakUsageCache(pc PeakUsageCache) {
+	s.peakCache = pc
 }
 
 // AcquireResult represents the result of acquiring a concurrency slot
@@ -144,6 +150,17 @@ func (s *ConcurrencyService) AcquireAccountSlot(ctx context.Context, accountID i
 	}
 
 	if acquired {
+		// After successful acquire, update peak concurrency (best-effort, non-blocking)
+		if s.peakCache != nil {
+			go func() {
+				bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				count, err := s.cache.GetAccountConcurrency(bgCtx, accountID)
+				if err == nil {
+					_ = s.peakCache.UpdatePeakIfGreater(bgCtx, "account", accountID, "concurrency", count)
+				}
+			}()
+		}
 		return &AcquireResult{
 			Acquired: true,
 			ReleaseFunc: func() {
@@ -183,6 +200,17 @@ func (s *ConcurrencyService) AcquireUserSlot(ctx context.Context, userID int64, 
 	}
 
 	if acquired {
+		// After successful acquire, update peak concurrency (best-effort, non-blocking)
+		if s.peakCache != nil {
+			go func() {
+				bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				count, err := s.cache.GetUserConcurrency(bgCtx, userID)
+				if err == nil {
+					_ = s.peakCache.UpdatePeakIfGreater(bgCtx, "user", userID, "concurrency", count)
+				}
+			}()
+		}
 		return &AcquireResult{
 			Acquired: true,
 			ReleaseFunc: func() {

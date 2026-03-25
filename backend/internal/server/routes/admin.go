@@ -84,6 +84,9 @@ func RegisterAdminRoutes(
 
 		// 定时测试计划
 		registerScheduledTestRoutes(admin, h)
+
+		// 峰值使用记录
+		registerPeakUsageRoutes(admin, h)
 	}
 }
 
@@ -541,6 +544,15 @@ func registerScheduledTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	}
 	// Nested under accounts
 	admin.GET("/accounts/:id/scheduled-test-plans", h.Admin.ScheduledTest.ListByAccount)
+}
+
+func registerPeakUsageRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	peakUsage := admin.Group("/peak-usage")
+	{
+		peakUsage.GET("/accounts", h.Admin.PeakUsage.GetAccountPeaks)
+		peakUsage.GET("/users", h.Admin.PeakUsage.GetUserPeaks)
+		peakUsage.POST("/reset", h.Admin.PeakUsage.ResetPeaks)
+	}
 }
 
 func registerErrorPassthroughRoutes(admin *gin.RouterGroup, h *handler.Handlers) {

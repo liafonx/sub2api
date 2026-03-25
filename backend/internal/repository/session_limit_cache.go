@@ -285,6 +285,46 @@ func (c *sessionLimitCache) IsSessionActive(ctx context.Context, accountID int64
 	return result == 1, nil
 }
 
+// userSessionLimitKeyPrefix 用户会话限制键前缀
+// 格式: session_limit:user:{userID}
+const userSessionLimitKeyPrefix = "session_limit:user:"
+
+// userSessionLimitKey 生成用户会话限制的 Redis 键
+func userSessionLimitKey(userID int64) string {
+	return fmt.Sprintf("%s%d", userSessionLimitKeyPrefix, userID)
+}
+
+// RegisterUserSession 注册用户级别会话活动
+func (c *sessionLimitCache) RegisterUserSession(ctx context.Context, userID int64, sessionUUID string, maxSessions int, idleTimeout time.Duration) (bool, error) {
+	if sessionUUID == "" || maxSessions <= 0 {
+		return true, nil
+	}
+
+	key := userSessionLimitKey(userID)
+	idleTimeoutSeconds := int(idleTimeout.Seconds())
+	if idleTimeoutSeconds <= 0 {
+		idleTimeoutSeconds = int(c.defaultIdleTimeout.Seconds())
+	}
+
+	result, err := registerSessionScript.Run(ctx, c.rdb, []string{key}, maxSessions, idleTimeoutSeconds, sessionUUID).Int()
+	if err != nil {
+		return true, err // 失败开放
+	}
+	return result == 1, nil
+}
+
+// GetUserActiveSessionCount 获取用户当前活跃会话数
+func (c *sessionLimitCache) GetUserActiveSessionCount(ctx context.Context, userID int64) (int, error) {
+	key := userSessionLimitKey(userID)
+	idleTimeoutSeconds := int(c.defaultIdleTimeout.Seconds())
+
+	result, err := getActiveSessionCountScript.Run(ctx, c.rdb, []string{key}, idleTimeoutSeconds).Int()
+	if err != nil {
+		return 0, err
+	}
+	return result, nil
+}
+
 // ========== 5h窗口费用缓存实现 ==========
 
 // GetWindowCost 获取缓存的窗口费用

@@ -54,6 +54,11 @@ type UserRepository interface {
 	UpdateTotpSecret(ctx context.Context, userID int64, encryptedSecret *string) error
 	EnableTotp(ctx context.Context, userID int64) error
 	DisableTotp(ctx context.Context, userID int64) error
+
+	// ListAllIDs returns the IDs of all users. Used for peak usage flush.
+	ListAllIDs(ctx context.Context) ([]int64, error)
+	// GetByIDs returns users with matching IDs. Used for peak usage enrichment.
+	GetByIDs(ctx context.Context, ids []int64) ([]*User, error)
 }
 
 // UpdateProfileRequest 更新用户资料请求

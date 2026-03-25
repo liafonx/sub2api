@@ -105,6 +105,55 @@ func (c *RPMCacheImpl) GetRPM(ctx context.Context, accountID int64) (int, error)
 	return val, nil
 }
 
+// userRpmKeyPrefix 用户 RPM 计数器键前缀
+// 格式: rpm:user:{userID}:{minuteTimestamp}
+const userRpmKeyPrefix = "rpm:user:"
+
+// currentUserMinuteKey 获取当前分钟的用户 RPM 完整 Redis key
+func (c *RPMCacheImpl) currentUserMinuteKey(ctx context.Context, userID int64) (string, error) {
+	serverTime, err := c.rdb.Time(ctx).Result()
+	if err != nil {
+		return "", fmt.Errorf("redis TIME: %w", err)
+	}
+	minuteTS := serverTime.Unix() / 60
+	return fmt.Sprintf("%s%d:%d", userRpmKeyPrefix, userID, minuteTS), nil
+}
+
+// IncrementUserRPM 原子递增并返回当前分钟的用户 RPM 计数
+func (c *RPMCacheImpl) IncrementUserRPM(ctx context.Context, userID int64) (int, error) {
+	key, err := c.currentUserMinuteKey(ctx, userID)
+	if err != nil {
+		return 0, fmt.Errorf("user rpm increment: %w", err)
+	}
+
+	pipe := c.rdb.TxPipeline()
+	incrCmd := pipe.Incr(ctx, key)
+	pipe.Expire(ctx, key, rpmKeyTTL)
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return 0, fmt.Errorf("user rpm increment: %w", err)
+	}
+
+	return int(incrCmd.Val()), nil
+}
+
+// GetUserRPM 获取当前分钟的用户 RPM 计数
+func (c *RPMCacheImpl) GetUserRPM(ctx context.Context, userID int64) (int, error) {
+	key, err := c.currentUserMinuteKey(ctx, userID)
+	if err != nil {
+		return 0, fmt.Errorf("user rpm get: %w", err)
+	}
+
+	val, err := c.rdb.Get(ctx, key).Int()
+	if errors.Is(err, redis.Nil) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("user rpm get: %w", err)
+	}
+	return val, nil
+}
+
 // GetRPMBatch 批量获取多个账号的 RPM 计数（使用 Pipeline）
 func (c *RPMCacheImpl) GetRPMBatch(ctx context.Context, accountIDs []int64) (map[int64]int, error) {
 	if len(accountIDs) == 0 {

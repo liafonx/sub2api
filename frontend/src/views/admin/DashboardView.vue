@@ -30,7 +30,10 @@
           </div>
 
           <!-- Service Accounts -->
-          <div class="card p-4">
+          <div
+            class="card cursor-pointer p-4 transition-colors hover:bg-gray-50 dark:hover:bg-dark-600"
+            @click="openPeakModal('account')"
+          >
             <div class="flex items-center gap-3">
               <div class="rounded-lg bg-purple-100 p-2 dark:bg-purple-900/30">
                 <Icon name="server" size="md" class="text-purple-600 dark:text-purple-400" :stroke-width="2" />
@@ -75,7 +78,10 @@
           </div>
 
           <!-- New Users Today -->
-          <div class="card p-4">
+          <div
+            class="card cursor-pointer p-4 transition-colors hover:bg-gray-50 dark:hover:bg-dark-600"
+            @click="openPeakModal('user')"
+          >
             <div class="flex items-center gap-3">
               <div class="rounded-lg bg-emerald-100 p-2 dark:bg-emerald-900/30">
                 <Icon name="userPlus" size="md" class="text-emerald-600 dark:text-emerald-400" :stroke-width="2" />
@@ -275,6 +281,13 @@
       </template>
     </div>
   </AppLayout>
+
+  <!-- Peak Usage Modal -->
+  <PeakUsageModal
+    :show="showPeakModal"
+    :entity-type="peakEntityType"
+    @close="showPeakModal = false"
+  />
 </template>
 
 <script setup lang="ts">
@@ -299,6 +312,7 @@ import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import Select from '@/components/common/Select.vue'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'
 import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
+import PeakUsageModal from '@/components/admin/PeakUsageModal.vue'
 
 import {
   Chart as ChartJS,
@@ -325,6 +339,15 @@ ChartJS.register(
 
 const appStore = useAppStore()
 const router = useRouter()
+
+// Peak usage modal state
+const showPeakModal = ref(false)
+const peakEntityType = ref<'account' | 'user'>('account')
+
+function openPeakModal(type: 'account' | 'user') {
+  peakEntityType.value = type
+  showPeakModal.value = true
+}
 const stats = ref<DashboardStats | null>(null)
 const loading = ref(false)
 const chartsLoading = ref(false)

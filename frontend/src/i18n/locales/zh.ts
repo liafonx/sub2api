@@ -5273,4 +5273,20 @@ export default {
       "赛博朋克风格的未来城市，霓虹灯倒映在雨后积水中，夜景，电影级色彩",
     examplePrompt4: "水墨画风格，一叶扁舟在山水间漂泊，薄雾缭绕，中国古典意境",
   },
+  peakUsage: {
+    titleAccounts: "账号峰值用量",
+    titleUsers: "用户峰值用量",
+    concurrency: "峰值并发",
+    sessions: "峰值会话",
+    rpm: "峰值 RPM",
+    noData: "暂无峰值数据记录",
+    resetAll: "重置所有峰值",
+    resetConfirmTitle: "重置峰值用量",
+    resetConfirmMessage:
+      "此操作将永久清除该类型所有已记录的峰值数据，无法撤销。",
+    resetConfirmBtn: "确认重置",
+    resetSuccess: "峰值数据已重置",
+    resetError: "重置峰值数据失败",
+    fetchError: "加载峰值数据失败",
+  },
 };

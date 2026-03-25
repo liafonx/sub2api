@@ -488,6 +488,31 @@ var (
 			},
 		},
 	}
+	// PeakUsagesColumns holds the columns for the "peak_usages" table.
+	PeakUsagesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "entity_type", Type: field.TypeString, Size: 20},
+		{Name: "entity_id", Type: field.TypeInt64},
+		{Name: "peak_concurrency", Type: field.TypeInt, Default: 0},
+		{Name: "peak_sessions", Type: field.TypeInt, Default: 0},
+		{Name: "peak_rpm", Type: field.TypeInt, Default: 0},
+		{Name: "reset_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+	}
+	// PeakUsagesTable holds the schema information for the "peak_usages" table.
+	PeakUsagesTable = &schema.Table{
+		Name:       "peak_usages",
+		Columns:    PeakUsagesColumns,
+		PrimaryKey: []*schema.Column{PeakUsagesColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "peakusage_entity_type_entity_id",
+				Unique:  true,
+				Columns: []*schema.Column{PeakUsagesColumns[3], PeakUsagesColumns[4]},
+			},
+		},
+	}
 	// PromoCodesColumns holds the columns for the "promo_codes" table.
 	PromoCodesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -1100,6 +1125,7 @@ var (
 		ErrorPassthroughRulesTable,
 		GroupsTable,
 		IdempotencyRecordsTable,
+		PeakUsagesTable,
 		PromoCodesTable,
 		PromoCodeUsagesTable,
 		ProxiesTable,
@@ -1147,6 +1173,9 @@ func init() {
 	}
 	IdempotencyRecordsTable.Annotation = &entsql.Annotation{
 		Table: "idempotency_records",
+	}
+	PeakUsagesTable.Annotation = &entsql.Annotation{
+		Table: "peak_usages",
 	}
 	PromoCodesTable.Annotation = &entsql.Annotation{
 		Table: "promo_codes",

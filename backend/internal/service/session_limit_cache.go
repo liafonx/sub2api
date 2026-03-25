@@ -61,4 +61,11 @@ type SessionLimitCache interface {
 	// GetWindowCostBatch 批量获取窗口费用缓存
 	// 返回 map[accountID]cost，缓存未命中的账号不在 map 中
 	GetWindowCostBatch(ctx context.Context, accountIDs []int64) (map[int64]float64, error)
+
+	// RegisterUserSession registers a user-level session (not account-level).
+	// Key format: session_limit:user:{userID}
+	RegisterUserSession(ctx context.Context, userID int64, sessionUUID string, maxSessions int, idleTimeout time.Duration) (allowed bool, err error)
+
+	// GetUserActiveSessionCount returns active session count for a user.
+	GetUserActiveSessionCount(ctx context.Context, userID int64) (int, error)
 }
