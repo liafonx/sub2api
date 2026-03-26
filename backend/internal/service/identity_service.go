@@ -78,6 +78,12 @@ func (s *IdentityService) SetCCProbeService(probe *CCProbeService) {
 	s.ccProbeService = probe
 }
 
+// GetFingerprint retrieves the cached fingerprint for an account without creating one.
+// Returns (nil, nil) if not found.
+func (s *IdentityService) GetFingerprint(ctx context.Context, accountID int64) (*Fingerprint, error) {
+	return s.cache.GetFingerprint(ctx, accountID)
+}
+
 // GetOrCreateFingerprint 获取或创建账号的指纹
 // 如果缓存存在，检测user-agent版本，新版本则更新
 // 如果缓存不存在，生成随机ClientID并从请求头创建指纹，然后缓存
@@ -86,6 +92,13 @@ func (s *IdentityService) GetOrCreateFingerprint(ctx context.Context, accountID 
 	cached, err := s.cache.GetFingerprint(ctx, accountID)
 	if err == nil && cached != nil {
 		needWrite := false
+
+		// Repair empty ClientID (can occur when entry was written before ClientID was introduced)
+		if cached.ClientID == "" {
+			cached.ClientID = generateClientID()
+			needWrite = true
+			logger.LegacyPrintf("service.identity", "Repaired empty ClientID for account %d", accountID)
+		}
 
 		// 检查客户端的user-agent是否是更新版本
 		clientUA := headers.Get("User-Agent")

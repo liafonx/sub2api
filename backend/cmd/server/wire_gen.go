@@ -204,6 +204,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	ccProbeService.SetTraitRegistry(ccTraitRegistry)
 	ccValidator := service.NewClaudeCodeValidator(ccTraitRegistry)
 	handler.SetClaudeCodeValidator(ccValidator)
+	accountTestService.SetIdentityService(identityService)
 	service.StartUserQuotaCleanupTicker(context.Background(), userQuotaService, 15*time.Second)
 	openAITokenProvider := service.ProvideOpenAITokenProvider(accountRepository, geminiTokenCache, openAIOAuthService, oauthRefreshAPI)
 	openAIGatewayService := service.NewOpenAIGatewayService(accountRepository, usageLogRepository, usageBillingRepository, userRepository, userSubscriptionRepository, userGroupRateRepository, gatewayCache, configConfig, schedulerSnapshotService, concurrencyService, billingService, rateLimitService, billingCacheService, httpUpstream, deferredService, openAITokenProvider)

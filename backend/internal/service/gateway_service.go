@@ -1166,15 +1166,10 @@ func (s *GatewayService) buildOAuthMetadataUserID(parsed *ParsedRequest, account
 		return ""
 	}
 
-	userID := strings.TrimSpace(account.GetClaudeUserID())
-	if userID == "" && fp != nil {
-		userID = fp.ClientID
+	if fp == nil || fp.ClientID == "" {
+		return ""
 	}
-	if userID == "" {
-		// Fall back to a random, well-formed client id so we can still satisfy
-		// Claude Code OAuth requirements when account metadata is incomplete.
-		userID = generateClientID()
-	}
+	userID := fp.ClientID
 
 	sessionHash := s.GenerateSessionHash(parsed)
 	sessionID := uuid.NewString()
@@ -1183,11 +1178,7 @@ func (s *GatewayService) buildOAuthMetadataUserID(parsed *ParsedRequest, account
 		sessionID = generateSessionUUID(seed)
 	}
 
-	// 根据指纹 UA 版本选择输出格式
-	var uaVersion string
-	if fp != nil {
-		uaVersion = ExtractCLIVersion(fp.UserAgent)
-	}
+	uaVersion := ExtractCLIVersion(fp.UserAgent)
 	accountUUID := strings.TrimSpace(account.GetExtraString("account_uuid"))
 	return FormatMetadataUserID(userID, accountUUID, sessionID, uaVersion)
 }
