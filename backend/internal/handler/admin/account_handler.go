@@ -817,6 +817,7 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 	}
 
 	var newCredentials map[string]any
+	var updatedExtra map[string]any
 
 	if account.IsOpenAI() {
 		tokenInfo, err := h.openaiOAuthService.RefreshAccountToken(ctx, account)
@@ -904,10 +905,25 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 		if strings.TrimSpace(tokenInfo.Scope) != "" {
 			newCredentials["scope"] = tokenInfo.Scope
 		}
+
+		// Persist AccountUUID/OrgUUID returned in refresh response into Extra
+		if tokenInfo.AccountUUID != "" || tokenInfo.OrgUUID != "" {
+			updatedExtra = make(map[string]any, len(account.Extra)+2)
+			for k, v := range account.Extra {
+				updatedExtra[k] = v
+			}
+			if tokenInfo.AccountUUID != "" {
+				updatedExtra["account_uuid"] = tokenInfo.AccountUUID
+			}
+			if tokenInfo.OrgUUID != "" {
+				updatedExtra["org_uuid"] = tokenInfo.OrgUUID
+			}
+		}
 	}
 
 	updatedAccount, err := h.adminService.UpdateAccount(ctx, account.ID, &service.UpdateAccountInput{
 		Credentials: newCredentials,
+		Extra:       updatedExtra,
 	})
 	if err != nil {
 		return nil, "", err

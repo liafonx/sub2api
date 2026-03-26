@@ -4,8 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -69,6 +67,7 @@ type AccountTestService struct {
 	antigravityGatewayService *AntigravityGatewayService
 	httpUpstream              HTTPUpstream
 	cfg                       *config.Config
+	identityService           *IdentityService
 	soraTestGuardMu           sync.Mutex
 	soraTestLastRun           map[int64]time.Time
 	soraTestCooldown          time.Duration
@@ -95,6 +94,11 @@ func NewAccountTestService(
 	}
 }
 
+// SetIdentityService injects the identity service for per-account fingerprint lookup.
+func (s *AccountTestService) SetIdentityService(svc *IdentityService) {
+	s.identityService = svc
+}
+
 func (s *AccountTestService) validateUpstreamBaseURL(raw string) (string, error) {
 	if s.cfg == nil {
 		return "", errors.New("config is not available")
@@ -114,25 +118,23 @@ func (s *AccountTestService) validateUpstreamBaseURL(raw string) (string, error)
 }
 
 // generateSessionString generates a Claude Code style session string.
-// The output format is determined by the UA version in claude.DefaultHeaders,
-// ensuring consistency between the user_id format and the UA sent to upstream.
-func generateSessionString() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	hex64 := hex.EncodeToString(b)
+// clientID, accountUUID, and uaVersion are identity parameters; empty strings are accepted.
+func generateSessionString(clientID, accountUUID, uaVersion string) string {
 	sessionUUID := uuid.New().String()
-	uaVersion := ExtractCLIVersion(claude.DefaultHeaders["User-Agent"])
-	return FormatMetadataUserID(hex64, "", sessionUUID, uaVersion), nil
+	return FormatMetadataUserID(clientID, accountUUID, sessionUUID, uaVersion)
 }
 
-// createTestPayload creates a Claude Code style test request payload
-func createTestPayload(modelID string) (map[string]any, error) {
-	sessionID, err := generateSessionString()
-	if err != nil {
-		return nil, err
+// createTestPayload creates a Claude Code style test request payload.
+// clientID, accountUUID, uaVersion come from the account's cached fingerprint when available;
+// fallback to generated/default values when empty.
+func createTestPayload(modelID, clientID, accountUUID, uaVersion string) map[string]any {
+	if clientID == "" {
+		clientID = generateClientID()
 	}
+	if uaVersion == "" {
+		uaVersion = ExtractCLIVersion(claude.DefaultHeaders["User-Agent"])
+	}
+	sessionID := generateSessionString(clientID, accountUUID, uaVersion)
 
 	return map[string]any{
 		"model": modelID,
@@ -165,7 +167,7 @@ func createTestPayload(modelID string) (map[string]any, error) {
 		"max_tokens":  1024,
 		"temperature": 1,
 		"stream":      true,
-	}, nil
+	}
 }
 
 // TestAccountConnection tests an account's connection by sending a test request
@@ -261,11 +263,17 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 	c.Writer.Flush()
 
-	// Create Claude Code style payload (same for all account types)
-	payload, err := createTestPayload(testModelID)
-	if err != nil {
-		return s.sendErrorAndEnd(c, "Failed to create test payload")
+	// Create Claude Code style payload (same for all account types).
+	// Use cached fingerprint for identity fields when available.
+	var fpClientID, fpAccountUUID, fpUAVersion string
+	if s.identityService != nil {
+		if fp, _ := s.identityService.GetFingerprint(ctx, account.ID); fp != nil {
+			fpClientID = fp.ClientID
+			fpUAVersion = ExtractCLIVersion(fp.UserAgent)
+		}
 	}
+	fpAccountUUID = strings.TrimSpace(account.GetExtraString("account_uuid"))
+	payload := createTestPayload(testModelID, fpClientID, fpAccountUUID, fpUAVersion)
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event
