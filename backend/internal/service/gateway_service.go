@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log/slog"
 	mathrand "math/rand"
@@ -17,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -90,6 +92,80 @@ var (
 	modelsListCacheMissTotal  atomic.Int64
 	modelsListCacheStoreTotal atomic.Int64
 )
+
+// badThinkingPathEntry holds known-bad thinking block sjson paths for a conversation.
+type badThinkingPathEntry struct {
+	paths     []string
+	expiresAt time.Time
+}
+
+// badThinkingPathCache maps conversation fingerprints → known-bad sjson paths.
+// Guarded by badThinkingPathMu.
+var (
+	badThinkingPathCache = make(map[string]*badThinkingPathEntry)
+	badThinkingPathMu    sync.RWMutex
+)
+
+// conversationFingerprint returns a stable key identifying the conversation
+// from the request body, using FNV-64a hash of the first message's raw JSON.
+func conversationFingerprint(body []byte) string {
+	firstContent := gjson.GetBytes(body, "messages.0.content").Raw
+	if firstContent == "" {
+		firstContent = gjson.GetBytes(body, "messages.0").Raw
+	}
+	h := fnv.New64a()
+	h.Write([]byte(firstContent))
+	return strconv.FormatUint(h.Sum64(), 16)
+}
+
+// cacheInvalidThinkingPath records a bad sjson path for the conversation.
+func (s *GatewayService) cacheInvalidThinkingPath(_ context.Context, body []byte, badPath string) {
+	fp := conversationFingerprint(body)
+	badThinkingPathMu.Lock()
+	defer badThinkingPathMu.Unlock()
+	entry, ok := badThinkingPathCache[fp]
+	if !ok || time.Now().After(entry.expiresAt) {
+		entry = &badThinkingPathEntry{expiresAt: time.Now().Add(30 * time.Minute)}
+		badThinkingPathCache[fp] = entry
+	}
+	// Deduplicate
+	for _, p := range entry.paths {
+		if p == badPath {
+			return
+		}
+	}
+	entry.paths = append(entry.paths, badPath)
+}
+
+// getCachedInvalidThinkingPaths returns known-bad sjson paths for this conversation.
+func (s *GatewayService) getCachedInvalidThinkingPaths(_ context.Context, body []byte) []string {
+	fp := conversationFingerprint(body)
+	badThinkingPathMu.RLock()
+	defer badThinkingPathMu.RUnlock()
+	entry, ok := badThinkingPathCache[fp]
+	if !ok || time.Now().After(entry.expiresAt) {
+		return nil
+	}
+	result := make([]string, len(entry.paths))
+	copy(result, entry.paths)
+	return result
+}
+
+// stripCachedInvalidThinkingPaths pre-strips known-bad thinking blocks before forwarding.
+// Paths are deleted in reverse lexicographic order so index shifts don't corrupt earlier entries.
+func stripCachedInvalidThinkingPaths(body []byte, paths []string) []byte {
+	sorted := make([]string, len(paths))
+	copy(sorted, paths)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i] > sorted[j] // reverse lexicographic; works for messages.N.content.M
+	})
+	for _, p := range sorted {
+		if cleaned, err := sjson.DeleteBytes(body, p); err == nil {
+			body = cleaned
+		}
+	}
+	return body
+}
 
 func GatewayWindowCostPrefetchStats() (cacheHit, cacheMiss, batchSQL, fallback, errCount int64) {
 	return windowCostPrefetchCacheHitTotal.Load(),
@@ -4175,6 +4251,11 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// 强制执行 cache_control 块数量限制（最多 4 个）
 	body = enforceCacheControlLimit(body)
 
+	// Pre-strip known-bad thinking blocks from previous surgical detections in this conversation.
+	if paths := s.getCachedInvalidThinkingPaths(ctx, body); len(paths) > 0 {
+		body = stripCachedInvalidThinkingPaths(body, paths)
+	}
+
 	// 应用模型映射：
 	// - APIKey 账号：使用账号级别的显式映射（如果配置），否则透传原始模型名
 	// - OAuth/SetupToken 账号：使用 Anthropic 标准映射（短ID → 长ID）
@@ -4311,6 +4392,66 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 						break
 					}
 					logger.LegacyPrintf("service.gateway", "Account %d: detected thinking block signature error, retrying with filtered thinking blocks", account.ID)
+
+					// Stage 0: Surgical single-block removal (only for exact "invalid signature" errors
+					// with a parseable messages.X.content.Y path). Avoids the ~3s penalty of full
+					// thinking downgrade and preserves model quality for subsequent turns.
+					surgicalSuccess := false
+					initialErrMsg := extractUpstreamErrorMessage(respBody)
+					if isExactSignatureError(initialErrMsg) {
+						surgicalBody := body
+						lastErrMsg := initialErrMsg
+						for surgicalAttempt := 0; surgicalAttempt < 5; surgicalAttempt++ {
+							if time.Since(retryStart) >= maxRetryElapsed {
+								break
+							}
+							cleaned, badPath, ok := SurgicallyRemoveInvalidThinkingBlock(surgicalBody, lastErrMsg)
+							if !ok {
+								break
+							}
+							surgicalBody = cleaned
+							s.cacheInvalidThinkingPath(ctx, body, badPath)
+							logger.LegacyPrintf("service.gateway", "Account %d: surgical thinking block removal attempt %d, removed path %s", account.ID, surgicalAttempt+1, badPath)
+
+							surgicalRetryCtx, releaseSurgicalRetryCtx := detachStreamUpstreamContext(ctx, reqStream)
+							surgicalRetryReq, buildErr := s.buildUpstreamRequest(surgicalRetryCtx, c, account, surgicalBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
+							releaseSurgicalRetryCtx()
+							if buildErr != nil {
+								break
+							}
+							surgicalRetryResp, surgicalRetryErr := s.doWithAccountTLS(surgicalRetryReq, proxyURL, account)
+							if surgicalRetryErr != nil {
+								break
+							}
+							if surgicalRetryResp.StatusCode < 400 {
+								logger.LegacyPrintf("service.gateway", "Account %d: surgical thinking block removal succeeded on attempt %d", account.ID, surgicalAttempt+1)
+								surgicalSuccess = true
+								resp = surgicalRetryResp
+								break
+							}
+							surgicalRetryRespBody, surgicalReadErr := io.ReadAll(io.LimitReader(surgicalRetryResp.Body, 2<<20))
+							_ = surgicalRetryResp.Body.Close()
+							if surgicalReadErr != nil {
+								break
+							}
+							newErrMsg := extractUpstreamErrorMessage(surgicalRetryRespBody)
+							if !isExactSignatureError(newErrMsg) {
+								// Different error — restore the response and stop surgical attempts
+								resp = &http.Response{
+									StatusCode: surgicalRetryResp.StatusCode,
+									Header:     surgicalRetryResp.Header.Clone(),
+									Body:       io.NopCloser(bytes.NewReader(surgicalRetryRespBody)),
+								}
+								surgicalSuccess = true // prevent full-strip fallback for a different error type
+								break
+							}
+							lastErrMsg = newErrMsg
+						}
+					}
+
+					if surgicalSuccess {
+						break
+					}
 
 					// Conservative two-stage fallback:
 					// 1) Disable thinking + thinking->text (preserve content)

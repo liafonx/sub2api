@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
@@ -870,4 +872,101 @@ func RectifyThinkingBudget(body []byte) ([]byte, bool) {
 	}
 
 	return modified, changed
+}
+
+// =========================
+// Surgical Thinking Block Removal
+// =========================
+
+// isExactSignatureError returns true only for "invalid signature in thinking block"
+// errors with a parseable messages.X.content.Y path. Does NOT match
+// "expected thinking", "cannot be modified", or other thinking errors.
+func isExactSignatureError(errorMsg string) bool {
+	if !strings.Contains(errorMsg, "invalid") || !strings.Contains(errorMsg, "signature") {
+		return false
+	}
+	if !strings.Contains(errorMsg, "thinking") {
+		return false
+	}
+	// Must have a parseable path prefix
+	_, _, ok := parseThinkingBlockPath(errorMsg)
+	return ok
+}
+
+// parseThinkingBlockPath extracts (msgIdx, contentIdx, true) from an Anthropic error message.
+// Supports both dot notation ("messages.105.content.0: ...") and bracket notation ("messages[105].content[0]: ...").
+func parseThinkingBlockPath(errorMsg string) (int, int, bool) {
+	// Dot notation: messages.N.content.M
+	dotRe := regexp.MustCompile(`messages\.(\d+)\.content\.(\d+)`)
+	if m := dotRe.FindStringSubmatch(errorMsg); m != nil {
+		msgIdx, err1 := strconv.Atoi(m[1])
+		contentIdx, err2 := strconv.Atoi(m[2])
+		if err1 == nil && err2 == nil {
+			return msgIdx, contentIdx, true
+		}
+	}
+	// Bracket notation: messages[N].content[M]
+	bracketRe := regexp.MustCompile(`messages\[(\d+)\]\.content\[(\d+)\]`)
+	if m := bracketRe.FindStringSubmatch(errorMsg); m != nil {
+		msgIdx, err1 := strconv.Atoi(m[1])
+		contentIdx, err2 := strconv.Atoi(m[2])
+		if err1 == nil && err2 == nil {
+			return msgIdx, contentIdx, true
+		}
+	}
+	return 0, 0, false
+}
+
+// SurgicallyRemoveInvalidThinkingBlock removes a single thinking/redacted_thinking
+// block at the path specified by an Anthropic error message.
+//
+// Safety guarantees:
+//   - Refuses to operate on the latest assistant message (Anthropic requires its thinking
+//     blocks to be present unmodified).
+//   - Returns false if removal would leave the content array empty (no placeholder injection).
+//   - Returns false if the target block is not type "thinking" or "redacted_thinking".
+//
+// Returns (cleaned body, sjson path string, true) on success,
+// or (original body, "", false) on any safety check failure or parse error.
+func SurgicallyRemoveInvalidThinkingBlock(body []byte, errorMsg string) ([]byte, string, bool) {
+	msgIdx, contentIdx, ok := parseThinkingBlockPath(errorMsg)
+	if !ok {
+		return body, "", false
+	}
+
+	// Latest-assistant guard: reject if target is the last message with role "assistant"
+	totalMessages := int(gjson.GetBytes(body, "messages.#").Int())
+	if totalMessages == 0 {
+		return body, "", false
+	}
+	if msgIdx == totalMessages-1 {
+		lastRole := gjson.GetBytes(body, fmt.Sprintf("messages.%d.role", msgIdx)).String()
+		if lastRole == "assistant" {
+			return body, "", false
+		}
+	}
+
+	// Verify the target block is a thinking or redacted_thinking type
+	blockTypePath := fmt.Sprintf("messages.%d.content.%d.type", msgIdx, contentIdx)
+	blockType := gjson.GetBytes(body, blockTypePath).String()
+	if blockType != "thinking" && blockType != "redacted_thinking" {
+		return body, "", false
+	}
+
+	// Check how many content items are in this message
+	contentCountPath := fmt.Sprintf("messages.%d.content.#", msgIdx)
+	contentCount := int(gjson.GetBytes(body, contentCountPath).Int())
+	if contentCount <= 1 {
+		// Removing this block would leave content empty — fall back
+		return body, "", false
+	}
+
+	// Perform surgical deletion
+	sjsonPath := fmt.Sprintf("messages.%d.content.%d", msgIdx, contentIdx)
+	cleaned, err := sjson.DeleteBytes(body, sjsonPath)
+	if err != nil {
+		return body, "", false
+	}
+
+	return cleaned, sjsonPath, true
 }

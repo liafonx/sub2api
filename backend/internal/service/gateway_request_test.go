@@ -1095,3 +1095,211 @@ func BenchmarkParseGatewayRequest_New_Large(b *testing.B) {
 		_, _ = ParseGatewayRequest(data, "")
 	}
 }
+
+// ============ Surgical Thinking Block Removal Tests ============
+
+func TestIsExactSignatureError(t *testing.T) {
+	tests := []struct {
+		name     string
+		errorMsg string
+		want     bool
+	}{
+		{
+			name:     "matches standard signature error with dot notation",
+			errorMsg: "messages.105.content.0: invalid `signature` in `thinking` block",
+			want:     true,
+		},
+		{
+			name:     "matches signature error with bracket notation",
+			errorMsg: "messages[105].content[0]: invalid `signature` in `thinking` block",
+			want:     true,
+		},
+		{
+			name:     "does not match expected thinking error",
+			errorMsg: "messages.1.content.0: Expected `thinking` or `redacted_thinking`",
+			want:     false,
+		},
+		{
+			name:     "does not match cannot be modified error",
+			errorMsg: "thinking block cannot be modified",
+			want:     false,
+		},
+		{
+			name:     "does not match signature error without path",
+			errorMsg: "invalid signature in thinking block",
+			want:     false,
+		},
+		{
+			name:     "does not match empty content error",
+			errorMsg: "content blocks must be non-empty",
+			want:     false,
+		},
+		{
+			name:     "does not match when only signature present",
+			errorMsg: "messages.1.content.0: bad signature",
+			want:     false, // no "thinking" in error
+		},
+		{
+			name:     "does not match when only thinking present",
+			errorMsg: "messages.1.content.0: invalid thinking block format",
+			want:     false, // no "signature" in error
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isExactSignatureError(tt.errorMsg)
+			if got != tt.want {
+				t.Errorf("isExactSignatureError(%q) = %v, want %v", tt.errorMsg, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSurgicallyRemoveInvalidThinkingBlock(t *testing.T) {
+	makeBody := func(messages []interface{}) []byte {
+		b, _ := json.Marshal(map[string]interface{}{"messages": messages})
+		return b
+	}
+
+	thinkingBlock := map[string]interface{}{"type": "thinking", "thinking": "...", "signature": "bad-sig"}
+	redactedBlock := map[string]interface{}{"type": "redacted_thinking", "data": "..."}
+	textBlock := map[string]interface{}{"type": "text", "text": "hello"}
+
+	// 3-message conversation: user → assistant (with thinking + text) → user
+	threeMsg := func() []byte {
+		return makeBody([]interface{}{
+			map[string]interface{}{"role": "user", "content": []interface{}{textBlock}},
+			map[string]interface{}{"role": "assistant", "content": []interface{}{thinkingBlock, textBlock}},
+			map[string]interface{}{"role": "user", "content": []interface{}{textBlock}},
+		})
+	}
+
+	tests := []struct {
+		name          string
+		body          []byte
+		errorMsg      string
+		wantOK        bool
+		wantPathMatch string // exact expected path
+	}{
+		{
+			name:          "dot notation removes thinking block",
+			body:          threeMsg(),
+			errorMsg:      "messages.1.content.0: invalid `signature` in `thinking` block",
+			wantOK:        true,
+			wantPathMatch: "messages.1.content.0",
+		},
+		{
+			name:          "bracket notation removes thinking block",
+			body:          threeMsg(),
+			errorMsg:      "messages[1].content[0]: invalid `signature` in `thinking` block",
+			wantOK:        true,
+			wantPathMatch: "messages.1.content.0",
+		},
+		{
+			name: "handles redacted_thinking block",
+			body: makeBody([]interface{}{
+				map[string]interface{}{"role": "user", "content": []interface{}{textBlock}},
+				map[string]interface{}{"role": "assistant", "content": []interface{}{redactedBlock, textBlock}},
+				map[string]interface{}{"role": "user", "content": []interface{}{textBlock}},
+			}),
+			errorMsg:      "messages.1.content.0: invalid `signature` in `thinking` block",
+			wantOK:        true,
+			wantPathMatch: "messages.1.content.0",
+		},
+		{
+			name: "returns false for non-thinking block type (text at content.0)",
+			body: makeBody([]interface{}{
+				map[string]interface{}{"role": "user", "content": []interface{}{textBlock}},
+				map[string]interface{}{"role": "assistant", "content": []interface{}{textBlock, thinkingBlock}},
+				map[string]interface{}{"role": "user", "content": []interface{}{textBlock}},
+			}),
+			errorMsg: "messages.1.content.0: invalid `signature` in `thinking` block",
+			wantOK:   false, // content.0 is text, not thinking
+		},
+		{
+			name: "returns false when target is latest assistant message",
+			body: makeBody([]interface{}{
+				map[string]interface{}{"role": "user", "content": []interface{}{textBlock}},
+				map[string]interface{}{"role": "assistant", "content": []interface{}{thinkingBlock, textBlock}},
+			}),
+			errorMsg: "messages.1.content.0: invalid `signature` in `thinking` block",
+			wantOK:   false, // message 1 is the last message and it's assistant
+		},
+		{
+			name: "returns false when content array would be empty",
+			body: makeBody([]interface{}{
+				map[string]interface{}{"role": "user", "content": []interface{}{textBlock}},
+				map[string]interface{}{"role": "assistant", "content": []interface{}{thinkingBlock}}, // only 1 block
+				map[string]interface{}{"role": "user", "content": []interface{}{textBlock}},
+			}),
+			errorMsg: "messages.1.content.0: invalid `signature` in `thinking` block",
+			wantOK:   false,
+		},
+		{
+			name:     "returns false for unparseable error message",
+			body:     makeBody([]interface{}{}),
+			errorMsg: "some other error without path",
+			wantOK:   false,
+		},
+		{
+			// SurgicallyRemoveInvalidThinkingBlock only validates the path and block type;
+			// it does NOT gate on the error being a signature error. The caller (isExactSignatureError)
+			// is responsible for that check. So a parseable path pointing to a thinking block succeeds.
+			name:          "succeeds for non-signature errors with valid path pointing to thinking block",
+			body:          threeMsg(),
+			errorMsg:      "messages.1.content.0: Expected `thinking` or `redacted_thinking`",
+			wantOK:        true,
+			wantPathMatch: "messages.1.content.0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cleaned, path, ok := SurgicallyRemoveInvalidThinkingBlock(tt.body, tt.errorMsg)
+			require.Equal(t, tt.wantOK, ok)
+			if ok {
+				if tt.wantPathMatch != "" {
+					require.Equal(t, tt.wantPathMatch, path)
+				}
+				// Verify the removed block is gone from the result
+				require.NotEqual(t, string(tt.body), string(cleaned), "body should have changed")
+				// Verify result is valid JSON
+				var parsed map[string]interface{}
+				require.NoError(t, json.Unmarshal(cleaned, &parsed))
+			} else {
+				// On failure, original body returned unchanged
+				require.Equal(t, string(tt.body), string(cleaned))
+				require.Equal(t, "", path)
+			}
+		})
+	}
+}
+
+func TestSurgicallyRemoveInvalidThinkingBlock_PreservesOtherContent(t *testing.T) {
+	// After removal of content.0 (thinking), content.1 (text) should shift to content.0
+	thinkingBlock := map[string]interface{}{"type": "thinking", "thinking": "thought", "signature": "bad"}
+	textBlock := map[string]interface{}{"type": "text", "text": "answer"}
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": []interface{}{map[string]interface{}{"type": "text", "text": "q"}}},
+			map[string]interface{}{"role": "assistant", "content": []interface{}{thinkingBlock, textBlock}},
+			map[string]interface{}{"role": "user", "content": []interface{}{map[string]interface{}{"type": "text", "text": "q2"}}},
+		},
+	})
+
+	cleaned, _, ok := SurgicallyRemoveInvalidThinkingBlock(body, "messages.1.content.0: invalid `signature` in `thinking` block")
+	require.True(t, ok)
+
+	var parsed map[string]interface{}
+	require.NoError(t, json.Unmarshal(cleaned, &parsed))
+
+	msgs := parsed["messages"].([]interface{})
+	assistantMsg := msgs[1].(map[string]interface{})
+	content := assistantMsg["content"].([]interface{})
+	require.Len(t, content, 1, "thinking block removed, only text remains")
+	remaining := content[0].(map[string]interface{})
+	require.Equal(t, "text", remaining["type"])
+	require.Equal(t, "answer", remaining["text"])
+}
