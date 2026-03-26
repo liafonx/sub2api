@@ -887,10 +887,11 @@ var (
 // errors with a parseable messages.X.content.Y path. Does NOT match
 // "expected thinking", "cannot be modified", or other thinking errors.
 func isExactSignatureError(errorMsg string) bool {
-	if !strings.Contains(errorMsg, "invalid") || !strings.Contains(errorMsg, "signature") {
+	msg := strings.ToLower(errorMsg)
+	if !strings.Contains(msg, "invalid") || !strings.Contains(msg, "signature") {
 		return false
 	}
-	if !strings.Contains(errorMsg, "thinking") {
+	if !strings.Contains(msg, "thinking") {
 		return false
 	}
 	// Must have a parseable path prefix
