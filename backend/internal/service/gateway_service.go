@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"io"
 	"log/slog"
 	mathrand "math/rand"
@@ -18,7 +17,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -93,62 +91,42 @@ var (
 	modelsListCacheStoreTotal atomic.Int64
 )
 
-// badThinkingPathEntry holds known-bad thinking block sjson paths for a conversation.
-type badThinkingPathEntry struct {
-	paths     []string
-	expiresAt time.Time
-}
-
-// badThinkingPathCache maps conversation fingerprints → known-bad sjson paths.
-// Guarded by badThinkingPathMu.
-var (
-	badThinkingPathCache = make(map[string]*badThinkingPathEntry)
-	badThinkingPathMu    sync.RWMutex
-)
-
 // conversationFingerprint returns a stable key identifying the conversation
-// from the request body, using FNV-64a hash of the first message's raw JSON.
+// from the request body, using xxhash of the first message's raw JSON.
 func conversationFingerprint(body []byte) string {
 	firstContent := gjson.GetBytes(body, "messages.0.content").Raw
 	if firstContent == "" {
 		firstContent = gjson.GetBytes(body, "messages.0").Raw
 	}
-	h := fnv.New64a()
-	h.Write([]byte(firstContent))
-	return strconv.FormatUint(h.Sum64(), 16)
+	return strconv.FormatUint(xxhash.Sum64String(firstContent), 16)
 }
 
 // cacheInvalidThinkingPath records a bad sjson path for the conversation.
-func (s *GatewayService) cacheInvalidThinkingPath(_ context.Context, body []byte, badPath string) {
+func (s *GatewayService) cacheInvalidThinkingPath(body []byte, badPath string) {
 	fp := conversationFingerprint(body)
-	badThinkingPathMu.Lock()
-	defer badThinkingPathMu.Unlock()
-	entry, ok := badThinkingPathCache[fp]
-	if !ok || time.Now().After(entry.expiresAt) {
-		entry = &badThinkingPathEntry{expiresAt: time.Now().Add(30 * time.Minute)}
-		badThinkingPathCache[fp] = entry
-	}
-	// Deduplicate
-	for _, p := range entry.paths {
-		if p == badPath {
-			return
+	if raw, ok := s.badThinkingPathCache.Get(fp); ok {
+		paths := raw.([]string)
+		for _, p := range paths {
+			if p == badPath {
+				return
+			}
 		}
+		s.badThinkingPathCache.Set(fp, append(paths, badPath), 0)
+	} else {
+		s.badThinkingPathCache.Set(fp, []string{badPath}, 0)
 	}
-	entry.paths = append(entry.paths, badPath)
 }
 
 // getCachedInvalidThinkingPaths returns known-bad sjson paths for this conversation.
-func (s *GatewayService) getCachedInvalidThinkingPaths(_ context.Context, body []byte) []string {
+func (s *GatewayService) getCachedInvalidThinkingPaths(body []byte) []string {
 	fp := conversationFingerprint(body)
-	badThinkingPathMu.RLock()
-	defer badThinkingPathMu.RUnlock()
-	entry, ok := badThinkingPathCache[fp]
-	if !ok || time.Now().After(entry.expiresAt) {
-		return nil
+	if raw, ok := s.badThinkingPathCache.Get(fp); ok {
+		paths := raw.([]string)
+		result := make([]string, len(paths))
+		copy(result, paths)
+		return result
 	}
-	result := make([]string, len(entry.paths))
-	copy(result, entry.paths)
-	return result
+	return nil
 }
 
 // stripCachedInvalidThinkingPaths pre-strips known-bad thinking blocks before forwarding.
@@ -645,6 +623,7 @@ type GatewayService struct {
 	settingService        *SettingService
 	responseHeaderFilter  *responseheaders.CompiledHeaderFilter
 	ccProbeService        *CCProbeService // optional, injected post-construction
+	badThinkingPathCache  *gocache.Cache
 	debugModelRouting     atomic.Bool
 	debugClaudeMimic      atomic.Bool
 	pricingService        *PricingService
@@ -705,6 +684,7 @@ func NewGatewayService(
 		modelsListCache:      gocache.New(modelsListTTL, time.Minute),
 		modelsListCacheTTL:   modelsListTTL,
 		responseHeaderFilter: compileResponseHeaderFilter(cfg),
+		badThinkingPathCache: gocache.New(30*time.Minute, 5*time.Minute),
 	}
 	svc.userGroupRateResolver = newUserGroupRateResolver(
 		userGroupRateRepo,
@@ -4252,7 +4232,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	body = enforceCacheControlLimit(body)
 
 	// Pre-strip known-bad thinking blocks from previous surgical detections in this conversation.
-	if paths := s.getCachedInvalidThinkingPaths(ctx, body); len(paths) > 0 {
+	if paths := s.getCachedInvalidThinkingPaths(body); len(paths) > 0 {
 		body = stripCachedInvalidThinkingPaths(body, paths)
 	}
 
@@ -4410,7 +4390,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 								break
 							}
 							surgicalBody = cleaned
-							s.cacheInvalidThinkingPath(ctx, body, badPath)
+							s.cacheInvalidThinkingPath(body, badPath)
 							logger.LegacyPrintf("service.gateway", "Account %d: surgical thinking block removal attempt %d, removed path %s", account.ID, surgicalAttempt+1, badPath)
 
 							surgicalRetryCtx, releaseSurgicalRetryCtx := detachStreamUpstreamContext(ctx, reqStream)
@@ -4436,13 +4416,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 							}
 							newErrMsg := extractUpstreamErrorMessage(surgicalRetryRespBody)
 							if !isExactSignatureError(newErrMsg) {
-								// Different error — restore the response and stop surgical attempts
-								resp = &http.Response{
-									StatusCode: surgicalRetryResp.StatusCode,
-									Header:     surgicalRetryResp.Header.Clone(),
-									Body:       io.NopCloser(bytes.NewReader(surgicalRetryRespBody)),
-								}
-								surgicalSuccess = true // prevent full-strip fallback for a different error type
+								// Different error — let full-strip fallback handle it
 								break
 							}
 							lastErrMsg = newErrMsg
@@ -8371,22 +8345,57 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	if resp.StatusCode == 400 && s.isThinkingBlockSignatureError(respBody) && s.settingService.IsSignatureRectifierEnabled(ctx) {
 		logger.LegacyPrintf("service.gateway", "Account %d: detected thinking block signature error on count_tokens, retrying with filtered thinking blocks", account.ID)
 
-		filteredBody := FilterThinkingBlocksForRetry(body)
-		retryReq, buildErr := s.buildCountTokensRequest(ctx, c, account, filteredBody, token, tokenType, reqModel, shouldMimicClaudeCode)
-		if buildErr == nil {
-			retryResp, retryErr := s.doWithAccountTLS(retryReq, proxyURL, account)
-			if retryErr == nil {
-				resp = retryResp
-				respBody, err = readUpstreamResponseBodyLimited(resp.Body, maxReadBytes)
-				_ = resp.Body.Close()
-				if err != nil {
-					if errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
-						setOpsUpstreamError(c, http.StatusBadGateway, "upstream response too large", "")
-						s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Upstream response too large")
+		countTokensSurgicalDone := false
+		initialErrMsg := extractUpstreamErrorMessage(respBody)
+
+		// Stage 0: surgical single-block removal
+		if isExactSignatureError(initialErrMsg) {
+			cleaned, badPath, ok := SurgicallyRemoveInvalidThinkingBlock(body, initialErrMsg)
+			if ok {
+				s.cacheInvalidThinkingPath(body, badPath)
+				surgicalReq, buildErr := s.buildCountTokensRequest(ctx, c, account, cleaned, token, tokenType, reqModel, shouldMimicClaudeCode)
+				if buildErr == nil {
+					surgicalResp, surgicalErr := s.doWithAccountTLS(surgicalReq, proxyURL, account)
+					if surgicalErr == nil && surgicalResp.StatusCode < 400 {
+						resp = surgicalResp
+						respBody, err = readUpstreamResponseBodyLimited(resp.Body, maxReadBytes)
+						_ = resp.Body.Close()
+						if err != nil {
+							if errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
+								setOpsUpstreamError(c, http.StatusBadGateway, "upstream response too large", "")
+								s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Upstream response too large")
+								return err
+							}
+							s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to read response")
+							return err
+						}
+						countTokensSurgicalDone = true
+					} else if surgicalErr == nil {
+						_ = surgicalResp.Body.Close()
+					}
+				}
+			}
+		}
+
+		// Stage 1: full-strip fallback (if surgical didn't succeed)
+		if !countTokensSurgicalDone {
+			filteredBody := FilterThinkingBlocksForRetry(body)
+			retryReq, buildErr := s.buildCountTokensRequest(ctx, c, account, filteredBody, token, tokenType, reqModel, shouldMimicClaudeCode)
+			if buildErr == nil {
+				retryResp, retryErr := s.doWithAccountTLS(retryReq, proxyURL, account)
+				if retryErr == nil {
+					resp = retryResp
+					respBody, err = readUpstreamResponseBodyLimited(resp.Body, maxReadBytes)
+					_ = resp.Body.Close()
+					if err != nil {
+						if errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
+							setOpsUpstreamError(c, http.StatusBadGateway, "upstream response too large", "")
+							s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Upstream response too large")
+							return err
+						}
+						s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to read response")
 						return err
 					}
-					s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to read response")
-					return err
 				}
 			}
 		}

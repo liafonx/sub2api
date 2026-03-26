@@ -1303,3 +1303,79 @@ func TestSurgicallyRemoveInvalidThinkingBlock_PreservesOtherContent(t *testing.T
 	require.Equal(t, "text", remaining["type"])
 	require.Equal(t, "answer", remaining["text"])
 }
+
+func TestSurgicallyRemoveInvalidThinkingBlock_IgnoresToolResult(t *testing.T) {
+	// Thinking block with bad signature at content.0; tool_result at content.1
+	// Surgical removal must not touch the tool_result block.
+	thinkingBlock := map[string]interface{}{"type": "thinking", "thinking": "thought", "signature": "bad"}
+	toolResultBlock := map[string]interface{}{
+		"type":        "tool_result",
+		"tool_use_id": "tu_abc",
+		"content":     []interface{}{map[string]interface{}{"type": "text", "text": "result text"}},
+	}
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": []interface{}{map[string]interface{}{"type": "text", "text": "q"}}},
+			map[string]interface{}{"role": "assistant", "content": []interface{}{thinkingBlock, toolResultBlock}},
+			map[string]interface{}{"role": "user", "content": []interface{}{map[string]interface{}{"type": "text", "text": "q2"}}},
+		},
+	})
+
+	cleaned, _, ok := SurgicallyRemoveInvalidThinkingBlock(body, "messages.1.content.0: invalid `signature` in `thinking` block")
+	require.True(t, ok)
+
+	var parsed map[string]interface{}
+	require.NoError(t, json.Unmarshal(cleaned, &parsed))
+
+	msgs := parsed["messages"].([]interface{})
+	assistantMsg := msgs[1].(map[string]interface{})
+	content := assistantMsg["content"].([]interface{})
+	require.Len(t, content, 1, "only tool_result remains after thinking block removed")
+
+	remaining := content[0].(map[string]interface{})
+	require.Equal(t, "tool_result", remaining["type"])
+	require.Equal(t, "tu_abc", remaining["tool_use_id"])
+
+	// Verify nested content inside tool_result is preserved exactly
+	nestedContent := remaining["content"].([]interface{})
+	require.Len(t, nestedContent, 1)
+	nestedItem := nestedContent[0].(map[string]interface{})
+	require.Equal(t, "text", nestedItem["type"])
+	require.Equal(t, "result text", nestedItem["text"])
+}
+
+func TestSurgicallyRemoveInvalidThinkingBlock_ReindexVerification(t *testing.T) {
+	// Three content blocks: thinking(bad) at 0, text at 1, redacted_thinking(ok) at 2
+	// After removing content.0, content.1 (text) becomes new content.0
+	// and content.2 (redacted_thinking) becomes new content.1
+	thinkingBlock := map[string]interface{}{"type": "thinking", "thinking": "thought", "signature": "bad"}
+	textBlock := map[string]interface{}{"type": "text", "text": "midanswer"}
+	redactedBlock := map[string]interface{}{"type": "redacted_thinking", "data": "enc"}
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": []interface{}{map[string]interface{}{"type": "text", "text": "q"}}},
+			map[string]interface{}{"role": "assistant", "content": []interface{}{thinkingBlock, textBlock, redactedBlock}},
+			map[string]interface{}{"role": "user", "content": []interface{}{map[string]interface{}{"type": "text", "text": "q2"}}},
+		},
+	})
+
+	cleaned, _, ok := SurgicallyRemoveInvalidThinkingBlock(body, "messages.1.content.0: invalid `signature` in `thinking` block")
+	require.True(t, ok)
+
+	var parsed map[string]interface{}
+	require.NoError(t, json.Unmarshal(cleaned, &parsed))
+
+	msgs := parsed["messages"].([]interface{})
+	assistantMsg := msgs[1].(map[string]interface{})
+	content := assistantMsg["content"].([]interface{})
+	require.Len(t, content, 2, "one thinking block removed, two remain")
+
+	// content.0 should now be the text block (was content.1)
+	require.Equal(t, "text", content[0].(map[string]interface{})["type"])
+	require.Equal(t, "midanswer", content[0].(map[string]interface{})["text"])
+
+	// content.1 should now be the redacted_thinking block (was content.2)
+	require.Equal(t, "redacted_thinking", content[1].(map[string]interface{})["type"])
+}

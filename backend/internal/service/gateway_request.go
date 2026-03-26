@@ -878,6 +878,11 @@ func RectifyThinkingBudget(body []byte) ([]byte, bool) {
 // Surgical Thinking Block Removal
 // =========================
 
+var (
+	thinkingPathDotRe     = regexp.MustCompile(`messages\.(\d+)\.content\.(\d+)`)
+	thinkingPathBracketRe = regexp.MustCompile(`messages\[(\d+)\]\.content\[(\d+)\]`)
+)
+
 // isExactSignatureError returns true only for "invalid signature in thinking block"
 // errors with a parseable messages.X.content.Y path. Does NOT match
 // "expected thinking", "cannot be modified", or other thinking errors.
@@ -897,8 +902,7 @@ func isExactSignatureError(errorMsg string) bool {
 // Supports both dot notation ("messages.105.content.0: ...") and bracket notation ("messages[105].content[0]: ...").
 func parseThinkingBlockPath(errorMsg string) (int, int, bool) {
 	// Dot notation: messages.N.content.M
-	dotRe := regexp.MustCompile(`messages\.(\d+)\.content\.(\d+)`)
-	if m := dotRe.FindStringSubmatch(errorMsg); m != nil {
+	if m := thinkingPathDotRe.FindStringSubmatch(errorMsg); m != nil {
 		msgIdx, err1 := strconv.Atoi(m[1])
 		contentIdx, err2 := strconv.Atoi(m[2])
 		if err1 == nil && err2 == nil {
@@ -906,8 +910,7 @@ func parseThinkingBlockPath(errorMsg string) (int, int, bool) {
 		}
 	}
 	// Bracket notation: messages[N].content[M]
-	bracketRe := regexp.MustCompile(`messages\[(\d+)\]\.content\[(\d+)\]`)
-	if m := bracketRe.FindStringSubmatch(errorMsg); m != nil {
+	if m := thinkingPathBracketRe.FindStringSubmatch(errorMsg); m != nil {
 		msgIdx, err1 := strconv.Atoi(m[1])
 		contentIdx, err2 := strconv.Atoi(m[2])
 		if err1 == nil && err2 == nil {
