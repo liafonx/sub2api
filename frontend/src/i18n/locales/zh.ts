@@ -5318,5 +5318,6 @@ export default {
     resetError: "重置峰值数据失败",
     fetchError: "加载峰值数据失败",
     trackingSince: "统计自",
+    lastUpdated: "最后更新",
   },
 };

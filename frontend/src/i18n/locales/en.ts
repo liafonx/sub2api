@@ -5402,5 +5402,6 @@ export default {
     resetError: "Failed to reset peak usage data",
     fetchError: "Failed to load peak usage data",
     trackingSince: "Tracking since",
+    lastUpdated: "Last updated",
   },
 };

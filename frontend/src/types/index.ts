@@ -1320,6 +1320,7 @@ export interface PeakUsageEntry {
   max_sessions?: number;
   max_rpm?: number;
   reset_at?: string;
+  updated_at?: string;
 }
 
 // ==================== Admin User Management ====================

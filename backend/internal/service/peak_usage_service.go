@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	entsql "entgo.io/ent/dialect/sql"
 	"github.com/Wei-Shaw/sub2api/ent"
 	entpeakusage "github.com/Wei-Shaw/sub2api/ent/peakusage"
 )
@@ -23,8 +24,21 @@ type PeakDTO struct {
 	MaxSessions    int `json:"max_sessions,omitempty"`
 	MaxRPM         int `json:"max_rpm,omitempty"`
 
-	ResetAt *time.Time `json:"reset_at,omitempty"`
+	ResetAt   *time.Time `json:"reset_at,omitempty"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 }
+
+// peakUpdatedAtExpr is the SQL CASE expression used in ON CONFLICT DO UPDATE.
+// It advances updated_at only when at least one peak value actually increased,
+// preventing flush heartbeats from overwriting a meaningful "last peak change" time.
+var peakUpdatedAtExpr = entsql.ExprFunc(func(b *entsql.Builder) {
+	b.WriteString(
+		"CASE WHEN EXCLUDED.peak_concurrency > peak_usages.peak_concurrency" +
+			" OR EXCLUDED.peak_sessions > peak_usages.peak_sessions" +
+			" OR EXCLUDED.peak_rpm > peak_usages.peak_rpm" +
+			" THEN EXCLUDED.updated_at ELSE peak_usages.updated_at END",
+	)
+})
 
 // PeakUsageService manages peak usage persistence and retrieval.
 type PeakUsageService struct {
@@ -132,14 +146,16 @@ func (s *PeakUsageService) upsertPeaks(ctx context.Context, entityType string, p
 
 	if len(withoutReset) > 0 {
 		if err := s.entClient.PeakUsage.CreateBulk(withoutReset...).
-			OnConflictColumns(conflictCols...).
-			Update(func(u *ent.PeakUsageUpsert) {
-				u.UpdatePeakConcurrency()
-				u.UpdatePeakSessions()
-				u.UpdatePeakRpm()
-				u.UpdateUpdatedAt()
-				u.ClearResetAt()
-			}).
+			OnConflict(
+				entsql.ConflictColumns(conflictCols...),
+				entsql.ResolveWith(func(u *entsql.UpdateSet) {
+					u.SetExcluded(entpeakusage.FieldPeakConcurrency)
+					u.SetExcluded(entpeakusage.FieldPeakSessions)
+					u.SetExcluded(entpeakusage.FieldPeakRpm)
+					u.SetNull(entpeakusage.FieldResetAt)
+					u.Set(entpeakusage.FieldUpdatedAt, peakUpdatedAtExpr)
+				}),
+			).
 			Exec(ctx); err != nil {
 			log.Printf("[PeakUsageService] upsertPeaks: bulk upsert failed for %s: %v", entityType, err)
 		}
@@ -147,14 +163,16 @@ func (s *PeakUsageService) upsertPeaks(ctx context.Context, entityType string, p
 
 	if len(withReset) > 0 {
 		if err := s.entClient.PeakUsage.CreateBulk(withReset...).
-			OnConflictColumns(conflictCols...).
-			Update(func(u *ent.PeakUsageUpsert) {
-				u.UpdatePeakConcurrency()
-				u.UpdatePeakSessions()
-				u.UpdatePeakRpm()
-				u.UpdateUpdatedAt()
-				u.UpdateResetAt()
-			}).
+			OnConflict(
+				entsql.ConflictColumns(conflictCols...),
+				entsql.ResolveWith(func(u *entsql.UpdateSet) {
+					u.SetExcluded(entpeakusage.FieldPeakConcurrency)
+					u.SetExcluded(entpeakusage.FieldPeakSessions)
+					u.SetExcluded(entpeakusage.FieldPeakRpm)
+					u.SetExcluded(entpeakusage.FieldResetAt)
+					u.Set(entpeakusage.FieldUpdatedAt, peakUpdatedAtExpr)
+				}),
+			).
 			Exec(ctx); err != nil {
 			log.Printf("[PeakUsageService] upsertPeaks: bulk upsert (with-reset) failed for %s: %v", entityType, err)
 		}
@@ -174,12 +192,14 @@ func (s *PeakUsageService) getPeaks(ctx context.Context, entityType string, enri
 	}
 	dtos := make([]PeakDTO, len(rows))
 	for i, r := range rows {
+		updatedAt := r.UpdatedAt
 		dtos[i] = PeakDTO{
 			EntityID:        r.EntityID,
 			PeakConcurrency: r.PeakConcurrency,
 			PeakSessions:    r.PeakSessions,
 			PeakRPM:         r.PeakRpm,
 			ResetAt:         r.ResetAt,
+			UpdatedAt:       &updatedAt,
 		}
 	}
 	enrich(rows, dtos)
@@ -240,7 +260,7 @@ func (s *PeakUsageService) GetUserPeaks(ctx context.Context) ([]PeakDTO, error) 
 		}
 		for i, r := range rows {
 			if u, ok := userMap[r.EntityID]; ok {
-				dtos[i].EntityName = u.Username
+				dtos[i].EntityName = u.Email
 				dtos[i].EntityLabel = u.Email
 				dtos[i].MaxConcurrency = u.Concurrency
 			}

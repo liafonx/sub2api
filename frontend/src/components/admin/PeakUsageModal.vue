@@ -30,11 +30,16 @@
           <div>
             <template v-if="entityType === 'user'">
               <p class="font-bold text-gray-900 dark:text-gray-100">{{ entry.entity_label }}</p>
+              <p v-if="entry.updated_at" class="text-xs text-gray-400 dark:text-gray-500">
+                {{ new Date(entry.updated_at).toLocaleString() }}
+              </p>
             </template>
             <template v-else>
               <p class="font-semibold text-gray-900 dark:text-gray-100">{{ entry.entity_name }}</p>
-              <p v-if="entry.entity_label" class="text-xs text-gray-500 dark:text-gray-400">
-                {{ entry.entity_label }}
+              <p class="text-xs text-gray-500 dark:text-gray-400">
+                <template v-if="entry.entity_label && entry.updated_at">{{ entry.entity_label.charAt(0).toUpperCase() + entry.entity_label.slice(1) }} | {{ new Date(entry.updated_at).toLocaleString() }}</template>
+                <template v-else-if="entry.entity_label">{{ entry.entity_label.charAt(0).toUpperCase() + entry.entity_label.slice(1) }}</template>
+                <template v-else-if="entry.updated_at">{{ new Date(entry.updated_at).toLocaleString() }}</template>
               </p>
             </template>
           </div>
@@ -92,6 +97,7 @@
             </span>
           </div>
         </div>
+
       </div>
     </div>
 
