@@ -28,6 +28,11 @@ type CCVersionTraits struct {
 	CapturedAt time.Time         `json:"captured_at"`
 }
 
+// CapturedBodyTraits holds system prompt prefixes extracted from a probed CC request body.
+type CapturedBodyTraits struct {
+	SystemPromptPrefixes []string `json:"system_prompt_prefixes"`
+}
+
 // CCProbeService probes a locally installed Claude Code binary to capture
 // version-dependent request headers via mitmproxy.
 type CCProbeService struct {
@@ -40,6 +45,14 @@ type CCProbeService struct {
 	wg              sync.WaitGroup
 	probeInProgress atomic.Bool // prevents overlapping probes
 	probePrompt     string      // custom probe prompt (guarded by mu)
+	traitRegistry   *CCTraitRegistry
+}
+
+// SetTraitRegistry wires the CCTraitRegistry so probe results feed inbound detection.
+func (s *CCProbeService) SetTraitRegistry(r *CCTraitRegistry) {
+	s.mu.Lock()
+	s.traitRegistry = r
+	s.mu.Unlock()
 }
 
 // CCProbeConfigPublic is a JSON-safe view of the cc_probe config section.
@@ -357,15 +370,33 @@ func (s *CCProbeService) ProbeInstalledCC(ctx context.Context) error {
 	captureScript := filepath.Join(tmpDir, "capture.py")
 	capturedFile := filepath.Join(tmpDir, "captured.json")
 
-	// Write capture script
+	// Write capture script — captures headers + body traits (only when "system" field present)
 	scriptContent := fmt.Sprintf(`from mitmproxy import http
 import json
 
 def request(flow: http.HTTPFlow):
-    if "messages" in flow.request.path:
-        data = {"headers": dict(flow.request.headers)}
-        with open(%q, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+    if "messages" not in flow.request.path:
+        return
+    body = {}
+    try:
+        body = json.loads(flow.request.content) if flow.request.content else {}
+    except Exception:
+        return
+    if "system" not in body:
+        return
+    headers = dict(flow.request.headers)
+    body_traits = {}
+    try:
+        prompts = []
+        for entry in body.get("system", []):
+            if isinstance(entry, dict) and entry.get("text"):
+                prompts.append(entry["text"][:200])
+        body_traits["system_prompt_prefixes"] = prompts
+    except Exception:
+        pass
+    data = {"headers": headers, "body_traits": body_traits}
+    with open(%q, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 `, capturedFile)
 	if err := os.WriteFile(captureScript, []byte(scriptContent), 0644); err != nil {
 		return fmt.Errorf("cc_probe: failed to write capture script: %w", err)
@@ -428,7 +459,8 @@ def request(flow: http.HTTPFlow):
 	}
 
 	var captured struct {
-		Headers map[string]string `json:"headers"`
+		Headers    map[string]string   `json:"headers"`
+		BodyTraits *CapturedBodyTraits `json:"body_traits"`
 	}
 	if err := json.Unmarshal(data, &captured); err != nil {
 		return fmt.Errorf("cc_probe: failed to parse captured data: %w", err)
@@ -475,6 +507,14 @@ def request(flow: http.HTTPFlow):
 		"header_count", len(traits.Headers),
 		"user_agent", captured.Headers["user-agent"],
 	)
+
+	// Feed inbound detection registry if wired
+	s.mu.RLock()
+	registry := s.traitRegistry
+	s.mu.RUnlock()
+	if registry != nil {
+		registry.UpdateFromProbe(traits, captured.BodyTraits)
+	}
 
 	return nil
 }

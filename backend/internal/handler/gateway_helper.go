@@ -15,8 +15,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// claudeCodeValidator is a singleton validator for Claude Code client detection
-var claudeCodeValidator = service.NewClaudeCodeValidator()
+// claudeCodeValidator is set during initialization via SetClaudeCodeValidator.
+var claudeCodeValidator *service.ClaudeCodeValidator
+
+// SetClaudeCodeValidator wires the validator instance created in wire_gen.go.
+func SetClaudeCodeValidator(v *service.ClaudeCodeValidator) {
+	claudeCodeValidator = v
+}
 
 const claudeCodeParsedRequestContextKey = "claude_code_parsed_request"
 
@@ -24,6 +29,9 @@ const claudeCodeParsedRequestContextKey = "claude_code_parsed_request"
 // 返回更新后的 context
 func SetClaudeCodeClientContext(c *gin.Context, body []byte, parsedReq *service.ParsedRequest) {
 	if c == nil || c.Request == nil {
+		return
+	}
+	if claudeCodeValidator == nil {
 		return
 	}
 	if parsedReq != nil {

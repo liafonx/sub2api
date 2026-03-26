@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -12,7 +13,9 @@ import (
 
 // ClaudeCodeValidator 验证请求是否来自 Claude Code 客户端
 // 完全学习自 claude-relay-service 项目的验证逻辑
-type ClaudeCodeValidator struct{}
+type ClaudeCodeValidator struct {
+	registry *CCTraitRegistry // nil-safe; enhances detection when set
+}
 
 // SemverPattern validates a strict three-part semver string (e.g. "1.2.3").
 var SemverPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
@@ -51,8 +54,10 @@ var claudeCodeSystemPrompts = []string{
 }
 
 // NewClaudeCodeValidator 创建验证器实例
-func NewClaudeCodeValidator() *ClaudeCodeValidator {
-	return &ClaudeCodeValidator{}
+// registry is nil-safe: when nil the validator behaves identically to the original
+// hardcoded-only behavior.
+func NewClaudeCodeValidator(registry *CCTraitRegistry) *ClaudeCodeValidator {
+	return &ClaudeCodeValidator{registry: registry}
 }
 
 // Validate 验证请求是否来自 Claude Code CLI
@@ -87,29 +92,52 @@ func (v *ClaudeCodeValidator) Validate(r *http.Request, body map[string]any) boo
 	}
 
 	// Step 4: messages 路径，进行严格验证
+	snap := v.freshSnapshot() // fetch once for entire step 4
 
 	// 4.1 检查 system prompt 相似度
 	if !v.hasClaudeCodeSystemPrompt(body) {
 		return false
 	}
 
-	// 4.2 检查必需的 headers（值不为空即可）
+	// 4.2 X-App header: exact match when registry has a fresh snapshot, non-empty otherwise
 	xApp := r.Header.Get("X-App")
 	if xApp == "" {
 		return false
 	}
+	if snap != nil && snap.XAppValue != "" {
+		if xApp != snap.XAppValue {
+			return false
+		}
+	}
 
+	// 4.3 anthropic-beta: non-empty AND at least one known flag when registry has fresh data
 	anthropicBeta := r.Header.Get("anthropic-beta")
 	if anthropicBeta == "" {
 		return false
 	}
+	if snap != nil && len(snap.BetaFlagSet) > 0 {
+		found := false
+		for _, f := range strings.Split(anthropicBeta, ",") {
+			if snap.BetaFlagSet[strings.TrimSpace(f)] {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
 
+	// 4.4 anthropic-version
 	anthropicVersion := r.Header.Get("anthropic-version")
 	if anthropicVersion == "" {
 		return false
 	}
 
-	// 4.3 验证 metadata.user_id
+	// 4.5 Header coverage logging (soft metric, not blocking)
+	v.logHeaderCoverage(r, snap)
+
+	// 4.6 验证 metadata.user_id
 	if body == nil {
 		return false
 	}
@@ -129,6 +157,56 @@ func (v *ClaudeCodeValidator) Validate(r *http.Request, body map[string]any) boo
 	}
 
 	return true
+}
+
+// freshSnapshot returns the registry snapshot if it exists and is not stale, else nil.
+func (v *ClaudeCodeValidator) freshSnapshot() *CCTraitSnapshot {
+	if v.registry == nil {
+		return nil
+	}
+	snap := v.registry.GetSnapshot()
+	if snap == nil || snap.IsStale() {
+		return nil
+	}
+	return snap
+}
+
+// hasAnyKnownBetaFlag returns true if the comma-separated betaHeader contains at least
+// one flag from knownFlags.
+func hasAnyKnownBetaFlag(betaHeader string, knownFlags []string) bool {
+	known := make(map[string]bool, len(knownFlags))
+	for _, f := range knownFlags {
+		known[strings.TrimSpace(f)] = true
+	}
+	for _, f := range strings.Split(betaHeader, ",") {
+		if known[strings.TrimSpace(f)] {
+			return true
+		}
+	}
+	return false
+}
+
+// logHeaderCoverage logs the fraction of expected header keys present in the request (soft metric).
+// snap is pre-fetched by the caller; returns immediately when nil or debug logging is disabled.
+func (v *ClaudeCodeValidator) logHeaderCoverage(r *http.Request, snap *CCTraitSnapshot) {
+	if snap == nil || len(snap.ExpectedHeaderKeys) == 0 {
+		return
+	}
+	if !slog.Default().Enabled(context.Background(), slog.LevelDebug) {
+		return
+	}
+	present := 0
+	for _, key := range snap.ExpectedHeaderKeys {
+		if r.Header.Get(key) != "" {
+			present++
+		}
+	}
+	coverage := float64(present) / float64(len(snap.ExpectedHeaderKeys))
+	slog.Debug("cc_validator.header_coverage",
+		"present", present,
+		"expected", len(snap.ExpectedHeaderKeys),
+		"coverage", coverage,
+	)
 }
 
 // hasClaudeCodeSystemPrompt 检查请求是否包含 Claude Code 系统提示词
@@ -172,11 +250,19 @@ func (v *ClaudeCodeValidator) hasClaudeCodeSystemPrompt(body map[string]any) boo
 }
 
 // bestSimilarityScore 计算文本与所有 Claude Code 模板的最佳相似度
+// Uses registry prefixes when available, falling back to hardcoded templates.
 func (v *ClaudeCodeValidator) bestSimilarityScore(text string) float64 {
 	normalizedText := normalizePrompt(text)
 	bestScore := 0.0
 
-	for _, template := range claudeCodeSystemPrompts {
+	templates := claudeCodeSystemPrompts
+	if v.registry != nil {
+		if snap := v.registry.GetSnapshot(); snap != nil && len(snap.SystemPromptPrefixes) > 0 {
+			templates = snap.SystemPromptPrefixes
+		}
+	}
+
+	for _, template := range templates {
 		normalizedTemplate := normalizePrompt(template)
 		score := diceCoefficient(normalizedText, normalizedTemplate)
 		if score > bestScore {
