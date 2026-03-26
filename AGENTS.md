@@ -171,6 +171,11 @@ This is the `liafonx/sub2api` fork. Full patch details, verification commands, a
 | 4 | Full X25519MLKEM768 Support | `pkg/tlsfingerprint/dialer.go` | Active (2026-03-13) |
 | 5 | TLS Profile Cache Key Fix | `pkg/tlsfingerprint/registry.go`, `repository/http_upstream.go` | Active (2026-03-13) |
 | 6 | Peak Usage Log | `service/peak_usage_service.go`, `handler/admin/peak_usage_handler.go` | Active (2026-03-25) |
-| 7 | Claude Code Version Detection | `service/claude_code_detect_service.go` | Active |
+| 7 | Claude Code Version Detection | `service/claude_code_version_detect_service.go` | Active |
+| 8 | CC Probe Service | `service/cc_probe_service.go`, `repository/cc_probe_cache.go` | Active (2026-03-25) |
+| 9 | Provider Routing | `service/provider_routing.go` | Active (2026-03-25) |
+| 10 | CC Trait Registry & Claude Code Validator | `service/cc_trait_registry.go`, `service/claude_code_validator.go` | Active (2026-03-26) |
+| 11 | Surgical Thinking Block Signature Fix | `service/gateway_request.go` | Active (2026-03-26) |
+| 12 | Fingerprint-Sourced Identity Consistency | `service/identity_service.go` | Active (2026-03-26) |
 
 See `FORK_CHANGELOG.md` for verification commands to run after each upstream merge.

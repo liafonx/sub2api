@@ -227,6 +227,88 @@ ls backend/internal/service/provider_routing.go
 
 ---
 
+### Patch 10: CC Trait Registry & Claude Code Validator (added 2026-03-26)
+
+**Purpose**: Multi-signal validation that incoming requests are from a genuine Claude Code client, plus a self-updating trait registry that learns expected headers, beta flags, and system prompt prefixes from probe captures and the tweakcc prompt archive.
+
+**CCTraitRegistry**: Single source of truth for expected CC client traits. Loads from Redis (primary) or local file (fallback) on startup. Updated when:
+- CC Probe Service captures a new version's headers/body traits (`UpdateFromProbe`)
+- Prompt archive is downloaded from tweakcc GitHub repo (`EnrichFromPromptArchive`)
+
+Snapshot contains: `ExpectedHeaderKeys`, `BetaFlags` (+ pre-computed `BetaFlagSet`), `XAppValue`, `SystemPromptPrefixes`, `Version`, `UpdatedAt`. Persists to Redis and local JSON file. Snapshots are immutable after creation — new snapshots are swapped atomically.
+
+**ClaudeCodeValidator**: Multi-step validation:
+1. User-Agent must match `claude-cli/x.x.x` pattern
+2. For `/messages` path: system prompt must match known CC prefixes (similarity scoring with 0.5 threshold)
+3. With fresh registry (<7 days): exact `X-App` header match, beta flags must be known subset
+4. With stale registry: relaxed checks (non-empty only)
+5. Probe requests bypass strict validation when UA matches
+
+**Files**:
+
+| File | Change |
+|------|--------|
+| `backend/internal/service/cc_trait_registry.go` | **NEW** — `CCTraitRegistry`, `CCTraitSnapshot`, prompt archive download, Redis+file persistence |
+| `backend/internal/service/cc_trait_registry_test.go` | **NEW** — Unit tests |
+| `backend/internal/repository/cc_trait_registry_cache.go` | **NEW** — Redis implementation of `CCTraitRegistryCache` |
+| `backend/internal/service/claude_code_validator.go` | **NEW** — `ClaudeCodeValidator` multi-signal validation |
+| `backend/internal/service/claude_code_validator_test.go` | **NEW** — Unit tests |
+| `backend/internal/handler/gateway_helper.go` | MODIFIED — `SetClaudeCodeValidator` global wiring |
+| `backend/cmd/server/wire_gen.go` | MODIFIED — `NewCCTraitRegistryCache` → `NewCCTraitRegistry` → `NewClaudeCodeValidator` → `SetClaudeCodeValidator` |
+
+**Integration**: `CCProbeService.SetTraitRegistry(r)` feeds probe results into the registry. The validator is called in the gateway handler to gate access for Claude Code-only accounts.
+
+---
+
+### Patch 11: Surgical Thinking Block Signature Fix (added 2026-03-26)
+
+**Problem**: When Claude conversations contain thinking/reasoning blocks from previous turns, Anthropic's API can reject the request with a 400 error like `"invalid signature in thinking block at messages.105.content.0"`. The old behavior was a blunt retry that downgraded the entire conversation — stripping all thinking content, degrading model quality and adding ~3 seconds latency.
+
+**Fix**: Three-stage retry cascade:
+
+1. **Stage 0 — Surgical removal** (new): Parses the exact `messages.X.content.Y` path from the error message and removes only that one invalid thinking block, preserving all others.
+2. **Stage 1 — Full thinking downgrade** (existing, refined): Converts `thinking` blocks to `text`, drops `redacted_thinking`, strips `clear_thinking_20251015` context management strategies.
+3. **Stage 2 — Tool block downgrade** (existing): Additionally converts `tool_use`/`tool_result` blocks to text when Stage 1 still fails.
+
+A `badThinkingPathCache` (30-minute in-process cache keyed by conversation fingerprint via xxhash) remembers surgically removed block paths so subsequent requests in the same conversation pre-strip them before the upstream call.
+
+**Files**:
+
+| File | Change |
+|------|--------|
+| `backend/internal/service/gateway_request.go` | **NEW** — `ParsedRequest`, `SurgicallyRemoveInvalidThinkingBlock`, `FilterThinkingBlocksForRetry`, `FilterSignatureSensitiveBlocksForRetry` |
+| `backend/internal/service/gateway_request_test.go` | **NEW** — Unit tests |
+| `backend/internal/service/gateway_service.go` | MODIFIED — `badThinkingPathCache` field, surgical retry loop, cache helpers |
+
+---
+
+### Patch 12: Fingerprint-Sourced Identity Consistency (added 2026-03-26)
+
+**Problem**: OAuth account requests could present different fingerprints (User-Agent, X-Stainless-* headers, client_id) across requests, making each request look like a different client to Anthropic — risking account suspension or rate limiting. Additionally, OpenAI OAuth token refresh ignored the per-account `client_id`, breaking authorization consistency.
+
+**Fix**: `IdentityService` manages per-account fingerprints cached in Redis (7-day TTL, auto-renewed every 24h):
+- Captures User-Agent and X-Stainless-* headers from the first real request
+- Generates and persists a random 64-hex ClientID per account
+- Merges headers on version upgrades (only present fields overwrite cached values)
+- Session ID masking: replaces session UUID portion with a fixed rotating UUID (15-minute TTL) to prevent session correlation
+- Rewrites `metadata.user_id` via `SHA256(accountID::sessionTail)` → UUID format to prevent cross-account session ID collision
+
+Also fixes OpenAI OAuth token refresh to pass `client_id` from stored credentials.
+
+**Files**:
+
+| File | Change |
+|------|--------|
+| `backend/internal/service/identity_service.go` | **NEW** — `IdentityService`, `Fingerprint`, `IdentityCache` interface |
+| `backend/internal/service/gateway_service.go` | MODIFIED — calls `GetOrCreateFingerprint`, `ApplyFingerprint`, `RewriteUserIDWithMasking` for OAuth accounts |
+| `backend/internal/service/account_test_service.go` | MODIFIED — `SetIdentityService` injector for per-account fingerprint lookup during probes |
+| `backend/internal/service/oauth_service.go` | MODIFIED — `OpenAIOAuthClient` interface gains `RefreshTokenWithClientID` |
+| `backend/internal/service/token_refresher.go` | MODIFIED — reads `client_id` from credentials and passes to refresh |
+| `backend/internal/handler/admin/account_handler.go` | MODIFIED — identity-aware account test endpoint |
+| `backend/cmd/server/wire_gen.go` | MODIFIED — `accountTestService.SetIdentityService(identityService)` |
+
+---
+
 ## Verification
 
 Run after every upstream merge to confirm patches survived:
@@ -262,6 +344,19 @@ grep cc-probe backend/internal/server/routes/admin.go
 
 # Patch 9: Provider Routing
 ls backend/internal/service/provider_routing.go
+
+# Patch 10: CC Trait Registry & Claude Code Validator
+ls backend/internal/service/cc_trait_registry.go
+ls backend/internal/service/claude_code_validator.go
+grep SetClaudeCodeValidator backend/internal/handler/gateway_helper.go
+
+# Patch 11: Surgical thinking block signature fix
+ls backend/internal/service/gateway_request.go
+grep badThinkingPathCache backend/internal/service/gateway_service.go
+
+# Patch 12: Fingerprint-sourced identity consistency
+ls backend/internal/service/identity_service.go
+grep SetIdentityService backend/cmd/server/wire_gen.go
 
 # utls version
 grep refraction-networking/utls backend/go.mod
