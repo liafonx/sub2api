@@ -33,8 +33,14 @@ func ProvideUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, b
 	return NewUpdateService(cache, githubClient, buildInfo.Version, buildInfo.BuildType)
 }
 
-// ProvideEmailQueueService creates EmailQueueService with default worker count
-func ProvideEmailQueueService(emailService *EmailService) *EmailQueueService {
+// ProvideEmailQueueService creates EmailQueueService with default worker count.
+// Returns nil if email verification is disabled — callers already nil-check before use.
+func ProvideEmailQueueService(emailService *EmailService, settingService *SettingService) *EmailQueueService {
+	ctx := context.Background()
+	if !settingService.IsEmailVerifyEnabled(ctx) {
+		logger.LegacyPrintf("service.email_queue", "%s", "[EmailQueue] Email Verification Not Enabled — skipping email queue workers")
+		return nil
+	}
 	return NewEmailQueueService(emailService, 3)
 }
 

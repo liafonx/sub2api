@@ -54,7 +54,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	emailService := service.NewEmailService(settingRepository, emailCache)
 	turnstileVerifier := repository.NewTurnstileVerifier()
 	turnstileService := service.NewTurnstileService(settingService, turnstileVerifier)
-	emailQueueService := service.ProvideEmailQueueService(emailService)
+	emailQueueService := service.ProvideEmailQueueService(emailService, settingService)
 	promoCodeRepository := repository.NewPromoCodeRepository(client)
 	billingCache := repository.NewBillingCache(redisClient)
 	userSubscriptionRepository := repository.NewUserSubscriptionRepository(client)
@@ -431,7 +431,9 @@ func provideCleanup(
 				return nil
 			}},
 			{"EmailQueueService", func() error {
-				emailQueue.Stop()
+				if emailQueue != nil {
+					emailQueue.Stop()
+				}
 				return nil
 			}},
 			{"BillingCacheService", func() error {
