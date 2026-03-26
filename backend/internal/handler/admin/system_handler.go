@@ -210,7 +210,8 @@ func (h *SystemHandler) TriggerCCProbe(c *gin.Context) {
 		return
 	}
 	if err := h.ccProbeSvc.ProbeInstalledCC(c.Request.Context()); err != nil {
-		response.Error(c, http.StatusInternalServerError, "probe failed: "+err.Error())
+		slog.Error("cc probe trigger failed", "err", err)
+		response.Error(c, http.StatusInternalServerError, "probe failed")
 		return
 	}
 	traits := h.ccProbeSvc.GetLatestTraits()

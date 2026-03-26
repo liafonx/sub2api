@@ -236,7 +236,11 @@ func (c *concurrencyCache) AcquireAccountSlot(ctx context.Context, accountID int
 	key := accountSlotKey(accountID)
 	// 时间戳在 Lua 脚本内使用 Redis TIME 命令获取，确保多实例时钟一致
 	// Returns the new concurrency count (>0) on success, or 0 when rejected.
-	return acquireScript.Run(ctx, c.rdb, []string{key}, maxConcurrency, c.slotTTLSeconds, requestID).Int()
+	result, err := acquireScript.Run(ctx, c.rdb, []string{key}, maxConcurrency, c.slotTTLSeconds, requestID).Int()
+	if err != nil {
+		return 0, fmt.Errorf("AcquireAccountSlot: %w", err)
+	}
+	return result, nil
 }
 
 func (c *concurrencyCache) ReleaseAccountSlot(ctx context.Context, accountID int64, requestID string) error {
@@ -249,7 +253,7 @@ func (c *concurrencyCache) GetAccountConcurrency(ctx context.Context, accountID 
 	// 时间戳在 Lua 脚本内使用 Redis TIME 命令获取
 	result, err := getCountScript.Run(ctx, c.rdb, []string{key}, c.slotTTLSeconds).Int()
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("GetAccountConcurrency: %w", err)
 	}
 	return result, nil
 }
@@ -297,7 +301,11 @@ func (c *concurrencyCache) AcquireUserSlot(ctx context.Context, userID int64, ma
 	key := userSlotKey(userID)
 	// 时间戳在 Lua 脚本内使用 Redis TIME 命令获取，确保多实例时钟一致
 	// Returns the new concurrency count (>0) on success, or 0 when rejected.
-	return acquireScript.Run(ctx, c.rdb, []string{key}, maxConcurrency, c.slotTTLSeconds, requestID).Int()
+	result, err := acquireScript.Run(ctx, c.rdb, []string{key}, maxConcurrency, c.slotTTLSeconds, requestID).Int()
+	if err != nil {
+		return 0, fmt.Errorf("AcquireUserSlot: %w", err)
+	}
+	return result, nil
 }
 
 func (c *concurrencyCache) ReleaseUserSlot(ctx context.Context, userID int64, requestID string) error {
@@ -310,7 +318,7 @@ func (c *concurrencyCache) GetUserConcurrency(ctx context.Context, userID int64)
 	// 时间戳在 Lua 脚本内使用 Redis TIME 命令获取
 	result, err := getCountScript.Run(ctx, c.rdb, []string{key}, c.slotTTLSeconds).Int()
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("GetUserConcurrency: %w", err)
 	}
 	return result, nil
 }

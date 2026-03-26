@@ -29,7 +29,7 @@
         <div class="mb-3 flex items-start justify-between">
           <div>
             <template v-if="entityType === 'user'">
-              <p class="font-bold text-white">{{ entry.entity_label }}</p>
+              <p class="font-bold text-gray-900 dark:text-gray-100">{{ entry.entity_label }}</p>
             </template>
             <template v-else>
               <p class="font-semibold text-gray-900 dark:text-gray-100">{{ entry.entity_name }}</p>

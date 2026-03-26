@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -29,11 +30,11 @@ func (c *ccProbeCache) GetCCTraits(ctx context.Context) (*service.CCVersionTrait
 		if err == redis.Nil {
 			return nil, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("GetCCTraits get: %w", err)
 	}
 	var traits service.CCVersionTraits
 	if err := json.Unmarshal([]byte(val), &traits); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("GetCCTraits unmarshal: %w", err)
 	}
 	return &traits, nil
 }
@@ -41,7 +42,7 @@ func (c *ccProbeCache) GetCCTraits(ctx context.Context) (*service.CCVersionTrait
 func (c *ccProbeCache) SetCCTraits(ctx context.Context, traits *service.CCVersionTraits) error {
 	data, err := json.Marshal(traits)
 	if err != nil {
-		return err
+		return fmt.Errorf("SetCCTraits marshal: %w", err)
 	}
 	return c.rdb.Set(ctx, ccTraitsKey, data, ccTraitsTTL).Err()
 }

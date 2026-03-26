@@ -2,8 +2,9 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -165,7 +166,7 @@ func NewSessionLimitCache(rdb *redis.Client, defaultIdleTimeoutMinutes int) serv
 	}
 	for _, script := range scripts {
 		if err := script.Load(ctx, rdb).Err(); err != nil {
-			log.Printf("[SessionLimitCache] Failed to preload Lua script: %v", err)
+			slog.Warn("session_limit_cache: failed to preload lua script", "err", err)
 		}
 	}
 
@@ -263,7 +264,9 @@ func (c *sessionLimitCache) GetActiveSessionCountBatch(ctx context.Context, acco
 	}
 
 	// 执行 pipeline，即使部分失败也尝试获取成功的结果
-	_, _ = pipe.Exec(ctx)
+	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
+		slog.Warn("session_limit_cache: GetActiveSessionCountBatch pipeline failed", "err", err)
+	}
 
 	for accountID, cmd := range cmds {
 		if result, err := cmd.Int(); err == nil {
@@ -322,7 +325,7 @@ func (c *sessionLimitCache) GetWindowCost(ctx context.Context, accountID int64) 
 		return 0, false, nil // 缓存未命中
 	}
 	if err != nil {
-		return 0, false, err
+		return 0, false, fmt.Errorf("GetWindowCost: %w", err)
 	}
 	return val, true, nil
 }
@@ -348,7 +351,7 @@ func (c *sessionLimitCache) GetWindowCostBatch(ctx context.Context, accountIDs [
 	// 使用 MGET 批量获取
 	vals, err := c.rdb.MGet(ctx, keys...).Result()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("GetWindowCostBatch: %w", err)
 	}
 
 	results := make(map[int64]float64, len(accountIDs))

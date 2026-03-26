@@ -3,11 +3,10 @@ package tlsfingerprint
 import (
 	"context"
 	"crypto/tls"
-	"fmt"
+	"log/slog"
 	"math"
 	"net"
 	"net/http"
-	"os"
 	"sync"
 	"time"
 
@@ -39,7 +38,7 @@ type protocolConn interface {
 // to each host, creates the appropriate transport (http2.Transport or http.Transport),
 // and caches it for subsequent requests to that host.
 type h2RoundTripper struct {
-	mu         sync.Mutex
+	mu         sync.RWMutex
 	dialTLS    DialTLSContextFunc
 	transports map[string]http.RoundTripper // host:port → cached transport
 	h1Settings H1TransportSettings
@@ -58,20 +57,23 @@ func NewH2RoundTripper(dialTLS DialTLSContextFunc, settings H1TransportSettings)
 // RoundTrip implements http.RoundTripper. On the first request to a host it
 // probes the ALPN protocol and creates the appropriate transport. Subsequent
 // requests reuse the cached transport.
+//
+// Double-checked locking is used so the TLS probe dial (50-500ms) does not
+// block concurrent requests to other hosts behind a single write-lock.
 func (rt *h2RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	addr := hostAddr(req)
 
-	rt.mu.Lock()
+	// Fast path: read-lock only.
+	rt.mu.RLock()
 	if t, ok := rt.transports[addr]; ok {
-		rt.mu.Unlock()
+		rt.mu.RUnlock()
 		return t.RoundTrip(req)
 	}
+	rt.mu.RUnlock()
 
-	// Probe: dial to detect ALPN-negotiated protocol.
-	// The mutex is held to prevent duplicate probes for the same host.
+	// Probe: dial outside any lock to avoid blocking other hosts.
 	conn, err := rt.dialTLS(req.Context(), "tcp", addr)
 	if err != nil {
-		rt.mu.Unlock()
 		return nil, err
 	}
 
@@ -94,7 +96,7 @@ func (rt *h2RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 			MaxHeaderListSize: math.MaxUint32,
 		}
 		transport = h2t
-		fmt.Fprintf(os.Stderr, "h2_transport_created host=%s\n", addr)
+		slog.Debug("h2_transport_created", "host", addr)
 	} else {
 		// HTTP/1.1 fallback: close probe connection; transport manages its own pool.
 		_ = conn.Close()
@@ -107,9 +109,19 @@ func (rt *h2RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 			IdleConnTimeout:       rt.h1Settings.IdleConnTimeout,
 			ResponseHeaderTimeout: rt.h1Settings.ResponseHeaderTimeout,
 		}
-		fmt.Fprintf(os.Stderr, "h1_transport_created host=%s\n", addr)
+		slog.Debug("h1_transport_created", "host", addr)
 	}
 
+	// Write-lock to store; re-check in case a concurrent probe beat us.
+	rt.mu.Lock()
+	if t, ok := rt.transports[addr]; ok {
+		rt.mu.Unlock()
+		if proto == "h2" {
+			// Return the bootstrap conn to avoid a leak (onceConn won't be used).
+			_ = conn.Close()
+		}
+		return t.RoundTrip(req)
+	}
 	rt.transports[addr] = transport
 	rt.mu.Unlock()
 

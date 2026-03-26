@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -156,7 +157,11 @@ func (s *CCProbeService) Start() {
 		select {
 		case <-stopCh:
 		default:
-			go s.probeWithRecover("startup")
+			s.wg.Add(1)
+			go func() {
+				defer s.wg.Done()
+				s.probeWithRecover("startup")
+			}()
 		}
 	}
 
@@ -289,11 +294,6 @@ func (s *CCProbeService) probeWithRecover(reason string) {
 		}
 	}()
 
-	if s.cfg.AutoUpdateCC {
-		slog.Info("cc_probe.auto_update", "reason", reason)
-		s.runUpdate()
-	}
-
 	probeCtx, probeCancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer probeCancel()
 	if err := s.ProbeInstalledCC(probeCtx); err != nil {
@@ -309,7 +309,9 @@ func (s *CCProbeService) TriggerProbe(reason string) {
 		slog.Info("cc_probe.trigger_skipped", "reason", reason, "cause", "probe_in_progress")
 		return
 	}
+	s.wg.Add(1)
 	go func() {
+		defer s.wg.Done()
 		defer s.probeInProgress.Store(false)
 		s.probeWithRecover(reason)
 	}()
@@ -373,7 +375,11 @@ def request(flow: http.HTTPFlow):
 	probeCtx, probeCancel := context.WithTimeout(ctx, 120*time.Second)
 	defer probeCancel()
 
-	mitmPort := "8999"
+	probePort := s.cfg.ProbePort
+	if probePort <= 0 {
+		probePort = 8999
+	}
+	mitmPort := strconv.Itoa(probePort)
 	mitmCmd := exec.CommandContext(probeCtx, "mitmdump",
 		"-p", mitmPort,
 		"--set", "block_global=false",
@@ -512,7 +518,7 @@ func (s *CCProbeService) saveToFile(traits *CCVersionTraits) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.fallbackFile, data, 0644)
+	return os.WriteFile(s.fallbackFile, data, 0600)
 }
 
 // ApplyMimicHeadersFromProbe applies captured CC headers to a request,

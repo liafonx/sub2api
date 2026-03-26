@@ -148,9 +148,82 @@ user_quota:meta:{accountID}               → Hash (epoch, per_user_limit, per_u
 
 ### Patch 7: Claude Code Version Detection
 
-**Purpose**: Detects Claude Code client versions from request headers for per-version routing or analytics.
+**Purpose**: Polls the npm registry for the published stable `@anthropic-ai/claude-code` version. When the published version changes, triggers the CC Probe service to re-capture headers from the new binary version.
 
-**Files**: `backend/internal/service/claude_code_detect_service.go`
+**Files**: `backend/internal/service/claude_code_version_detect_service.go`
+
+---
+
+### Patch 8: CC Probe Service (added 2026-03-25)
+
+**Purpose**: Captures real Claude Code request headers via a local `mitmproxy` intercept of the installed `claude` binary. Enables sub2api to replay an authentic header set (User-Agent, X-Stainless-*, etc.) for each installed CC version, keeping mimic-mode headers in sync automatically.
+
+**Dependency**: `mitmproxy` must be installed on the machine running sub2api (`pip install mitmproxy`). The service is a no-op when `cc_probe.enabled: false` (default).
+
+**Files**:
+
+| File | Change |
+|------|--------|
+| `backend/internal/service/cc_probe_service.go` | **NEW** — `CCProbeService`; periodic version check; mitmproxy-based capture; fallback file |
+| `backend/internal/repository/cc_probe_cache.go` | **NEW** — Redis-backed `CCProbeCache` (90-day TTL) |
+| `backend/internal/config/config.go` | Added `CCProbeConfig` struct + `viper.SetDefault` entries |
+| `backend/internal/handler/admin/system_handler.go` | Added `GetCCProbeStatus`, `GetCCProbeConfig`, `TriggerCCProbe`, `GetProbePrompt`, `UpdateProbePrompt` |
+| `backend/internal/server/routes/admin.go` | Added cc-probe routes under `/system/cc-probe` |
+| `backend/internal/handler/wire.go` | Wired `CCProbeService` into `SystemHandler` |
+| `backend/internal/wire_gen.go` | Manually wired `NewCCProbeCache` → `NewCCProbeService` → `CCProbeService.Start()` |
+| `backend/internal/service/setting_service.go` | Added `GetProbePrompt`/`SetProbePrompt` methods |
+| `frontend/src/components/admin/PeakUsageModal.vue` | CC probe status card (light-mode text fix) |
+| `frontend/src/views/admin/SettingsView.vue` | CC Probe config panel + probe prompt input + trigger button |
+
+**Config**:
+
+```yaml
+cc_probe:
+  enabled: true
+  cc_binary_path: claude          # path to claude binary (default: "claude")
+  auto_update_cc: false           # run "claude update" before each probe
+  update_command: ""              # override update command
+  check_interval_hours: 4        # version check interval
+  probe_port: 8999               # mitmproxy listen port
+```
+
+**Upstream conflict risk**: MEDIUM-HIGH — `system_handler.go`, `handler/wire.go`, `wire_gen.go`, and `setting_service.go` all change frequently upstream.
+
+**Verification**:
+
+```bash
+ls backend/internal/service/cc_probe_service.go
+grep cc-probe backend/internal/server/routes/admin.go
+```
+
+---
+
+### Patch 9: Provider Routing (added 2026-03-25)
+
+**Purpose**: Optionally rejects requests where the model's `litellm_provider` does not match the account's platform. Prevents e.g. OpenAI models being routed to Anthropic accounts. Off by default (`enforce_provider_routing: false`).
+
+**Files**:
+
+| File | Change |
+|------|--------|
+| `backend/internal/service/provider_routing.go` | **NEW** — `EnforceProviderRouting` inline check (33 lines) |
+| `backend/internal/service/gateway_service.go` | Calls `EnforceProviderRouting` when `pricing.enforce_provider_routing: true` |
+| `backend/internal/config/config.go` | `PricingConfig.EnforceProviderRouting bool` field |
+
+**Config**:
+
+```yaml
+pricing:
+  enforce_provider_routing: false  # default off; set true to enable
+```
+
+**Upstream conflict risk**: LOW — small inline check + new file; `gateway_service.go` changes are common but the hook is a single conditional.
+
+**Verification**:
+
+```bash
+ls backend/internal/service/provider_routing.go
+```
 
 ---
 
@@ -181,7 +254,14 @@ ls backend/internal/service/peak_usage_service.go
 ls backend/internal/handler/admin/peak_usage_handler.go
 
 # Patch 7: Claude Code version detection
-ls backend/internal/service/claude_code_detect_service.go
+ls backend/internal/service/claude_code_version_detect_service.go
+
+# Patch 8: CC Probe Service
+ls backend/internal/service/cc_probe_service.go
+grep cc-probe backend/internal/server/routes/admin.go
+
+# Patch 9: Provider Routing
+ls backend/internal/service/provider_routing.go
 
 # utls version
 grep refraction-networking/utls backend/go.mod

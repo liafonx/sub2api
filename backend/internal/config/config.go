@@ -162,6 +162,7 @@ type CCProbeConfig struct {
 	AutoUpdateCC       bool   `mapstructure:"auto_update_cc"`
 	UpdateCommand      string `mapstructure:"update_command"`
 	CheckIntervalHours int    `mapstructure:"check_interval_hours"`
+	ProbePort          int    `mapstructure:"probe_port"`
 }
 
 type IdempotencyConfig struct {
@@ -1525,6 +1526,11 @@ func setDefaults() {
 	// ClaudeCodeDetect
 	viper.SetDefault("claude_code_detect.registry_url", "https://registry.npmjs.org/@anthropic-ai/claude-code/stable")
 	viper.SetDefault("claude_code_detect.interval_hours", 6)
+
+	// CCProbe
+	viper.SetDefault("cc_probe.check_interval_hours", 4)
+	viper.SetDefault("cc_probe.cc_binary_path", "claude")
+	viper.SetDefault("cc_probe.probe_port", 8999)
 
 }
 

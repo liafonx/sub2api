@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -59,7 +60,9 @@ func (c *userQuotaCache) ZAddActivity(ctx context.Context, accountID int64, user
 	if err != nil {
 		return false, fmt.Errorf("ZAddActivity: %w", err)
 	}
-	c.rdb.Expire(ctx, key, userQuotaTTL)
+	if err := c.rdb.Expire(ctx, key, userQuotaTTL).Err(); err != nil {
+		slog.Warn("user_quota: active key expire failed", "key", key, "err", err)
+	}
 	return added > 0, nil
 }
 
