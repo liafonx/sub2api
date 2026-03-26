@@ -149,9 +149,15 @@ func (s *PeakUsageService) upsertPeaks(ctx context.Context, entityType string, p
 			OnConflict(
 				entsql.ConflictColumns(conflictCols...),
 				entsql.ResolveWith(func(u *entsql.UpdateSet) {
-					u.SetExcluded(entpeakusage.FieldPeakConcurrency)
-					u.SetExcluded(entpeakusage.FieldPeakSessions)
-					u.SetExcluded(entpeakusage.FieldPeakRpm)
+					u.Set(entpeakusage.FieldPeakConcurrency, entsql.ExprFunc(func(b *entsql.Builder) {
+						b.WriteString("GREATEST(peak_usages.peak_concurrency, EXCLUDED.peak_concurrency)")
+					}))
+					u.Set(entpeakusage.FieldPeakSessions, entsql.ExprFunc(func(b *entsql.Builder) {
+						b.WriteString("GREATEST(peak_usages.peak_sessions, EXCLUDED.peak_sessions)")
+					}))
+					u.Set(entpeakusage.FieldPeakRpm, entsql.ExprFunc(func(b *entsql.Builder) {
+						b.WriteString("GREATEST(peak_usages.peak_rpm, EXCLUDED.peak_rpm)")
+					}))
 					u.SetNull(entpeakusage.FieldResetAt)
 					u.Set(entpeakusage.FieldUpdatedAt, peakUpdatedAtExpr)
 				}),
@@ -166,9 +172,15 @@ func (s *PeakUsageService) upsertPeaks(ctx context.Context, entityType string, p
 			OnConflict(
 				entsql.ConflictColumns(conflictCols...),
 				entsql.ResolveWith(func(u *entsql.UpdateSet) {
-					u.SetExcluded(entpeakusage.FieldPeakConcurrency)
-					u.SetExcluded(entpeakusage.FieldPeakSessions)
-					u.SetExcluded(entpeakusage.FieldPeakRpm)
+					u.Set(entpeakusage.FieldPeakConcurrency, entsql.ExprFunc(func(b *entsql.Builder) {
+						b.WriteString("GREATEST(peak_usages.peak_concurrency, EXCLUDED.peak_concurrency)")
+					}))
+					u.Set(entpeakusage.FieldPeakSessions, entsql.ExprFunc(func(b *entsql.Builder) {
+						b.WriteString("GREATEST(peak_usages.peak_sessions, EXCLUDED.peak_sessions)")
+					}))
+					u.Set(entpeakusage.FieldPeakRpm, entsql.ExprFunc(func(b *entsql.Builder) {
+						b.WriteString("GREATEST(peak_usages.peak_rpm, EXCLUDED.peak_rpm)")
+					}))
 					u.SetExcluded(entpeakusage.FieldResetAt)
 					u.Set(entpeakusage.FieldUpdatedAt, peakUpdatedAtExpr)
 				}),

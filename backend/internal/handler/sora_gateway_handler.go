@@ -478,9 +478,21 @@ func (h *SoraGatewayHandler) submitUsageRecordTask(task service.UsageRecordTask)
 	task(ctx)
 }
 
-func (h *SoraGatewayHandler) handleConcurrencyError(c *gin.Context, _ error, slotType string, streamStarted bool) {
-	h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error",
-		fmt.Sprintf("Concurrency limit exceeded for %s, please retry later", slotType), streamStarted)
+// handleConcurrencyError handles concurrency-related errors with proper 429 response.
+// It distinguishes genuine slot exhaustion from client cancellation.
+func (h *SoraGatewayHandler) handleConcurrencyError(c *gin.Context, err error, slotType string, streamStarted bool) {
+	if errors.Is(err, context.Canceled) {
+		// Client disconnected while waiting; no response needed.
+		return
+	}
+	var msg string
+	var cErr *ConcurrencyError
+	if errors.As(err, &cErr) && cErr.IsTimeout {
+		msg = fmt.Sprintf("Concurrency limit exceeded for %s, please retry later", slotType)
+	} else {
+		msg = fmt.Sprintf("Concurrency slot acquisition failed for %s, please retry later", slotType)
+	}
+	h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error", msg, streamStarted)
 }
 
 func (h *SoraGatewayHandler) handleFailoverExhausted(c *gin.Context, statusCode int, responseHeaders http.Header, responseBody []byte, streamStarted bool) {
