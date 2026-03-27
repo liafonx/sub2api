@@ -10,7 +10,6 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/sysutil"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -146,11 +145,10 @@ func (h *SystemHandler) RestartService(c *gin.Context) {
 	})
 }
 
-// GetTLSProfiles returns the list of registered TLS fingerprint profile names.
-// GET /api/v1/admin/system/tls-profiles
+// GetTLSProfiles is deprecated — TLS profiles are now DB-backed via TLSFingerprintProfileHandler.
+// Kept as a stub for route compatibility; returns empty list.
 func (h *SystemHandler) GetTLSProfiles(c *gin.Context) {
-	names := tlsfingerprint.GlobalRegistry().ProfileNames()
-	response.Success(c, gin.H{"profiles": names})
+	response.Success(c, gin.H{"profiles": []string{}})
 }
 
 func (h *SystemHandler) acquireSystemLock(
