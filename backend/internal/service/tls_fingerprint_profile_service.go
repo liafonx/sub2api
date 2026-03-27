@@ -195,7 +195,7 @@ func (s *TLSFingerprintProfileService) ResolveTLSProfile(account *Account) *tlsf
 }
 
 // ResolveProfileKey returns the TLS profile name string for the given account,
-// suitable for passing to applyProfileAndProbeHeaders / CachedParseProfileIdentity.
+// suitable for passing to BuildFingerprintFromProbeAndProfile / CachedParseProfileIdentity.
 // Returns "" if the account has no TLS fingerprint profile configured.
 func (s *TLSFingerprintProfileService) ResolveProfileKey(account *Account) string {
 	if s == nil || account == nil {

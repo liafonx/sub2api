@@ -273,14 +273,19 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 	c.Writer.Flush()
 
-	// Fetch fingerprint once -- used for both payload identity and header overlay.
+	// Fetch or rebuild fingerprint -- single authority for identity headers.
 	var fingerprint *Fingerprint
 	var fpClientID, fpAccountUUID, fpUAVersion string
 	if s.identityService != nil {
 		if fp, _ := s.identityService.GetFingerprint(ctx, account.ID); fp != nil {
 			fingerprint = fp
-			fpClientID = fp.ClientID
-			fpUAVersion = ExtractCLIVersion(fp.UserAgent)
+		} else {
+			// Cold path: no cached fingerprint yet — rebuild from probe+profile
+			fingerprint = s.identityService.RebuildAccountFingerprint(ctx, account)
+		}
+		if fingerprint != nil {
+			fpClientID = fingerprint.ClientID
+			fpUAVersion = ExtractCLIVersion(fingerprint.UserAgent)
 		}
 	}
 	fpAccountUUID = strings.TrimSpace(account.GetExtraString("account_uuid"))
@@ -297,12 +302,13 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	// Full mimic pipeline -- must match gateway_service.buildUpstreamRequest for trait consistency.
-	applyClaudeCodeMimicHeaders(req, true)
-	applyProfileAndProbeHeaders(req, s.tlsFPProfileService.ResolveProfileKey(account), s.ccProbeService)
+	// Fingerprint is the single authority for identity headers (UA, X-Stainless-*, X-App, etc.)
 	if fingerprint != nil {
 		s.identityService.ApplyFingerprint(req, fingerprint)
 	}
+	// Non-fingerprint mimic headers (Accept, helper-method)
+	applyMimicNonStainlessHeaders(req, true)
+	// Dynamic per-request headers (Retry-Count, Timeout)
 	applyDynamicStainlessHeaders(req, nil, claude.DefaultStainlessTimeout)
 
 	if useBearer {
