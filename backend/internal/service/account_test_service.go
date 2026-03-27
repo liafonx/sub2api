@@ -56,7 +56,6 @@ type TestEvent struct {
 }
 
 const (
-	defaultGeminiTextTestPrompt  = "hi"
 	defaultGeminiImageTestPrompt = "Generate a cute orange cat astronaut sticker on a clean pastel background."
 )
 
@@ -207,6 +206,8 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	if account.Platform == PlatformSora {
+		// Sora is an independent platform; its test uses a platform-specific payload
+		// and does not use the configurable scheduled test prompt.
 		return s.testSoraAccountConnection(c, account)
 	}
 
@@ -1349,6 +1350,8 @@ func (s *AccountTestService) routeAntigravityTest(c *gin.Context, account *Accou
 		}
 		return s.testClaudeAccountConnection(c, account, modelID, prompt)
 	}
+	// OAuth/Upstream Antigravity tests route through CRS and use a minimal "." payload;
+	// the configurable prompt does not apply to this path.
 	return s.testAntigravityAccountConnection(c, account, modelID)
 }
 
@@ -1524,7 +1527,7 @@ func createGeminiTestPayload(modelID string, prompt string) []byte {
 
 	textPrompt := strings.TrimSpace(prompt)
 	if textPrompt == "" {
-		textPrompt = defaultGeminiTextTestPrompt
+		textPrompt = DefaultScheduledTestPrompt
 	}
 
 	payload := map[string]any{

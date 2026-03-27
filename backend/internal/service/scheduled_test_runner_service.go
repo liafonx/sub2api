@@ -123,6 +123,7 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 }
 
 func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *ScheduledTestPlan) {
+	// If settingService is nil, payload constructors fall back to DefaultScheduledTestPrompt.
 	prompt := ""
 	if s.settingService != nil {
 		prompt = s.settingService.GetScheduledTestPrompt(ctx)
