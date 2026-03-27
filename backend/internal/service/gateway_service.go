@@ -8045,6 +8045,12 @@ func (s *GatewayService) RecordUsage(ctx context.Context, input *RecordUsageInpu
 	if billingErr != nil {
 		return billingErr
 	}
+
+	// Patch 3: per-user quota cost tracking
+	if s.userQuotaChecker != nil && account.IsUserQuotaEnabled() {
+		s.userQuotaChecker.IncrementUserCost(ctx, account.ID, user.ID, cost.TotalCost)
+	}
+
 	writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
 
 	return nil
@@ -8228,6 +8234,12 @@ func (s *GatewayService) RecordUsageWithLongContext(ctx context.Context, input *
 	if billingErr != nil {
 		return billingErr
 	}
+
+	// Patch 3: per-user quota cost tracking
+	if s.userQuotaChecker != nil && account.IsUserQuotaEnabled() {
+		s.userQuotaChecker.IncrementUserCost(ctx, account.ID, user.ID, cost.TotalCost)
+	}
+
 	writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
 
 	return nil
