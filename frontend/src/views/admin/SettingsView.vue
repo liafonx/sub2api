@@ -1274,6 +1274,20 @@
                 <span class="toggle-slider"></span>
               </label>
             </div>
+            <div class="mt-4">
+              <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t('admin.settings.scheduling.scheduledTestPrompt') }}
+              </label>
+              <input
+                v-model="form.scheduled_test_prompt"
+                type="text"
+                class="input w-full max-w-lg"
+                :placeholder="t('admin.settings.scheduling.scheduledTestPromptPlaceholder')"
+              />
+              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.scheduling.scheduledTestPromptHint') }}
+              </p>
+            </div>
           </div>
         </div>
         </div><!-- /Tab: Gateway — Claude Code, Scheduling -->
@@ -2092,7 +2106,8 @@ const form = reactive<SettingsForm>({
   auto_detect_min_claude_code_version: false,
   cc_version_detected_at: '',
   // 分组隔离
-  allow_ungrouped_key_scheduling: false
+  allow_ungrouped_key_scheduling: false,
+  scheduled_test_prompt: ''
 })
 
 const defaultSubscriptionGroupOptions = computed<DefaultSubscriptionGroupOption[]>(() =>
@@ -2358,7 +2373,8 @@ async function saveSettings() {
       min_claude_code_version: form.min_claude_code_version,
       max_claude_code_version: form.max_claude_code_version,
       auto_detect_min_claude_code_version: form.auto_detect_min_claude_code_version,
-      allow_ungrouped_key_scheduling: form.allow_ungrouped_key_scheduling
+      allow_ungrouped_key_scheduling: form.allow_ungrouped_key_scheduling,
+      scheduled_test_prompt: form.scheduled_test_prompt
     }
     const [updated] = await Promise.all([
       adminAPI.settings.updateSettings(payload),

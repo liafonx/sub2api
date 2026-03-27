@@ -4557,6 +4557,9 @@ export default {
         allowUngroupedKey: "Allow Ungrouped Key Scheduling",
         allowUngroupedKeyHint:
           "When disabled, API Keys not assigned to any group cannot make requests (403 Forbidden). Keep disabled to ensure all Keys belong to a specific group.",
+        scheduledTestPrompt: "Scheduled Test Prompt",
+        scheduledTestPromptHint: 'Custom user message sent during scheduled account tests. Leave empty to use default ("hi").',
+        scheduledTestPromptPlaceholder: "hi",
       },
       site: {
         title: "Site Settings",

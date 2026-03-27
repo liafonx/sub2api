@@ -4515,6 +4515,9 @@ export default {
         allowUngroupedKey: "允许未分组 Key 调度",
         allowUngroupedKeyHint:
           "关闭后，未分配到任何分组的 API Key 将无法发起请求（返回 403）。建议保持关闭以确保所有 Key 都归属明确的分组。",
+        scheduledTestPrompt: "定时测试提示词",
+        scheduledTestPromptHint: '定时账户测试时发送的自定义用户消息。留空则使用默认值 ("hi")。',
+        scheduledTestPromptPlaceholder: "hi",
       },
       site: {
         title: "站点设置",
