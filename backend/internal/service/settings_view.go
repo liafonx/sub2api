@@ -76,6 +76,9 @@ type SystemSettings struct {
 
 	// Backend 模式：禁用用户注册和自助服务，仅管理员可登录
 	BackendModeEnabled bool
+
+	// Scheduled test custom prompt
+	ScheduledTestPrompt string
 }
 
 type DefaultSubscriptionSetting struct {

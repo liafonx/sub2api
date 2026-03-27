@@ -501,6 +501,9 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 	// Backend Mode
 	updates[SettingKeyBackendModeEnabled] = strconv.FormatBool(settings.BackendModeEnabled)
 
+	// Scheduled test prompt
+	updates[SettingKeyScheduledTestPrompt] = settings.ScheduledTestPrompt
+
 	// Read the previous auto-detect value before overwriting, so we can detect false→true transitions.
 	prevAutoDetect, _ := s.settingRepo.GetValue(ctx, SettingKeyAutoDetectMinClaudeCodeVersion)
 
@@ -822,6 +825,8 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		CustomMenuItems:                  settings[SettingKeyCustomMenuItems],
 		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
 	}
+
+	result.ScheduledTestPrompt = settings[SettingKeyScheduledTestPrompt]
 
 	// 解析整数类型
 	if port, err := strconv.Atoi(settings[SettingKeySMTPPort]); err == nil {
@@ -2144,4 +2149,14 @@ func (s *SettingService) SetProbePrompt(ctx context.Context, prompt string) erro
 		prompt = DefaultProbePrompt
 	}
 	return s.settingRepo.Set(ctx, SettingKeyProbePrompt, prompt)
+}
+
+// GetScheduledTestPrompt returns the configured scheduled test prompt, falling back to DefaultScheduledTestPrompt.
+// Always returns a usable string; callers do not need to handle errors.
+func (s *SettingService) GetScheduledTestPrompt(ctx context.Context) string {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyScheduledTestPrompt)
+	if err != nil || strings.TrimSpace(value) == "" {
+		return DefaultScheduledTestPrompt
+	}
+	return value
 }
