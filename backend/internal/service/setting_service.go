@@ -824,9 +824,8 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		SoraClientEnabled:                settings[SettingKeySoraClientEnabled] == "true",
 		CustomMenuItems:                  settings[SettingKeyCustomMenuItems],
 		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
+		ScheduledTestPrompt:              settings[SettingKeyScheduledTestPrompt],
 	}
-
-	result.ScheduledTestPrompt = settings[SettingKeyScheduledTestPrompt]
 
 	// 解析整数类型
 	if port, err := strconv.Atoi(settings[SettingKeySMTPPort]); err == nil {
@@ -2153,9 +2152,10 @@ func (s *SettingService) SetProbePrompt(ctx context.Context, prompt string) erro
 
 // GetScheduledTestPrompt returns the configured scheduled test prompt, falling back to DefaultScheduledTestPrompt.
 // Always returns a usable string; callers do not need to handle errors.
+// Errors are intentionally swallowed — running tests with the default "hi" is always safe.
 func (s *SettingService) GetScheduledTestPrompt(ctx context.Context) string {
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyScheduledTestPrompt)
-	if err != nil || strings.TrimSpace(value) == "" {
+	if err != nil || value == "" {
 		return DefaultScheduledTestPrompt
 	}
 	return value
