@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -13,7 +12,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
@@ -169,7 +167,6 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				group.FieldSupportedModelScopes,
 				group.FieldAllowMessagesDispatch,
 				group.FieldDefaultMappedModel,
-				group.FieldScheduledRateConfig,
 			)
 		}).
 		Only(ctx)
@@ -630,7 +627,7 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 	if g == nil {
 		return nil
 	}
-	group := &service.Group{
+	return &service.Group{
 		ID:                              g.ID,
 		Name:                            g.Name,
 		Description:                     derefString(g.Description),
@@ -665,20 +662,6 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		CreatedAt:                       g.CreatedAt,
 		UpdatedAt:                       g.UpdatedAt,
 	}
-	if g.ScheduledRateConfig != nil {
-		b, err := json.Marshal(g.ScheduledRateConfig)
-		if err != nil {
-			logger.LegacyPrintf("repository.group", "failed to marshal ScheduledRateConfig for group %d: %v", g.ID, err)
-		} else {
-			var cfg service.ScheduledRateConfig
-			if err := json.Unmarshal(b, &cfg); err != nil {
-				logger.LegacyPrintf("repository.group", "failed to unmarshal ScheduledRateConfig for group %d: %v", g.ID, err)
-			} else {
-				group.ScheduledRateConfig = &cfg
-			}
-		}
-	}
-	return group
 }
 
 func derefString(s *string) string {

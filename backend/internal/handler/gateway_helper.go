@@ -39,7 +39,7 @@ func SetClaudeCodeClientContext(c *gin.Context, body []byte, parsedReq *service.
 	}
 
 	ua := c.GetHeader("User-Agent")
-	// Fast path：非 Claude CLI UA 直接判定 false，避免热路径二次 JSON 反序列化。
+	// Fast path: non Claude CLI UA directly yields false, avoiding hot-path double JSON deserialization.
 	if !claudeCodeValidator.ValidateUserAgent(ua) {
 		ctx := service.SetClaudeCodeClient(c.Request.Context(), false)
 		c.Request = c.Request.WithContext(ctx)
@@ -48,10 +48,10 @@ func SetClaudeCodeClientContext(c *gin.Context, body []byte, parsedReq *service.
 
 	isClaudeCode := false
 	if !strings.Contains(c.Request.URL.Path, "messages") || isCountTokensRequest(c) {
-		// 与 Validate 行为一致：非 messages 路径 UA 命中即可视为 Claude Code 客户端。
+		// Consistent with Validate behavior: non-messages path with matching UA is Claude Code.
 		isClaudeCode = true
 	} else {
-		// 仅在确认为 Claude CLI 且 messages 路径时再做 body 解析。
+		// Only parse body when confirmed Claude CLI UA on messages path.
 		bodyMap := claudeCodeBodyMapFromParsedRequest(parsedReq)
 		if bodyMap == nil {
 			bodyMap = claudeCodeBodyMapFromContextCache(c)
@@ -62,10 +62,10 @@ func SetClaudeCodeClientContext(c *gin.Context, body []byte, parsedReq *service.
 		isClaudeCode = claudeCodeValidator.Validate(c.Request, bodyMap)
 	}
 
-	// 更新 request context
+	// Update request context
 	ctx := service.SetClaudeCodeClient(c.Request.Context(), isClaudeCode)
 
-	// 仅在确认为 Claude Code 客户端时提取版本号写入 context
+	// Extract version only when confirmed Claude Code client
 	if isClaudeCode {
 		if version := claudeCodeValidator.ExtractVersion(ua); version != "" {
 			ctx = service.SetClaudeCodeVersion(ctx, version)
@@ -111,27 +111,27 @@ func claudeCodeBodyMapFromContextCache(c *gin.Context) map[string]any {
 	return nil
 }
 
-// 并发槽位等待相关常量
+// Concurrency slot wait constants
 //
-// 性能优化说明：
-// 原实现使用固定间隔（100ms）轮询并发槽位，存在以下问题：
-// 1. 高并发时频繁轮询增加 Redis 压力
-// 2. 固定间隔可能导致多个请求同时重试（惊群效应）
+// Performance note:
+// Original implementation polled at fixed 100ms intervals, causing:
+// 1. High Redis pressure under concurrency
+// 2. Thundering herd from synchronized retries
 //
-// 新实现使用指数退避 + 抖动算法：
-// 1. 初始退避 100ms，每次乘以 1.5，最大 2s
-// 2. 添加 ±20% 的随机抖动，分散重试时间点
-// 3. 减少 Redis 压力，避免惊群效应
+// New implementation uses exponential backoff + jitter:
+// 1. Initial 100ms, multiply by 1.5, cap at 2s
+// 2. +/-20% random jitter to scatter retry points
+// 3. Reduces Redis pressure and avoids thundering herd
 const (
-	// maxConcurrencyWait 等待并发槽位的最大时间
+	// maxConcurrencyWait is the maximum time to wait for a concurrency slot
 	maxConcurrencyWait = 30 * time.Second
-	// defaultPingInterval 流式响应等待时发送 ping 的默认间隔
+	// defaultPingInterval is the interval for sending ping events during streaming wait
 	defaultPingInterval = 10 * time.Second
-	// initialBackoff 初始退避时间
+	// initialBackoff is the initial backoff duration
 	initialBackoff = 100 * time.Millisecond
-	// backoffMultiplier 退避时间乘数（指数退避）
+	// backoffMultiplier is the exponential backoff multiplier
 	backoffMultiplier = 1.5
-	// maxBackoff 最大退避时间
+	// maxBackoff is the maximum backoff duration
 	maxBackoff = 2 * time.Second
 )
 
@@ -180,8 +180,8 @@ func NewConcurrencyHelper(concurrencyService *service.ConcurrencyService, pingFo
 }
 
 // wrapReleaseOnDone ensures release runs at most once and still triggers on context cancellation.
-// 用于避免客户端断开或上游超时导致的并发槽位泄漏。
-// 优化：基于 context.AfterFunc 注册回调，避免每请求额外守护 goroutine。
+// Prevents concurrency slot leaks from client disconnect or upstream timeout.
+// Optimization: uses context.AfterFunc callback instead of per-request guardian goroutine.
 func wrapReleaseOnDone(ctx context.Context, releaseFunc func()) func() {
 	if releaseFunc == nil {
 		return nil
@@ -223,8 +223,8 @@ func (h *ConcurrencyHelper) DecrementAccountWaitCount(ctx context.Context, accou
 	h.concurrencyService.DecrementAccountWaitCount(ctx, accountID)
 }
 
-// TryAcquireUserSlot 尝试立即获取用户并发槽位。
-// 返回值: (releaseFunc, acquired, error)
+// TryAcquireUserSlot attempts to immediately acquire a user concurrency slot.
+// Returns: (releaseFunc, acquired, error)
 func (h *ConcurrencyHelper) TryAcquireUserSlot(ctx context.Context, userID int64, maxConcurrency int) (func(), bool, error) {
 	result, err := h.concurrencyService.AcquireUserSlot(ctx, userID, maxConcurrency)
 	if err != nil {
@@ -236,8 +236,8 @@ func (h *ConcurrencyHelper) TryAcquireUserSlot(ctx context.Context, userID int64
 	return result.ReleaseFunc, true, nil
 }
 
-// TryAcquireAccountSlot 尝试立即获取账号并发槽位。
-// 返回值: (releaseFunc, acquired, error)
+// TryAcquireAccountSlot attempts to immediately acquire an account concurrency slot.
+// Returns: (releaseFunc, acquired, error)
 func (h *ConcurrencyHelper) TryAcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int) (func(), bool, error) {
 	result, err := h.concurrencyService.AcquireAccountSlot(ctx, accountID, maxConcurrency)
 	if err != nil {
@@ -384,18 +384,18 @@ func (h *ConcurrencyHelper) AcquireAccountSlotWithWaitTimeout(c *gin.Context, ac
 	return h.waitForSlotWithPingTimeout(c, "account", accountID, maxConcurrency, timeout, isStream, streamStarted, true)
 }
 
-// nextBackoff 计算下一次退避时间
-// 性能优化：使用指数退避 + 随机抖动，避免惊群效应
-// current: 当前退避时间
-// 返回值：下一次退避时间（100ms ~ 2s 之间）
+// nextBackoff calculates the next backoff duration.
+// Uses exponential backoff + random jitter to avoid thundering herd.
+// current: current backoff duration
+// Returns: next backoff duration (100ms ~ 2s range)
 func nextBackoff(current time.Duration) time.Duration {
-	// 指数退避：当前时间 * 1.5
+	// Exponential backoff: current * 1.5
 	next := time.Duration(float64(current) * backoffMultiplier)
 	if next > maxBackoff {
 		next = maxBackoff
 	}
-	// 添加 ±20% 的随机抖动（jitter 范围 0.8 ~ 1.2）
-	// 抖动可以分散多个请求的重试时间点，避免同时冲击 Redis
+	// Add +/-20% random jitter (range 0.8 ~ 1.2)
+	// Jitter scatters retry points across requests, avoiding simultaneous Redis hits
 	jitter := 0.8 + rand.Float64()*0.4
 	jittered := time.Duration(float64(next) * jitter)
 	if jittered < initialBackoff {

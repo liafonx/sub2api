@@ -42,6 +42,12 @@ type SessionLimitCache interface {
 	// 返回 map[accountID]count，查询失败的账号不在 map 中
 	GetActiveSessionCountBatch(ctx context.Context, accountIDs []int64, idleTimeouts map[int64]time.Duration) (map[int64]int, error)
 
+	// RegisterUserSession registers a session for a user (not account). Same semantics as RegisterSession.
+	RegisterUserSession(ctx context.Context, userID int64, sessionUUID string, maxSessions int, idleTimeout time.Duration) (allowed bool, err error)
+
+	// GetUserActiveSessionCount returns the number of active sessions for a user.
+	GetUserActiveSessionCount(ctx context.Context, userID int64) (int, error)
+
 	// IsSessionActive 检查特定会话是否活跃（未过期）
 	IsSessionActive(ctx context.Context, accountID int64, sessionUUID string) (bool, error)
 
@@ -61,11 +67,4 @@ type SessionLimitCache interface {
 	// GetWindowCostBatch 批量获取窗口费用缓存
 	// 返回 map[accountID]cost，缓存未命中的账号不在 map 中
 	GetWindowCostBatch(ctx context.Context, accountIDs []int64) (map[int64]float64, error)
-
-	// RegisterUserSession registers a user-level session (not account-level).
-	// Key format: session_limit:user:{userID}
-	RegisterUserSession(ctx context.Context, userID int64, sessionUUID string, maxSessions int, idleTimeout time.Duration) (allowed bool, err error)
-
-	// GetUserActiveSessionCount returns active session count for a user.
-	GetUserActiveSessionCount(ctx context.Context, userID int64) (int, error)
 }

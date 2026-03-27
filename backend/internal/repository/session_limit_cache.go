@@ -2,9 +2,8 @@ package repository
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"log/slog"
+	"log"
 	"strconv"
 	"time"
 
@@ -166,7 +165,7 @@ func NewSessionLimitCache(rdb *redis.Client, defaultIdleTimeoutMinutes int) serv
 	}
 	for _, script := range scripts {
 		if err := script.Load(ctx, rdb).Err(); err != nil {
-			slog.Warn("session_limit_cache: failed to preload lua script", "err", err)
+			log.Printf("[SessionLimitCache] Failed to preload Lua script: %v", err)
 		}
 	}
 
@@ -186,35 +185,23 @@ func windowCostKey(accountID int64) string {
 	return fmt.Sprintf("%s%d", windowCostKeyPrefix, accountID)
 }
 
-// registerSession 注册会话活动（内部通用实现）
-func (c *sessionLimitCache) registerSession(ctx context.Context, key string, sessionUUID string, maxSessions int, idleTimeout time.Duration) (bool, error) {
-	idleTimeoutSeconds := int(idleTimeout.Seconds())
-	if idleTimeoutSeconds <= 0 {
-		idleTimeoutSeconds = int(c.defaultIdleTimeout.Seconds())
-	}
-	result, err := registerSessionScript.Run(ctx, c.rdb, []string{key}, maxSessions, idleTimeoutSeconds, sessionUUID).Int()
-	if err != nil {
-		return true, err // 失败开放：缓存错误时允许请求通过
-	}
-	return result == 1, nil
-}
-
-// getActiveSessionCount 获取活跃会话数（内部通用实现）
-func (c *sessionLimitCache) getActiveSessionCount(ctx context.Context, key string) (int, error) {
-	idleTimeoutSeconds := int(c.defaultIdleTimeout.Seconds())
-	result, err := getActiveSessionCountScript.Run(ctx, c.rdb, []string{key}, idleTimeoutSeconds).Int()
-	if err != nil {
-		return 0, err
-	}
-	return result, nil
-}
-
 // RegisterSession 注册会话活动
 func (c *sessionLimitCache) RegisterSession(ctx context.Context, accountID int64, sessionUUID string, maxSessions int, idleTimeout time.Duration) (bool, error) {
 	if sessionUUID == "" || maxSessions <= 0 {
 		return true, nil // 无效参数，默认允许
 	}
-	return c.registerSession(ctx, sessionLimitKey(accountID), sessionUUID, maxSessions, idleTimeout)
+
+	key := sessionLimitKey(accountID)
+	idleTimeoutSeconds := int(idleTimeout.Seconds())
+	if idleTimeoutSeconds <= 0 {
+		idleTimeoutSeconds = int(c.defaultIdleTimeout.Seconds())
+	}
+
+	result, err := registerSessionScript.Run(ctx, c.rdb, []string{key}, maxSessions, idleTimeoutSeconds, sessionUUID).Int()
+	if err != nil {
+		return true, err // 失败开放：缓存错误时允许请求通过
+	}
+	return result == 1, nil
 }
 
 // RefreshSession 刷新会话时间戳
@@ -235,7 +222,14 @@ func (c *sessionLimitCache) RefreshSession(ctx context.Context, accountID int64,
 
 // GetActiveSessionCount 获取活跃会话数
 func (c *sessionLimitCache) GetActiveSessionCount(ctx context.Context, accountID int64) (int, error) {
-	return c.getActiveSessionCount(ctx, sessionLimitKey(accountID))
+	key := sessionLimitKey(accountID)
+	idleTimeoutSeconds := int(c.defaultIdleTimeout.Seconds())
+
+	result, err := getActiveSessionCountScript.Run(ctx, c.rdb, []string{key}, idleTimeoutSeconds).Int()
+	if err != nil {
+		return 0, err
+	}
+	return result, nil
 }
 
 // GetActiveSessionCountBatch 批量获取多个账号的活跃会话数
@@ -264,9 +258,7 @@ func (c *sessionLimitCache) GetActiveSessionCountBatch(ctx context.Context, acco
 	}
 
 	// 执行 pipeline，即使部分失败也尝试获取成功的结果
-	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
-		slog.Warn("session_limit_cache: GetActiveSessionCountBatch pipeline failed", "err", err)
-	}
+	_, _ = pipe.Exec(ctx)
 
 	for accountID, cmd := range cmds {
 		if result, err := cmd.Int(); err == nil {
@@ -293,26 +285,37 @@ func (c *sessionLimitCache) IsSessionActive(ctx context.Context, accountID int64
 	return result == 1, nil
 }
 
-// userSessionLimitKeyPrefix 用户会话限制键前缀
-// 格式: session_limit:user:{userID}
-const userSessionLimitKeyPrefix = "session_limit:user:"
-
-// userSessionLimitKey 生成用户会话限制的 Redis 键
+// userSessionLimitKey generates a Redis key for per-user session tracking.
 func userSessionLimitKey(userID int64) string {
-	return fmt.Sprintf("%s%d", userSessionLimitKeyPrefix, userID)
+	return fmt.Sprintf("session_limit:user:%d", userID)
 }
 
-// RegisterUserSession 注册用户级别会话活动
+// RegisterUserSession registers a session for a user (same semantics as RegisterSession but keyed by user).
 func (c *sessionLimitCache) RegisterUserSession(ctx context.Context, userID int64, sessionUUID string, maxSessions int, idleTimeout time.Duration) (bool, error) {
 	if sessionUUID == "" || maxSessions <= 0 {
 		return true, nil
 	}
-	return c.registerSession(ctx, userSessionLimitKey(userID), sessionUUID, maxSessions, idleTimeout)
+	key := userSessionLimitKey(userID)
+	idleTimeoutSeconds := int(idleTimeout.Seconds())
+	if idleTimeoutSeconds <= 0 {
+		idleTimeoutSeconds = int(c.defaultIdleTimeout.Seconds())
+	}
+	result, err := registerSessionScript.Run(ctx, c.rdb, []string{key}, maxSessions, idleTimeoutSeconds, sessionUUID).Int()
+	if err != nil {
+		return true, err // fail-open
+	}
+	return result == 1, nil
 }
 
-// GetUserActiveSessionCount 获取用户当前活跃会话数
+// GetUserActiveSessionCount returns the number of active sessions for a user.
 func (c *sessionLimitCache) GetUserActiveSessionCount(ctx context.Context, userID int64) (int, error) {
-	return c.getActiveSessionCount(ctx, userSessionLimitKey(userID))
+	key := userSessionLimitKey(userID)
+	idleTimeoutSeconds := int(c.defaultIdleTimeout.Seconds())
+	result, err := getActiveSessionCountScript.Run(ctx, c.rdb, []string{key}, idleTimeoutSeconds).Int()
+	if err != nil {
+		return 0, err
+	}
+	return result, nil
 }
 
 // ========== 5h窗口费用缓存实现 ==========
@@ -325,7 +328,7 @@ func (c *sessionLimitCache) GetWindowCost(ctx context.Context, accountID int64) 
 		return 0, false, nil // 缓存未命中
 	}
 	if err != nil {
-		return 0, false, fmt.Errorf("GetWindowCost: %w", err)
+		return 0, false, err
 	}
 	return val, true, nil
 }
@@ -351,7 +354,7 @@ func (c *sessionLimitCache) GetWindowCostBatch(ctx context.Context, accountIDs [
 	// 使用 MGET 批量获取
 	vals, err := c.rdb.MGet(ctx, keys...).Result()
 	if err != nil {
-		return nil, fmt.Errorf("GetWindowCostBatch: %w", err)
+		return nil, err
 	}
 
 	results := make(map[int64]float64, len(accountIDs))

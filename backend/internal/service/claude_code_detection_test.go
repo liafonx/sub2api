@@ -12,7 +12,7 @@ import (
 )
 
 func newTestValidator() *ClaudeCodeValidator {
-	return NewClaudeCodeValidator(NewCCTraitRegistry(nil))
+	return NewClaudeCodeValidator(nil)
 }
 
 // validClaudeCodeBody 构造一个完整有效的 Claude Code 请求体

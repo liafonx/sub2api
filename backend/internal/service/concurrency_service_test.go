@@ -14,7 +14,7 @@ import (
 
 // stubConcurrencyCacheForTest 用于并发服务单元测试的缓存桩
 type stubConcurrencyCacheForTest struct {
-	acquireResult  bool // true → return count 1, false → return 0
+	acquireResult  int
 	acquireErr     error
 	releaseErr     error
 	concurrency    int
@@ -37,13 +37,7 @@ type stubConcurrencyCacheForTest struct {
 var _ ConcurrencyCache = (*stubConcurrencyCacheForTest)(nil)
 
 func (c *stubConcurrencyCacheForTest) AcquireAccountSlot(_ context.Context, _ int64, _ int, _ string) (int, error) {
-	if c.acquireErr != nil {
-		return 0, c.acquireErr
-	}
-	if c.acquireResult {
-		return 1, nil
-	}
-	return 0, nil
+	return c.acquireResult, c.acquireErr
 }
 func (c *stubConcurrencyCacheForTest) ReleaseAccountSlot(_ context.Context, accountID int64, requestID string) error {
 	c.releasedAccountIDs = append(c.releasedAccountIDs, accountID)
@@ -73,13 +67,7 @@ func (c *stubConcurrencyCacheForTest) GetAccountWaitingCount(_ context.Context, 
 	return c.waitCount, c.waitCountErr
 }
 func (c *stubConcurrencyCacheForTest) AcquireUserSlot(_ context.Context, _ int64, _ int, _ string) (int, error) {
-	if c.acquireErr != nil {
-		return 0, c.acquireErr
-	}
-	if c.acquireResult {
-		return 1, nil
-	}
-	return 0, nil
+	return c.acquireResult, c.acquireErr
 }
 func (c *stubConcurrencyCacheForTest) ReleaseUserSlot(_ context.Context, _ int64, _ string) error {
 	return c.releaseErr
@@ -130,7 +118,7 @@ func TestCleanupStaleProcessSlots_DelegatesPrefix(t *testing.T) {
 }
 
 func TestAcquireAccountSlot_Success(t *testing.T) {
-	cache := &stubConcurrencyCacheForTest{acquireResult: true}
+	cache := &stubConcurrencyCacheForTest{acquireResult: 1}
 	svc := NewConcurrencyService(cache, nil)
 
 	result, err := svc.AcquireAccountSlot(context.Background(), 1, 5)
@@ -140,7 +128,7 @@ func TestAcquireAccountSlot_Success(t *testing.T) {
 }
 
 func TestAcquireAccountSlot_Failure(t *testing.T) {
-	cache := &stubConcurrencyCacheForTest{acquireResult: false}
+	cache := &stubConcurrencyCacheForTest{acquireResult: 0}
 	svc := NewConcurrencyService(cache, nil)
 
 	result, err := svc.AcquireAccountSlot(context.Background(), 1, 5)
@@ -170,7 +158,7 @@ func TestAcquireAccountSlot_CacheError(t *testing.T) {
 }
 
 func TestAcquireAccountSlot_ReleaseDecrements(t *testing.T) {
-	cache := &stubConcurrencyCacheForTest{acquireResult: true}
+	cache := &stubConcurrencyCacheForTest{acquireResult: 1}
 	svc := NewConcurrencyService(cache, nil)
 
 	result, err := svc.AcquireAccountSlot(context.Background(), 42, 5)
@@ -187,7 +175,7 @@ func TestAcquireAccountSlot_ReleaseDecrements(t *testing.T) {
 }
 
 func TestAcquireUserSlot_IndependentFromAccount(t *testing.T) {
-	cache := &stubConcurrencyCacheForTest{acquireResult: true}
+	cache := &stubConcurrencyCacheForTest{acquireResult: 1}
 	svc := NewConcurrencyService(cache, nil)
 
 	// 用户槽位获取应独立于账户槽位

@@ -1555,16 +1555,6 @@ func DefaultMappedModelContainsFold(v string) predicate.Group {
 	return predicate.Group(sql.FieldContainsFold(FieldDefaultMappedModel, v))
 }
 
-// ScheduledRateConfigIsNil applies the IsNil predicate on the "scheduled_rate_config" field.
-func ScheduledRateConfigIsNil() predicate.Group {
-	return predicate.Group(sql.FieldIsNull(FieldScheduledRateConfig))
-}
-
-// ScheduledRateConfigNotNil applies the NotNil predicate on the "scheduled_rate_config" field.
-func ScheduledRateConfigNotNil() predicate.Group {
-	return predicate.Group(sql.FieldNotNull(FieldScheduledRateConfig))
-}
-
 // HasAPIKeys applies the HasEdge predicate on the "api_keys" edge.
 func HasAPIKeys() predicate.Group {
 	return predicate.Group(func(s *sql.Selector) {

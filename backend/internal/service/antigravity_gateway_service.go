@@ -28,9 +28,10 @@ import (
 )
 
 const (
-	antigravityMaxRetries     = 3
-	antigravityRetryBaseDelay = 1 * time.Second
-	antigravityRetryMaxDelay  = 16 * time.Second
+	antigravityStickySessionTTL = time.Hour
+	antigravityMaxRetries       = 3
+	antigravityRetryBaseDelay   = 1 * time.Second
+	antigravityRetryMaxDelay    = 16 * time.Second
 
 	// 限流相关常量
 	// antigravityRateLimitThreshold 限流等待/切换阈值
@@ -327,8 +328,10 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 				_ = lastRetryResp.Body.Close()
 			}
 			lastRetryResp = retryResp
-			lastRetryBody, _ = io.ReadAll(io.LimitReader(retryResp.Body, 8<<10))
-			_ = retryResp.Body.Close()
+			if retryResp != nil {
+				lastRetryBody, _ = io.ReadAll(io.LimitReader(retryResp.Body, 8<<10))
+				_ = retryResp.Body.Close()
+			}
 
 			// 解析新的重试信息，用于下次重试的等待时间（MODEL_CAPACITY_EXHAUSTED 使用固定循环，跳过）
 			if !isModelCapacityExhausted && attempt < maxAttempts && lastRetryBody != nil {
@@ -640,6 +643,7 @@ urlFallbackLoop:
 					AccountID:          p.account.ID,
 					AccountName:        p.account.Name,
 					UpstreamStatusCode: 0,
+					UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
 					Kind:               "request_error",
 					Message:            safeErr,
 				})
@@ -717,6 +721,7 @@ urlFallbackLoop:
 							AccountName:        p.account.Name,
 							UpstreamStatusCode: resp.StatusCode,
 							UpstreamRequestID:  resp.Header.Get("x-request-id"),
+							UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
 							Kind:               "retry",
 							Message:            upstreamMsg,
 							Detail:             getUpstreamDetail(respBody),
@@ -751,6 +756,7 @@ urlFallbackLoop:
 							AccountName:        p.account.Name,
 							UpstreamStatusCode: resp.StatusCode,
 							UpstreamRequestID:  resp.Header.Get("x-request-id"),
+							UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
 							Kind:               "retry",
 							Message:            upstreamMsg,
 							Detail:             getUpstreamDetail(respBody),
@@ -1739,7 +1745,8 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 	return &ForwardResult{
 		RequestID:        requestID,
 		Usage:            *usage,
-		Model:            billingModel, // 使用映射模型用于计费和日志
+		Model:            originalModel,
+		UpstreamModel:    billingModel,
 		Stream:           claudeReq.Stream,
 		Duration:         time.Since(startTime),
 		FirstTokenMs:     firstTokenMs,
@@ -2432,7 +2439,8 @@ handleSuccess:
 	return &ForwardResult{
 		RequestID:        requestID,
 		Usage:            *usage,
-		Model:            billingModel,
+		Model:            originalModel,
+		UpstreamModel:    billingModel,
 		Stream:           stream,
 		Duration:         time.Since(startTime),
 		FirstTokenMs:     firstTokenMs,

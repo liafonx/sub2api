@@ -8,9 +8,6 @@ import (
 	"time"
 )
 
-// ErrTokenNotFound is returned by ClaudeTokenCache.GetAccessToken when no token exists in cache.
-var ErrTokenNotFound = errors.New("token not found")
-
 const (
 	claudeTokenRefreshSkew = 3 * time.Minute
 	claudeTokenCacheSkew   = 5 * time.Minute
@@ -70,7 +67,7 @@ func (p *ClaudeTokenProvider) GetAccessToken(ctx context.Context, account *Accou
 		if token, err := p.tokenCache.GetAccessToken(ctx, cacheKey); err == nil && strings.TrimSpace(token) != "" {
 			slog.Debug("claude_token_cache_hit", "account_id", account.ID)
 			return token, nil
-		} else if err != nil && !errors.Is(err, ErrTokenNotFound) {
+		} else if err != nil {
 			slog.Warn("claude_token_cache_get_failed", "account_id", account.ID, "error", err)
 		}
 	}

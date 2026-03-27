@@ -173,9 +173,9 @@ func (s *AntigravityGatewayService) attemptCreditsOveragesRetry(
 	p antigravityRetryLoopParams,
 	baseURL string,
 	modelName string,
-	_ time.Duration,
-	_ int,
-	_ []byte,
+	waitDuration time.Duration,
+	originalStatusCode int,
+	respBody []byte,
 ) *creditsOveragesRetryResult {
 	creditsBody := injectEnabledCreditTypes(p.body)
 	if creditsBody == nil {

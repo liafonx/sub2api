@@ -112,9 +112,13 @@ func (s *userRepoStub) EnableTotp(ctx context.Context, userID int64) error {
 func (s *userRepoStub) DisableTotp(ctx context.Context, userID int64) error {
 	panic("unexpected DisableTotp call")
 }
-func (s *userRepoStub) ListAllIDs(context.Context) ([]int64, error) { return nil, nil }
+
+func (s *userRepoStub) ListAllIDs(context.Context) ([]int64, error) {
+	panic("unexpected ListAllIDs call")
+}
+
 func (s *userRepoStub) GetByIDs(context.Context, []int64) ([]*User, error) {
-	return nil, nil
+	panic("unexpected GetByIDs call")
 }
 
 type groupRepoStub struct {

@@ -13,6 +13,7 @@ import (
 	mathrand "math/rand"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -36,8 +37,6 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/gin-gonic/gin"
-
-	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 )
 
 const (
@@ -90,6 +89,26 @@ var (
 	modelsListCacheMissTotal  atomic.Int64
 	modelsListCacheStoreTotal atomic.Int64
 )
+
+func GatewayWindowCostPrefetchStats() (cacheHit, cacheMiss, batchSQL, fallback, errCount int64) {
+	return windowCostPrefetchCacheHitTotal.Load(),
+		windowCostPrefetchCacheMissTotal.Load(),
+		windowCostPrefetchBatchSQLTotal.Load(),
+		windowCostPrefetchFallbackTotal.Load(),
+		windowCostPrefetchErrorTotal.Load()
+}
+
+func GatewayUserGroupRateCacheStats() (cacheHit, cacheMiss, load, singleflightShared, fallback int64) {
+	return userGroupRateCacheHitTotal.Load(),
+		userGroupRateCacheMissTotal.Load(),
+		userGroupRateCacheLoadTotal.Load(),
+		userGroupRateCacheSFSharedTotal.Load(),
+		userGroupRateCacheFallbackTotal.Load()
+}
+
+func GatewayModelsListCacheStats() (cacheHit, cacheMiss, store int64) {
+	return modelsListCacheHitTotal.Load(), modelsListCacheMissTotal.Load(), modelsListCacheStoreTotal.Load()
+}
 
 // conversationFingerprint returns a stable key identifying the conversation
 // from the request body, using xxhash of the first message's raw JSON.
@@ -149,26 +168,6 @@ func stripCachedInvalidThinkingPaths(body []byte, paths []string) []byte {
 		}
 	}
 	return body
-}
-
-func GatewayWindowCostPrefetchStats() (cacheHit, cacheMiss, batchSQL, fallback, errCount int64) {
-	return windowCostPrefetchCacheHitTotal.Load(),
-		windowCostPrefetchCacheMissTotal.Load(),
-		windowCostPrefetchBatchSQLTotal.Load(),
-		windowCostPrefetchFallbackTotal.Load(),
-		windowCostPrefetchErrorTotal.Load()
-}
-
-func GatewayUserGroupRateCacheStats() (cacheHit, cacheMiss, load, singleflightShared, fallback int64) {
-	return userGroupRateCacheHitTotal.Load(),
-		userGroupRateCacheMissTotal.Load(),
-		userGroupRateCacheLoadTotal.Load(),
-		userGroupRateCacheSFSharedTotal.Load(),
-		userGroupRateCacheFallbackTotal.Load()
-}
-
-func GatewayModelsListCacheStats() (cacheHit, cacheMiss, store int64) {
-	return modelsListCacheHitTotal.Load(), modelsListCacheMissTotal.Load(), modelsListCacheStoreTotal.Load()
 }
 
 func openAIStreamEventIsTerminal(data string) bool {
@@ -233,10 +232,6 @@ func (s *GatewayService) debugClaudeMimicEnabled() bool {
 		return false
 	}
 	return s.debugClaudeMimic.Load()
-}
-
-func (s *GatewayService) doWithAccountTLS(req *http.Request, proxyURL string, account *Account) (*http.Response, error) {
-	return s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, account.IsTLSFingerprintEnabled(), account.GetTLSFingerprintProfile())
 }
 
 func parseDebugEnvBool(raw string) bool {
@@ -433,6 +428,7 @@ var allowedHeaders = map[string]bool{
 	"sec-fetch-mode":                            true,
 	"user-agent":                                true,
 	"content-type":                              true,
+	"accept-encoding":                           true,
 }
 
 // GatewayCache 定义网关服务的缓存操作接口。
@@ -549,10 +545,12 @@ type ClaudeUsage struct {
 
 // ForwardResult 转发结果
 type ForwardResult struct {
-	RequestID        string
-	Usage            ClaudeUsage
-	Model            string
-	UpstreamModel    string // Actual upstream model after mapping (empty = no mapping)
+	RequestID string
+	Usage     ClaudeUsage
+	Model     string
+	// UpstreamModel is the actual upstream model after mapping.
+	// Prefer empty when it is identical to Model; persistence normalizes equal values away as no-op mappings.
+	UpstreamModel    string
 	Stream           bool
 	Duration         time.Duration
 	FirstTokenMs     *int // 首字时间（流式请求）
@@ -598,41 +596,44 @@ func (s *GatewayService) TempUnscheduleRetryableError(ctx context.Context, accou
 
 // GatewayService handles API gateway operations
 type GatewayService struct {
-	accountRepo           AccountRepository
-	groupRepo             GroupRepository
-	usageLogRepo          UsageLogRepository
-	usageBillingRepo      UsageBillingRepository
-	userRepo              UserRepository
-	userSubRepo           UserSubscriptionRepository
-	userGroupRateRepo     UserGroupRateRepository
-	cache                 GatewayCache
-	digestStore           *DigestSessionStore
-	cfg                   *config.Config
-	schedulerSnapshot     *SchedulerSnapshotService
-	billingService        *BillingService
-	rateLimitService      *RateLimitService
-	billingCacheService   *BillingCacheService
-	identityService       *IdentityService
-	httpUpstream          HTTPUpstream
-	deferredService       *DeferredService
-	concurrencyService    *ConcurrencyService
-	claudeTokenProvider   *ClaudeTokenProvider
-	sessionLimitCache     SessionLimitCache // 会话数量限制缓存（仅 Anthropic OAuth/SetupToken）
-	rpmCache              RPMCache          // RPM 计数缓存（仅 Anthropic OAuth/SetupToken）
-	userQuotaChecker      UserQuotaChecker  // per-user quota allocation (Anthropic OAuth/SetupToken only)
-	peakCache             PeakUsageCache    // peak usage tracker (optional, injected post-construction)
-	userGroupRateResolver *userGroupRateResolver
-	userGroupRateCache    *gocache.Cache
-	userGroupRateSF       singleflight.Group
-	modelsListCache       *gocache.Cache
-	modelsListCacheTTL    time.Duration
-	settingService        *SettingService
-	responseHeaderFilter  *responseheaders.CompiledHeaderFilter
-	ccProbeService        *CCProbeService // optional, injected post-construction
-	badThinkingPathCache  *gocache.Cache
-	debugModelRouting     atomic.Bool
-	debugClaudeMimic      atomic.Bool
-	pricingService        *PricingService
+	accountRepo            AccountRepository
+	groupRepo              GroupRepository
+	usageLogRepo           UsageLogRepository
+	usageBillingRepo       UsageBillingRepository
+	userRepo               UserRepository
+	userSubRepo            UserSubscriptionRepository
+	userGroupRateRepo      UserGroupRateRepository
+	cache                  GatewayCache
+	digestStore            *DigestSessionStore
+	cfg                    *config.Config
+	schedulerSnapshot      *SchedulerSnapshotService
+	billingService         *BillingService
+	rateLimitService       *RateLimitService
+	billingCacheService    *BillingCacheService
+	identityService        *IdentityService
+	httpUpstream           HTTPUpstream
+	deferredService        *DeferredService
+	concurrencyService     *ConcurrencyService
+	claudeTokenProvider    *ClaudeTokenProvider
+	sessionLimitCache      SessionLimitCache // 会话数量限制缓存（仅 Anthropic OAuth/SetupToken）
+	rpmCache               RPMCache          // RPM 计数缓存（仅 Anthropic OAuth/SetupToken）
+	userQuotaChecker       UserQuotaChecker  // per-user quota allocation (Anthropic OAuth/SetupToken only)
+	peakCache              PeakUsageCache    // peak usage tracker (optional, injected post-construction)
+	userGroupRateResolver  *userGroupRateResolver
+	userGroupRateCache     *gocache.Cache
+	userGroupRateSF        singleflight.Group
+	modelsListCache        *gocache.Cache
+	modelsListCacheTTL     time.Duration
+	settingService         *SettingService
+	responseHeaderFilter   *responseheaders.CompiledHeaderFilter
+	ccProbeService         *CCProbeService                 // optional, injected post-construction
+	ccVersionDetectService *ClaudeCodeVersionDetectService // optional, injected post-construction
+	badThinkingPathCache   *gocache.Cache
+	debugModelRouting      atomic.Bool
+	debugClaudeMimic       atomic.Bool
+	debugGatewayBodyFile   atomic.Pointer[os.File] // non-nil when SUB2API_DEBUG_GATEWAY_BODY is set
+	tlsFPProfileService    *TLSFingerprintProfileService
+	pricingService         *PricingService
 }
 
 // NewGatewayService creates a new GatewayService
@@ -659,6 +660,7 @@ func NewGatewayService(
 	rpmCache RPMCache,
 	digestStore *DigestSessionStore,
 	settingService *SettingService,
+	tlsFPProfileService *TLSFingerprintProfileService,
 ) *GatewayService {
 	userGroupRateTTL := resolveUserGroupRateCacheTTL(cfg)
 	modelsListTTL := resolveModelsListCacheTTL(cfg)
@@ -690,6 +692,7 @@ func NewGatewayService(
 		modelsListCache:      gocache.New(modelsListTTL, time.Minute),
 		modelsListCacheTTL:   modelsListTTL,
 		responseHeaderFilter: compileResponseHeaderFilter(cfg),
+		tlsFPProfileService:  tlsFPProfileService,
 		badThinkingPathCache: gocache.New(30*time.Minute, 5*time.Minute),
 	}
 	svc.userGroupRateResolver = newUserGroupRateResolver(
@@ -701,6 +704,9 @@ func NewGatewayService(
 	)
 	svc.debugModelRouting.Store(parseDebugEnvBool(os.Getenv("SUB2API_DEBUG_MODEL_ROUTING")))
 	svc.debugClaudeMimic.Store(parseDebugEnvBool(os.Getenv("SUB2API_DEBUG_CLAUDE_MIMIC")))
+	if path := strings.TrimSpace(os.Getenv(debugGatewayBodyEnv)); path != "" {
+		svc.initDebugGatewayBodyFile(path)
+	}
 	return svc
 }
 
@@ -729,7 +735,7 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 	if parsed.SessionContext != nil {
 		_, _ = combined.WriteString(parsed.SessionContext.ClientIP)
 		_, _ = combined.WriteString(":")
-		_, _ = combined.WriteString(parsed.SessionContext.UserAgent)
+		_, _ = combined.WriteString(NormalizeSessionUserAgent(parsed.SessionContext.UserAgent))
 		_, _ = combined.WriteString(":")
 		_, _ = combined.WriteString(strconv.FormatInt(parsed.SessionContext.APIKeyID, 10))
 		_, _ = combined.WriteString("|")
@@ -1172,10 +1178,15 @@ func (s *GatewayService) buildOAuthMetadataUserID(parsed *ParsedRequest, account
 		return ""
 	}
 
-	if fp == nil || fp.ClientID == "" {
-		return ""
+	userID := strings.TrimSpace(account.GetClaudeUserID())
+	if userID == "" && fp != nil {
+		userID = fp.ClientID
 	}
-	userID := fp.ClientID
+	if userID == "" {
+		// Fall back to a random, well-formed client id so we can still satisfy
+		// Claude Code OAuth requirements when account metadata is incomplete.
+		userID = generateClientID()
+	}
 
 	sessionHash := s.GenerateSessionHash(parsed)
 	sessionID := uuid.NewString()
@@ -1184,7 +1195,11 @@ func (s *GatewayService) buildOAuthMetadataUserID(parsed *ParsedRequest, account
 		sessionID = generateSessionUUID(seed)
 	}
 
-	uaVersion := ExtractCLIVersion(fp.UserAgent)
+	// 根据指纹 UA 版本选择输出格式
+	var uaVersion string
+	if fp != nil {
+		uaVersion = ExtractCLIVersion(fp.UserAgent)
+	}
 	accountUUID := strings.TrimSpace(account.GetExtraString("account_uuid"))
 	return FormatMetadataUserID(userID, accountUUID, sessionID, uaVersion)
 }
@@ -2237,7 +2252,7 @@ func (s *GatewayService) withWindowCostPrefetch(ctx context.Context, accounts []
 	accountIDs := make([]int64, 0, len(accounts))
 	for i := range accounts {
 		account := &accounts[i]
-		if !account.IsAnthropicOAuthOrSetupToken() {
+		if account == nil || !account.IsAnthropicOAuthOrSetupToken() {
 			continue
 		}
 		if account.GetWindowCostLimit() <= 0 {
@@ -2486,7 +2501,7 @@ func (s *GatewayService) IncrementAccountRPM(ctx context.Context, accountID int6
 	return err
 }
 
-// IncrementUserRPM increments the per-user RPM counter and updates the peak.
+// IncrementUserRPM increments the RPM counter for the given user.
 func (s *GatewayService) IncrementUserRPM(ctx context.Context, userID int64) error {
 	if s.rpmCache == nil {
 		return nil
@@ -2579,7 +2594,6 @@ func (s *GatewayService) TrackUserSessionPeak(userID int64, sessionID string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		// Register with unlimited max to simply track presence without enforcing a limit.
 		_, err := s.sessionLimitCache.RegisterUserSession(ctx, userID, sessionID, 999999, 30*time.Minute)
 		if err != nil {
 			return
@@ -3889,9 +3903,28 @@ func isClaudeCodeRequest(ctx context.Context, c *gin.Context, parsed *ParsedRequ
 	return isClaudeCodeClient(c.GetHeader("User-Agent"), parsed.MetadataUserID)
 }
 
+// normalizeSystemParam 将 json.RawMessage 类型的 system 参数转为标准 Go 类型（string / []any / nil），
+// 避免 type switch 中 json.RawMessage（底层 []byte）无法匹配 case string / case []any / case nil 的问题。
+// 这是 Go 的 typed nil 陷阱：(json.RawMessage, nil) ≠ (nil, nil)。
+func normalizeSystemParam(system any) any {
+	raw, ok := system.(json.RawMessage)
+	if !ok {
+		return system
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+	var parsed any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return nil
+	}
+	return parsed
+}
+
 // systemIncludesClaudeCodePrompt 检查 system 中是否已包含 Claude Code 提示词
 // 使用前缀匹配支持多种变体（标准版、Agent SDK 版等）
 func systemIncludesClaudeCodePrompt(system any) bool {
+	system = normalizeSystemParam(system)
 	switch v := system.(type) {
 	case string:
 		return hasClaudeCodePrefix(v)
@@ -3920,6 +3953,7 @@ func hasClaudeCodePrefix(text string) bool {
 // injectClaudeCodePrompt 在 system 开头注入 Claude Code 提示词
 // 处理 null、字符串、数组三种格式
 func injectClaudeCodePrompt(body []byte, system any) []byte {
+	system = normalizeSystemParam(system)
 	claudeCodeBlock, err := marshalAnthropicSystemTextBlock(claudeCodeSystemPrompt, true)
 	if err != nil {
 		logger.LegacyPrintf("service.gateway", "Warning: failed to build Claude Code prompt block: %v", err)
@@ -4197,8 +4231,15 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	reqStream := parsed.Stream
 	originalModel := reqModel
 
-	// === DEBUG: 打印客户端原始请求 body ===
-	debugLogRequestBody("CLIENT_ORIGINAL", body)
+	// === DEBUG: 打印客户端原始请求（headers + body 摘要）===
+	if c != nil {
+		s.debugLogGatewaySnapshot("CLIENT_ORIGINAL", c.Request.Header, body, map[string]string{
+			"account":      fmt.Sprintf("%d(%s)", account.ID, account.Name),
+			"account_type": string(account.Type),
+			"model":        reqModel,
+			"stream":       strconv.FormatBool(reqStream),
+		})
+	}
 
 	isClaudeCode := isClaudeCodeRequest(ctx, c, parsed)
 	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCode
@@ -4215,9 +4256,13 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		if s.identityService != nil {
 			fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, c.Request.Header)
 			if err == nil && fp != nil {
-				if metadataUserID := s.buildOAuthMetadataUserID(parsed, account, fp); metadataUserID != "" {
-					normalizeOpts.injectMetadata = true
-					normalizeOpts.metadataUserID = metadataUserID
+				// metadata 透传开启时跳过 metadata 注入
+				_, mimicMPT := s.settingService.GetGatewayForwardingSettings(ctx)
+				if !mimicMPT {
+					if metadataUserID := s.buildOAuthMetadataUserID(parsed, account, fp); metadataUserID != "" {
+						normalizeOpts.injectMetadata = true
+						normalizeOpts.metadataUserID = metadataUserID
+					}
 				}
 			}
 		}
@@ -4270,17 +4315,21 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		proxyURL = account.Proxy.URL()
 	}
 
+	// 解析 TLS 指纹 profile（同一请求生命周期内不变，避免重试循环中重复解析）
+	tlsProfile := s.tlsFPProfileService.ResolveTLSProfile(account)
+
 	// 调试日志：记录即将转发的账号信息
 	logger.LegacyPrintf("service.gateway", "[Forward] Using account: ID=%d Name=%s Platform=%s Type=%s TLSFingerprint=%v Proxy=%s",
-		account.ID, account.Name, account.Platform, account.Type, account.IsTLSFingerprintEnabled(), proxyURL)
+		account.ID, account.Name, account.Platform, account.Type, tlsProfile, proxyURL)
+	// Pre-filter: strip empty text blocks (including nested in tool_result) to prevent upstream 400.
+	body = StripEmptyTextBlocks(body)
+
 	// 重试间复用同一请求体，避免每次 string(body) 产生额外分配。
 	setOpsUpstreamRequestBody(c, body)
 
 	// 重试循环
 	var resp *http.Response
 	retryStart := time.Now()
-	// TTFT breakdown: capture first-attempt pre-request and connection timings
-	var ttftPreRequestDone, ttftConnectionDone time.Time
 	for attempt := 1; attempt <= maxRetryAttempts; attempt++ {
 		// 构建上游请求（每次重试需要重新构建，因为请求体需要重新读取）
 		upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
@@ -4290,24 +4339,11 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			return nil, err
 		}
 
-		// Mark pre-request done (GetAccessToken + buildUpstreamRequest complete)
-		if ttftPreRequestDone.IsZero() {
-			ttftPreRequestDone = time.Now()
-		}
-
 		// 发送请求
-		resp, err = s.doWithAccountTLS(upstreamReq, proxyURL, account)
-		// Mark when response headers arrived (connection + inference headers)
-		if err == nil && ttftConnectionDone.IsZero() {
-			ttftConnectionDone = time.Now()
-		}
+		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
-			}
-			// When the client disconnected (context canceled), skip writing to the dead connection.
-			if errors.Is(ctx.Err(), context.Canceled) {
-				return nil, fmt.Errorf("upstream request failed: %s", sanitizeUpstreamErrorMessage(err.Error()))
 			}
 			// Ensure the client receives an error response (handlers assume Forward writes on non-failover errors).
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
@@ -4317,6 +4353,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 				AccountID:          account.ID,
 				AccountName:        account.Name,
 				UpstreamStatusCode: 0,
+				UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
 				Kind:               "request_error",
 				Message:            safeErr,
 			})
@@ -4336,13 +4373,14 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			if readErr == nil {
 				_ = resp.Body.Close()
 
-				if s.isThinkingBlockSignatureError(respBody) && s.settingService.IsSignatureRectifierEnabled(ctx) {
+				if s.shouldRectifySignatureError(ctx, account, respBody) {
 					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 						Platform:           account.Platform,
 						AccountID:          account.ID,
 						AccountName:        account.Name,
 						UpstreamStatusCode: resp.StatusCode,
 						UpstreamRequestID:  resp.Header.Get("x-request-id"),
+						UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
 						Kind:               "signature_error",
 						Message:            extractUpstreamErrorMessage(respBody),
 						Detail: func() string {
@@ -4368,7 +4406,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 						resp.Body = io.NopCloser(bytes.NewReader(respBody))
 						break
 					}
-					logger.LegacyPrintf("service.gateway", "Account %d: detected thinking block signature error, retrying with filtered thinking blocks", account.ID)
+					logger.LegacyPrintf("service.gateway", "[warn] Account %d: thinking blocks have invalid signature, retrying with filtered blocks", account.ID)
 
 					// Stage 0: Surgical single-block removal (only for exact "invalid signature" errors
 					// with a parseable messages.X.content.Y path). Avoids the ~3s penalty of full
@@ -4396,7 +4434,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 							if buildErr != nil {
 								break
 							}
-							surgicalRetryResp, surgicalRetryErr := s.doWithAccountTLS(surgicalRetryReq, proxyURL, account)
+							surgicalRetryResp, surgicalRetryErr := s.httpUpstream.DoWithTLS(surgicalRetryReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
 							if surgicalRetryErr != nil {
 								break
 							}
@@ -4413,7 +4451,6 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 							}
 							newErrMsg := extractUpstreamErrorMessage(surgicalRetryRespBody)
 							if !isExactSignatureError(newErrMsg) {
-								// Different error — let full-strip fallback handle it
 								break
 							}
 							lastErrMsg = newErrMsg
@@ -4434,23 +4471,24 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					retryReq, buildErr := s.buildUpstreamRequest(retryCtx, c, account, filteredBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 					releaseRetryCtx()
 					if buildErr == nil {
-						retryResp, retryErr := s.doWithAccountTLS(retryReq, proxyURL, account)
+						retryResp, retryErr := s.httpUpstream.DoWithTLS(retryReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
 						if retryErr == nil {
 							if retryResp.StatusCode < 400 {
-								logger.LegacyPrintf("service.gateway", "Account %d: signature error retry succeeded (thinking downgraded)", account.ID)
+								logger.LegacyPrintf("service.gateway", "Account %d: thinking block retry succeeded (blocks downgraded)", account.ID)
 								resp = retryResp
 								break
 							}
 
 							retryRespBody, retryReadErr := io.ReadAll(io.LimitReader(retryResp.Body, 2<<20))
 							_ = retryResp.Body.Close()
-							if retryReadErr == nil && retryResp.StatusCode == 400 && s.isThinkingBlockSignatureError(retryRespBody) {
+							if retryReadErr == nil && retryResp.StatusCode == 400 && s.isSignatureErrorPattern(ctx, account, retryRespBody) {
 								appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 									Platform:           account.Platform,
 									AccountID:          account.ID,
 									AccountName:        account.Name,
 									UpstreamStatusCode: retryResp.StatusCode,
 									UpstreamRequestID:  retryResp.Header.Get("x-request-id"),
+									UpstreamURL:        safeUpstreamURL(retryReq.URL.String()),
 									Kind:               "signature_retry_thinking",
 									Message:            extractUpstreamErrorMessage(retryRespBody),
 									Detail: func() string {
@@ -4468,7 +4506,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 									retryReq2, buildErr2 := s.buildUpstreamRequest(retryCtx2, c, account, filteredBody2, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 									releaseRetryCtx2()
 									if buildErr2 == nil {
-										retryResp2, retryErr2 := s.doWithAccountTLS(retryReq2, proxyURL, account)
+										retryResp2, retryErr2 := s.httpUpstream.DoWithTLS(retryReq2, proxyURL, account.ID, account.Concurrency, tlsProfile)
 										if retryErr2 == nil {
 											resp = retryResp2
 											break
@@ -4481,6 +4519,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 											AccountID:          account.ID,
 											AccountName:        account.Name,
 											UpstreamStatusCode: 0,
+											UpstreamURL:        safeUpstreamURL(retryReq2.URL.String()),
 											Kind:               "signature_retry_tools_request_error",
 											Message:            sanitizeUpstreamErrorMessage(retryErr2.Error()),
 										})
@@ -4520,6 +4559,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 						AccountName:        account.Name,
 						UpstreamStatusCode: resp.StatusCode,
 						UpstreamRequestID:  resp.Header.Get("x-request-id"),
+						UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
 						Kind:               "budget_constraint_error",
 						Message:            errMsg,
 						Detail: func() string {
@@ -4537,7 +4577,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 						budgetRetryReq, buildErr := s.buildUpstreamRequest(budgetRetryCtx, c, account, rectifiedBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 						releaseBudgetRetryCtx()
 						if buildErr == nil {
-							budgetRetryResp, retryErr := s.doWithAccountTLS(budgetRetryReq, proxyURL, account)
+							budgetRetryResp, retryErr := s.httpUpstream.DoWithTLS(budgetRetryReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
 							if retryErr == nil {
 								resp = budgetRetryResp
 								break
@@ -4581,6 +4621,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					AccountName:        account.Name,
 					UpstreamStatusCode: resp.StatusCode,
 					UpstreamRequestID:  resp.Header.Get("x-request-id"),
+					UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
 					Kind:               "retry",
 					Message:            extractUpstreamErrorMessage(respBody),
 					Detail: func() string {
@@ -4615,18 +4656,6 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		return nil, errors.New("upstream request failed: empty response")
 	}
 	defer func() { _ = resp.Body.Close() }()
-
-	// Log TTFT timing breakdown (pre_request_ms = token fetch + build; connection_ms = TCP+TLS+headers)
-	if !ttftPreRequestDone.IsZero() && !ttftConnectionDone.IsZero() {
-		preReqMs := ttftPreRequestDone.Sub(startTime).Milliseconds()
-		connMs := ttftConnectionDone.Sub(ttftPreRequestDone).Milliseconds()
-		slog.Debug("ttft_breakdown",
-			"pre_request_ms", preReqMs,
-			"connection_ms", connMs,
-			"account_id", account.ID,
-			"model", reqModel,
-		)
-	}
 
 	// 处理重试耗尽的情况
 	if resp.StatusCode >= 400 && s.shouldRetryUpstreamError(account, resp.StatusCode) {
@@ -4838,6 +4867,9 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	if c != nil {
 		c.Set("anthropic_passthrough", true)
 	}
+	// Pre-filter: strip empty text blocks (including nested in tool_result) to prevent upstream 400.
+	input.Body = StripEmptyTextBlocks(input.Body)
+
 	// 重试间复用同一请求体，避免每次 string(body) 产生额外分配。
 	setOpsUpstreamRequestBody(c, input.Body)
 
@@ -4851,14 +4883,10 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 			return nil, err
 		}
 
-		resp, err = s.doWithAccountTLS(upstreamReq, proxyURL, account)
+		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
-			}
-			// When the client disconnected (context canceled), skip writing to the dead connection.
-			if errors.Is(ctx.Err(), context.Canceled) {
-				return nil, fmt.Errorf("upstream request failed: %s", sanitizeUpstreamErrorMessage(err.Error()))
 			}
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
 			setOpsUpstreamError(c, 0, safeErr, "")
@@ -4867,6 +4895,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 				AccountID:          account.ID,
 				AccountName:        account.Name,
 				UpstreamStatusCode: 0,
+				UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
 				Passthrough:        true,
 				Kind:               "request_error",
 				Message:            safeErr,
@@ -4906,6 +4935,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 					AccountName:        account.Name,
 					UpstreamStatusCode: resp.StatusCode,
 					UpstreamRequestID:  resp.Header.Get("x-request-id"),
+					UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
 					Passthrough:        true,
 					Kind:               "retry",
 					Message:            extractUpstreamErrorMessage(respBody),
@@ -5065,8 +5095,9 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 			if !allowedHeaders[lowerKey] {
 				continue
 			}
+			wireKey := resolveWireCasing(key)
 			for _, v := range values {
-				req.Header.Add(key, v)
+				addHeaderRaw(req.Header, wireKey, v)
 			}
 		}
 	}
@@ -5076,13 +5107,13 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 	req.Header.Del("x-api-key")
 	req.Header.Del("x-goog-api-key")
 	req.Header.Del("cookie")
-	req.Header.Set("x-api-key", token)
+	setHeaderRaw(req.Header, "x-api-key", token)
 
-	if req.Header.Get("content-type") == "" {
-		req.Header.Set("content-type", "application/json")
+	if getHeaderRaw(req.Header, "content-type") == "" {
+		setHeaderRaw(req.Header, "content-type", "application/json")
 	}
-	if req.Header.Get("anthropic-version") == "" {
-		req.Header.Set("anthropic-version", "2023-06-01")
+	if getHeaderRaw(req.Header, "anthropic-version") == "" {
+		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
 
 	return req, nil
@@ -5571,7 +5602,7 @@ func (s *GatewayService) executeBedrockUpstream(
 			return nil, err
 		}
 
-		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, false, account.GetTLSFingerprintProfile())
+		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, nil)
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
@@ -5583,6 +5614,7 @@ func (s *GatewayService) executeBedrockUpstream(
 				AccountID:          account.ID,
 				AccountName:        account.Name,
 				UpstreamStatusCode: 0,
+				UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
 				Kind:               "request_error",
 				Message:            safeErr,
 			})
@@ -5619,6 +5651,7 @@ func (s *GatewayService) executeBedrockUpstream(
 					AccountID:          account.ID,
 					AccountName:        account.Name,
 					UpstreamStatusCode: resp.StatusCode,
+					UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
 					Kind:               "retry",
 					Message:            extractUpstreamErrorMessage(respBody),
 					Detail: func() string {
@@ -5760,10 +5793,10 @@ func (s *GatewayService) buildUpstreamRequestBedrockAPIKey(
 // handleBedrockNonStreamingResponse 处理 Bedrock 非流式响应
 // Bedrock InvokeModel 非流式响应的 body 格式与 Claude API 兼容
 func (s *GatewayService) handleBedrockNonStreamingResponse(
-	_ context.Context,
+	ctx context.Context,
 	resp *http.Response,
 	c *gin.Context,
-	_ *Account,
+	account *Account,
 ) (*ClaudeUsage, error) {
 	maxBytes := resolveUpstreamResponseReadLimit(s.cfg)
 	body, err := readUpstreamResponseBodyLimited(resp.Body, maxBytes)
@@ -5814,8 +5847,12 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		clientHeaders = c.Request.Header
 	}
 
-	// OAuth账号：应用统一指纹
+	// OAuth账号：应用统一指纹和metadata重写（受设置开关控制）
 	var fingerprint *Fingerprint
+	enableFP, enableMPT := true, false
+	if s.settingService != nil {
+		enableFP, enableMPT = s.settingService.GetGatewayForwardingSettings(ctx)
+	}
 	if account.IsOAuth() && s.identityService != nil {
 		// 1. 获取或创建指纹（包含随机生成的ClientID）
 		fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, clientHeaders)
@@ -5823,40 +5860,43 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 			logger.LegacyPrintf("service.gateway", "Warning: failed to get fingerprint for account %d: %v", account.ID, err)
 			// 失败时降级为透传原始headers
 		} else {
-			fingerprint = fp
+			if enableFP {
+				fingerprint = fp
+			}
 
 			// 2. 重写metadata.user_id（需要指纹中的ClientID和账号的account_uuid）
 			// 如果启用了会话ID伪装，会在重写后替换 session 部分为固定值
-			accountUUID := account.GetExtraString("account_uuid")
-			if accountUUID != "" && fp.ClientID != "" {
-				if newBody, err := s.identityService.RewriteUserIDWithMasking(ctx, body, account, accountUUID, fp.ClientID, fp.UserAgent); err == nil && len(newBody) > 0 {
-					body = newBody
+			// 当 metadata 透传开启时跳过重写
+			if !enableMPT {
+				accountUUID := account.GetExtraString("account_uuid")
+				if accountUUID != "" && fp.ClientID != "" {
+					if newBody, err := s.identityService.RewriteUserIDWithMasking(ctx, body, account, accountUUID, fp.ClientID, fp.UserAgent); err == nil && len(newBody) > 0 {
+						body = newBody
+					}
 				}
 			}
 		}
 	}
-
-	// === DEBUG: 打印转发给上游的 body（metadata 已重写） ===
-	debugLogRequestBody("UPSTREAM_FORWARD", body)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", targetURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
 
-	// 设置认证头
+	// 设置认证头（保持原始大小写）
 	if tokenType == "oauth" {
-		req.Header.Set("authorization", "Bearer "+token)
+		setHeaderRaw(req.Header, "authorization", "Bearer "+token)
 	} else {
-		req.Header.Set("x-api-key", token)
+		setHeaderRaw(req.Header, "x-api-key", token)
 	}
 
-	// 白名单透传headers
+	// 白名单透传headers（恢复真实 wire casing）
 	for key, values := range clientHeaders {
 		lowerKey := strings.ToLower(key)
 		if allowedHeaders[lowerKey] {
+			wireKey := resolveWireCasing(key)
 			for _, v := range values {
-				req.Header.Add(key, v)
+				addHeaderRaw(req.Header, wireKey, v)
 			}
 		}
 	}
@@ -5866,15 +5906,15 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		s.identityService.ApplyFingerprint(req, fingerprint)
 	}
 
-	// 确保必要的headers存在
-	if req.Header.Get("content-type") == "" {
-		req.Header.Set("content-type", "application/json")
+	// 确保必要的headers存在（保持原始大小写）
+	if getHeaderRaw(req.Header, "content-type") == "" {
+		setHeaderRaw(req.Header, "content-type", "application/json")
 	}
-	if req.Header.Get("anthropic-version") == "" {
-		req.Header.Set("anthropic-version", "2023-06-01")
+	if getHeaderRaw(req.Header, "anthropic-version") == "" {
+		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
 	if tokenType == "oauth" {
-		applyClaudeOAuthHeaderDefaults(req, reqStream)
+		applyClaudeOAuthHeaderDefaults(req)
 	}
 
 	// Build effective drop set: merge static defaults with dynamic beta policy filter rules
@@ -5890,38 +5930,42 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 			// - 保留 incoming beta 的同时，确保 OAuth 所需 beta 存在
 			applyClaudeCodeMimicHeaders(req, reqStream)
 			// Overlay profile-derived platform headers and probe-captured version headers.
-			applyProfileAndProbeHeaders(req, account.GetTLSFingerprintProfile(), s.ccProbeService)
+			applyProfileAndProbeHeaders(req, s.tlsFPProfileService.ResolveProfileKey(account), s.ccProbeService)
 
-			incomingBeta := req.Header.Get("anthropic-beta")
+			incomingBeta := getHeaderRaw(req.Header, "anthropic-beta")
 			// Match real Claude CLI traffic (per mitmproxy reports):
 			// messages requests typically use only oauth + interleaved-thinking.
 			// Also drop claude-code beta if a downstream client added it.
 			requiredBetas := []string{claude.BetaOAuth, claude.BetaInterleavedThinking}
-			req.Header.Set("anthropic-beta", mergeAnthropicBetaDropping(requiredBetas, incomingBeta, effectiveDropWithClaudeCodeSet))
+			setHeaderRaw(req.Header, "anthropic-beta", mergeAnthropicBetaDropping(requiredBetas, incomingBeta, effectiveDropWithClaudeCodeSet))
 		} else {
 			// Claude Code 客户端：尽量透传原始 header，仅补齐 oauth beta
-			clientBetaHeader := req.Header.Get("anthropic-beta")
-			req.Header.Set("anthropic-beta", stripBetaTokensWithSet(s.getBetaHeader(modelID, clientBetaHeader), effectiveDropSet))
+			clientBetaHeader := getHeaderRaw(req.Header, "anthropic-beta")
+			setHeaderRaw(req.Header, "anthropic-beta", stripBetaTokensWithSet(s.getBetaHeader(modelID, clientBetaHeader), effectiveDropSet))
 		}
 	} else {
 		// API-key accounts: apply beta policy filter to strip controlled tokens
-		if existingBeta := req.Header.Get("anthropic-beta"); existingBeta != "" {
-			req.Header.Set("anthropic-beta", stripBetaTokensWithSet(existingBeta, effectiveDropSet))
+		if existingBeta := getHeaderRaw(req.Header, "anthropic-beta"); existingBeta != "" {
+			setHeaderRaw(req.Header, "anthropic-beta", stripBetaTokensWithSet(existingBeta, effectiveDropSet))
 		} else if s.cfg != nil && s.cfg.Gateway.InjectBetaForAPIKey {
 			// API-key：仅在请求显式使用 beta 特性且客户端未提供时，按需补齐（默认关闭）
 			if requestNeedsBetaFeatures(body) {
 				if beta := defaultAPIKeyBetaHeader(body); beta != "" {
-					req.Header.Set("anthropic-beta", beta)
+					setHeaderRaw(req.Header, "anthropic-beta", beta)
 				}
 			}
 		}
 	}
 
-	// Set dynamic per-request headers (Retry-Count, Timeout).
-	// These are NOT in DefaultHeaders — they vary per request.
-	if tokenType == "oauth" {
-		applyDynamicStainlessHeaders(req, clientHeaders, claude.DefaultStainlessTimeout)
-	}
+	// === DEBUG: 打印上游转发请求（headers + body 摘要），与 CLIENT_ORIGINAL 对比 ===
+	s.debugLogGatewaySnapshot("UPSTREAM_FORWARD", req.Header, body, map[string]string{
+		"url":                 req.URL.String(),
+		"token_type":          tokenType,
+		"mimic_claude_code":   strconv.FormatBool(mimicClaudeCode),
+		"fingerprint_applied": strconv.FormatBool(fingerprint != nil),
+		"enable_fp":           strconv.FormatBool(enableFP),
+		"enable_mpt":          strconv.FormatBool(enableMPT),
+	})
 
 	// Always capture a compact fingerprint line for later error diagnostics.
 	// We only print it when needed (or when the explicit debug flag is enabled).
@@ -6002,23 +6046,62 @@ func defaultAPIKeyBetaHeader(body []byte) string {
 	return claude.APIKeyBetaHeader
 }
 
-func applyClaudeOAuthHeaderDefaults(req *http.Request, isStream bool) {
+// applyProfileIdentityHeaders overlays TLS-profile-derived platform headers
+// (OS, Arch, Runtime, RuntimeVersion, Lang) on top of the base mimic headers.
+// Package-level so both GatewayService and AccountTestService can call it.
+func applyProfileIdentityHeaders(req *http.Request, profileKey string) {
+	if identity, ok := tlsfingerprint.CachedParseProfileIdentity(profileKey); ok {
+		req.Header.Set("X-Stainless-OS", identity.OS)
+		req.Header.Set("X-Stainless-Arch", identity.Arch)
+		req.Header.Set("X-Stainless-Runtime", identity.Runtime)
+		req.Header.Set("X-Stainless-Runtime-Version", identity.RuntimeVersion)
+		req.Header.Set("X-Stainless-Lang", identity.Lang)
+	}
+}
+
+// applyProfileAndProbeHeaders overlays TLS-profile-derived platform headers and
+// probe-captured version headers on top of the base mimic headers.
+// Package-level so both GatewayService and AccountTestService can call it.
+func applyProfileAndProbeHeaders(req *http.Request, profileKey string, probe *CCProbeService) {
+	applyProfileIdentityHeaders(req, profileKey)
+	if probe != nil {
+		probe.ApplyVersionHeaders(req)
+	}
+}
+
+// applyDynamicStainlessHeaders sets X-Stainless-Retry-Count (from incoming
+// request if available) and X-Stainless-Timeout to the given default.
+// Used by test flows that build requests from scratch (no incoming client headers).
+func applyDynamicStainlessHeaders(req *http.Request, incoming *http.Request, defaultTimeout string) {
 	if req == nil {
 		return
 	}
-	if req.Header.Get("accept") == "" {
-		req.Header.Set("accept", "application/json")
+	retryCount := "0"
+	if incoming != nil {
+		if v := getHeaderRaw(incoming.Header, "x-stainless-retry-count"); v != "" {
+			retryCount = v
+		}
+	}
+	setHeaderRaw(req.Header, "X-Stainless-Retry-Count", retryCount)
+	if defaultTimeout != "" {
+		setHeaderRaw(req.Header, "X-Stainless-Timeout", defaultTimeout)
+	}
+}
+
+func applyClaudeOAuthHeaderDefaults(req *http.Request) {
+	if req == nil {
+		return
+	}
+	if getHeaderRaw(req.Header, "Accept") == "" {
+		setHeaderRaw(req.Header, "Accept", "application/json")
 	}
 	for key, value := range claude.DefaultHeaders {
 		if value == "" {
 			continue
 		}
-		if req.Header.Get(key) == "" {
-			req.Header.Set(key, value)
+		if getHeaderRaw(req.Header, key) == "" {
+			setHeaderRaw(req.Header, resolveWireCasing(key), value)
 		}
-	}
-	if isStream && req.Header.Get("x-stainless-helper-method") == "" {
-		req.Header.Set("x-stainless-helper-method", "stream")
 	}
 }
 
@@ -6314,61 +6397,19 @@ func applyClaudeCodeMimicHeaders(req *http.Request, isStream bool) {
 		return
 	}
 	// Start with the standard defaults (fill missing).
-	applyClaudeOAuthHeaderDefaults(req, isStream)
+	applyClaudeOAuthHeaderDefaults(req)
 	// Then force key headers to match Claude Code fingerprint regardless of what the client sent.
+	// 使用 resolveWireCasing 确保 key 与真实 wire format 一致（如 "x-app" 而非 "X-App"）
 	for key, value := range claude.DefaultHeaders {
 		if value == "" {
 			continue
 		}
-		req.Header.Set(key, value)
+		setHeaderRaw(req.Header, resolveWireCasing(key), value)
 	}
 	// Real Claude CLI uses Accept: application/json (even for streaming).
-	req.Header.Set("accept", "application/json")
+	setHeaderRaw(req.Header, "Accept", "application/json")
 	if isStream {
-		req.Header.Set("x-stainless-helper-method", "stream")
-	}
-}
-
-// applyDynamicStainlessHeaders sets per-request X-Stainless-Retry-Count and X-Stainless-Timeout.
-// retryCount: always "0" for gateway-level failover (real CC OAuth clients don't retry 403).
-// timeout: client pass-through if present, otherwise defaultTimeout.
-func applyDynamicStainlessHeaders(req *http.Request, clientHeaders http.Header, defaultTimeout string) {
-	// Retry-Count: pass through client's value, default "0".
-	// Gateway failover does NOT increment this — the upstream sees a fresh request.
-	retryCount := clientHeaders.Get("X-Stainless-Retry-Count")
-	if retryCount == "" {
-		retryCount = "0"
-	}
-	req.Header.Set("X-Stainless-Retry-Count", retryCount)
-
-	// Timeout: pass through client's value if present.
-	timeout := clientHeaders.Get("X-Stainless-Timeout")
-	if timeout == "" {
-		timeout = defaultTimeout
-	}
-	req.Header.Set("X-Stainless-Timeout", timeout)
-}
-
-// applyProfileIdentityHeaders overlays TLS-profile-derived platform headers
-// (OS, Arch, Runtime, RuntimeVersion, Lang) on top of the base mimic headers.
-// This is a package-level function so both GatewayService and AccountTestService can use it.
-func applyProfileIdentityHeaders(req *http.Request, profileKey string) {
-	if identity, ok := tlsfingerprint.CachedParseProfileIdentity(profileKey); ok {
-		req.Header.Set("X-Stainless-OS", identity.OS)
-		req.Header.Set("X-Stainless-Arch", identity.Arch)
-		req.Header.Set("X-Stainless-Runtime", identity.Runtime)
-		req.Header.Set("X-Stainless-Runtime-Version", identity.RuntimeVersion)
-		req.Header.Set("X-Stainless-Lang", identity.Lang)
-	}
-}
-
-// applyProfileAndProbeHeaders overlays TLS-profile-derived platform headers and
-// probe-captured version headers on top of the base mimic headers.
-// Package-level so both GatewayService and AccountTestService can call it.
-func applyProfileAndProbeHeaders(req *http.Request, profileKey string, probe *CCProbeService) {
-	applyProfileIdentityHeaders(req, profileKey)
-	if probe != nil {
-		probe.ApplyVersionHeaders(req)
+		setHeaderRaw(req.Header, "x-stainless-helper-method", "stream")
 	}
 }
 
@@ -6386,6 +6427,59 @@ func truncateForLog(b []byte, maxBytes int) string {
 	return s
 }
 
+// shouldRectifySignatureError 统一判断是否应触发签名整流（strip thinking blocks 并重试）。
+// 根据账号类型检查对应的开关和匹配模式。
+func (s *GatewayService) shouldRectifySignatureError(ctx context.Context, account *Account, respBody []byte) bool {
+	if account.Type == AccountTypeAPIKey {
+		// API Key 账号：独立开关，一次读取配置
+		settings, err := s.settingService.GetRectifierSettings(ctx)
+		if err != nil || !settings.Enabled || !settings.APIKeySignatureEnabled {
+			return false
+		}
+		// 先检查内置模式（同 OAuth），再检查自定义关键词
+		if s.isThinkingBlockSignatureError(respBody) {
+			return true
+		}
+		return matchSignaturePatterns(respBody, settings.APIKeySignaturePatterns)
+	}
+	// OAuth/SetupToken/Upstream/Bedrock 等：保持原有行为（内置模式 + 原开关）
+	return s.isThinkingBlockSignatureError(respBody) && s.settingService.IsSignatureRectifierEnabled(ctx)
+}
+
+// isSignatureErrorPattern 仅做模式匹配，不检查开关。
+// 用于已进入重试流程后的二阶段检测（此时开关已在首次调用时验证过）。
+func (s *GatewayService) isSignatureErrorPattern(ctx context.Context, account *Account, respBody []byte) bool {
+	if s.isThinkingBlockSignatureError(respBody) {
+		return true
+	}
+	if account.Type == AccountTypeAPIKey {
+		settings, err := s.settingService.GetRectifierSettings(ctx)
+		if err != nil {
+			return false
+		}
+		return matchSignaturePatterns(respBody, settings.APIKeySignaturePatterns)
+	}
+	return false
+}
+
+// matchSignaturePatterns 检查响应体是否匹配自定义关键词列表（不区分大小写）。
+func matchSignaturePatterns(respBody []byte, patterns []string) bool {
+	if len(patterns) == 0 {
+		return false
+	}
+	bodyLower := strings.ToLower(string(respBody))
+	for _, p := range patterns {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if strings.Contains(bodyLower, strings.ToLower(p)) {
+			return true
+		}
+	}
+	return false
+}
+
 // isThinkingBlockSignatureError 检测是否是thinking block相关错误
 // 这类错误可以通过过滤thinking blocks并重试来解决
 func (s *GatewayService) isThinkingBlockSignatureError(respBody []byte) bool {
@@ -6394,13 +6488,9 @@ func (s *GatewayService) isThinkingBlockSignatureError(respBody []byte) bool {
 		return false
 	}
 
-	// Log for debugging
-	logger.LegacyPrintf("service.gateway", "[SignatureCheck] Checking error message: %s", msg)
-
 	// 检测signature相关的错误（更宽松的匹配）
 	// 例如: "Invalid `signature` in `thinking` block", "***.signature" 等
 	if strings.Contains(msg, "signature") {
-		logger.LegacyPrintf("service.gateway", "[SignatureCheck] Detected signature error")
 		return true
 	}
 
@@ -6795,7 +6885,7 @@ type streamingResult struct {
 	clientDisconnect bool // 客户端是否在流式传输过程中断开
 }
 
-func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel string, _ bool) (*streamingResult, error) {
+func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel string, mimicClaudeCode bool) (*streamingResult, error) {
 	// 更新5h窗口状态
 	s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
 
@@ -7803,11 +7893,12 @@ func (s *GatewayService) RecordUsage(ctx context.Context, input *RecordUsageInpu
 		multiplier = s.cfg.Default.RateMultiplier
 	}
 	if apiKey.GroupID != nil && apiKey.Group != nil {
-		groupDefault := apiKey.Group.GetEffectiveRateMultiplier(timezone.Now())
+		groupDefault := apiKey.Group.RateMultiplier
 		multiplier = s.getUserGroupRateMultiplier(ctx, user.ID, *apiKey.GroupID, groupDefault)
 	}
 
 	var cost *CostBreakdown
+	billingModel := forwardResultBillingModel(result.Model, result.UpstreamModel)
 
 	// 根据请求类型选择计费方式
 	if result.MediaType == "image" || result.MediaType == "video" {
@@ -7823,7 +7914,7 @@ func (s *GatewayService) RecordUsage(ctx context.Context, input *RecordUsageInpu
 		if result.MediaType == "image" {
 			cost = s.billingService.CalculateSoraImageCost(result.ImageSize, result.ImageCount, soraConfig, multiplier)
 		} else {
-			cost = s.billingService.CalculateSoraVideoCost(result.Model, soraConfig, multiplier)
+			cost = s.billingService.CalculateSoraVideoCost(billingModel, soraConfig, multiplier)
 		}
 	} else if result.MediaType == "prompt" {
 		cost = &CostBreakdown{}
@@ -7837,7 +7928,7 @@ func (s *GatewayService) RecordUsage(ctx context.Context, input *RecordUsageInpu
 				Price4K: apiKey.Group.ImagePrice4K,
 			}
 		}
-		cost = s.billingService.CalculateImageCost(result.Model, result.ImageSize, result.ImageCount, groupConfig, multiplier)
+		cost = s.billingService.CalculateImageCost(billingModel, result.ImageSize, result.ImageCount, groupConfig, multiplier)
 	} else {
 		// Token 计费
 		tokens := UsageTokens{
@@ -7849,7 +7940,7 @@ func (s *GatewayService) RecordUsage(ctx context.Context, input *RecordUsageInpu
 			CacheCreation1hTokens: result.Usage.CacheCreation1hTokens,
 		}
 		var err error
-		cost, err = s.billingService.CalculateCost(result.Model, tokens, multiplier)
+		cost, err = s.billingService.CalculateCost(billingModel, tokens, multiplier)
 		if err != nil {
 			logger.LegacyPrintf("service.gateway", "Calculate cost failed: %v", err)
 			cost = &CostBreakdown{ActualCost: 0}
@@ -7875,18 +7966,13 @@ func (s *GatewayService) RecordUsage(ctx context.Context, input *RecordUsageInpu
 	}
 	accountRateMultiplier := account.BillingRateMultiplier()
 	requestID := resolveUsageBillingRequestID(ctx, result.RequestID)
-
-	// Per-user quota cost tracking (only for Anthropic OAuth/SetupToken accounts)
-	if s.userQuotaChecker != nil && account.IsUserQuotaEnabled() && user != nil {
-		s.userQuotaChecker.IncrementUserCost(ctx, account.ID, user.ID, cost.TotalCost)
-	}
-
 	usageLog := &UsageLog{
 		UserID:                user.ID,
 		APIKeyID:              apiKey.ID,
 		AccountID:             account.ID,
 		RequestID:             requestID,
 		Model:                 result.Model,
+		RequestedModel:        result.Model,
 		UpstreamModel:         optionalNonEqualStringPtr(result.UpstreamModel, result.Model),
 		ReasoningEffort:       result.ReasoningEffort,
 		InboundEndpoint:       optionalTrimmedStringPtr(input.InboundEndpoint),
@@ -7964,91 +8050,6 @@ func (s *GatewayService) RecordUsage(ctx context.Context, input *RecordUsageInpu
 	return nil
 }
 
-// SetUserQuotaChecker sets the per-user quota checker. Called during application startup
-// after the GatewayService is constructed.
-func (s *GatewayService) SetUserQuotaChecker(checker UserQuotaChecker) {
-	s.userQuotaChecker = checker
-}
-
-// SetPeakUsageCache sets the peak usage cache. Called during application startup
-// after the GatewayService is constructed.
-func (s *GatewayService) SetPeakUsageCache(cache PeakUsageCache) {
-	s.peakCache = cache
-}
-
-// SetCCProbeService sets the CC probe service for enhanced mimic headers.
-func (s *GatewayService) SetCCProbeService(probe *CCProbeService) {
-	s.ccProbeService = probe
-}
-
-// SetPricingService sets the pricing service for provider routing checks.
-func (s *GatewayService) SetPricingService(ps *PricingService) {
-	s.pricingService = ps
-}
-
-// RegisterUserActivity marks a user as active on an account for quota tracking.
-// Must be called after account selection on every request (Anthropic accounts only).
-func (s *GatewayService) RegisterUserActivity(ctx context.Context, account *Account, userID int64) {
-	if s.userQuotaChecker == nil {
-		return
-	}
-	s.userQuotaChecker.RegisterActivity(ctx, account, userID)
-}
-
-// CheckUserQuotaForAccount checks whether userID may proceed on account.
-// Returns (true, "") if quota is not enabled or check passes.
-// Returns (false, reason) if the request should be blocked with 429.
-func (s *GatewayService) CheckUserQuotaForAccount(ctx context.Context, account *Account, userID int64, isSticky bool) (bool, string) {
-	if s.userQuotaChecker == nil {
-		return true, ""
-	}
-	return s.userQuotaChecker.CheckUserQuota(ctx, account, userID, isSticky)
-}
-
-// UserQuotaUsageInfo holds per-user quota display data for the /v1/usage response.
-type UserQuotaUsageInfo struct {
-	PerUserLimit float64
-	UserCost     float64
-	ActiveUsers  int64
-}
-
-// GetEffectiveUserQuota returns the most restrictive per-user quota applicable to userID
-// across all user-quota-enabled Anthropic accounts in the group. Returns nil when no such
-// quota is active (feature disabled, no active users, or checker not configured).
-func (s *GatewayService) GetEffectiveUserQuota(ctx context.Context, groupID int64, userID int64) (*UserQuotaUsageInfo, error) {
-	if s.userQuotaChecker == nil {
-		return nil, nil
-	}
-
-	accounts, err := s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, groupID, PlatformAnthropic)
-	if err != nil {
-		return nil, err
-	}
-
-	var best *UserQuotaUsageInfo
-	for i := range accounts {
-		acc := &accounts[i]
-		if !acc.IsUserQuotaEnabled() {
-			continue
-		}
-		perUserLimit, userCost, activeCount, hasData, err := s.userQuotaChecker.GetUserQuotaStatus(ctx, acc.ID, userID)
-		if err != nil || !hasData {
-			continue
-		}
-
-		info := &UserQuotaUsageInfo{
-			PerUserLimit: perUserLimit,
-			UserCost:     userCost,
-			ActiveUsers:  activeCount,
-		}
-		// Pick most restrictive (smallest per-user limit)
-		if best == nil || perUserLimit < best.PerUserLimit {
-			best = info
-		}
-	}
-	return best, nil
-}
-
 // RecordUsageLongContextInput 记录使用量的输入参数（支持长上下文双倍计费）
 type RecordUsageLongContextInput struct {
 	Result                *ForwardResult
@@ -8097,11 +8098,12 @@ func (s *GatewayService) RecordUsageWithLongContext(ctx context.Context, input *
 		multiplier = s.cfg.Default.RateMultiplier
 	}
 	if apiKey.GroupID != nil && apiKey.Group != nil {
-		groupDefault := apiKey.Group.GetEffectiveRateMultiplier(timezone.Now())
+		groupDefault := apiKey.Group.RateMultiplier
 		multiplier = s.getUserGroupRateMultiplier(ctx, user.ID, *apiKey.GroupID, groupDefault)
 	}
 
 	var cost *CostBreakdown
+	billingModel := forwardResultBillingModel(result.Model, result.UpstreamModel)
 
 	// 根据请求类型选择计费方式
 	if result.ImageCount > 0 {
@@ -8114,7 +8116,7 @@ func (s *GatewayService) RecordUsageWithLongContext(ctx context.Context, input *
 				Price4K: apiKey.Group.ImagePrice4K,
 			}
 		}
-		cost = s.billingService.CalculateImageCost(result.Model, result.ImageSize, result.ImageCount, groupConfig, multiplier)
+		cost = s.billingService.CalculateImageCost(billingModel, result.ImageSize, result.ImageCount, groupConfig, multiplier)
 	} else {
 		// Token 计费（使用长上下文计费方法）
 		tokens := UsageTokens{
@@ -8126,7 +8128,7 @@ func (s *GatewayService) RecordUsageWithLongContext(ctx context.Context, input *
 			CacheCreation1hTokens: result.Usage.CacheCreation1hTokens,
 		}
 		var err error
-		cost, err = s.billingService.CalculateCostWithLongContext(result.Model, tokens, multiplier, input.LongContextThreshold, input.LongContextMultiplier)
+		cost, err = s.billingService.CalculateCostWithLongContext(billingModel, tokens, multiplier, input.LongContextThreshold, input.LongContextMultiplier)
 		if err != nil {
 			logger.LegacyPrintf("service.gateway", "Calculate cost failed: %v", err)
 			cost = &CostBreakdown{ActualCost: 0}
@@ -8154,6 +8156,7 @@ func (s *GatewayService) RecordUsageWithLongContext(ctx context.Context, input *
 		AccountID:             account.ID,
 		RequestID:             requestID,
 		Model:                 result.Model,
+		RequestedModel:        result.Model,
 		UpstreamModel:         optionalNonEqualStringPtr(result.UpstreamModel, result.Model),
 		ReasoningEffort:       result.ReasoningEffort,
 		InboundEndpoint:       optionalTrimmedStringPtr(input.InboundEndpoint),
@@ -8258,6 +8261,9 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	body := parsed.Body
 	reqModel := parsed.Model
 
+	// Pre-filter: strip empty text blocks to prevent upstream 400.
+	body = StripEmptyTextBlocks(body)
+
 	isClaudeCode := isClaudeCodeRequest(ctx, c, parsed)
 	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCode
 
@@ -8320,7 +8326,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	}
 
 	// 发送请求
-	resp, err := s.doWithAccountTLS(upstreamReq, proxyURL, account)
+	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		setOpsUpstreamError(c, 0, sanitizeUpstreamErrorMessage(err.Error()), "")
 		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Request failed")
@@ -8342,60 +8348,25 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	}
 
 	// 检测 thinking block 签名错误（400）并重试一次（过滤 thinking blocks）
-	if resp.StatusCode == 400 && s.isThinkingBlockSignatureError(respBody) && s.settingService.IsSignatureRectifierEnabled(ctx) {
+	if resp.StatusCode == 400 && s.shouldRectifySignatureError(ctx, account, respBody) {
 		logger.LegacyPrintf("service.gateway", "Account %d: detected thinking block signature error on count_tokens, retrying with filtered thinking blocks", account.ID)
 
-		countTokensSurgicalDone := false
-		initialErrMsg := extractUpstreamErrorMessage(respBody)
-
-		// Stage 0: surgical single-block removal
-		if isExactSignatureError(initialErrMsg) {
-			cleaned, badPath, ok := SurgicallyRemoveInvalidThinkingBlock(body, initialErrMsg)
-			if ok {
-				s.cacheInvalidThinkingPath(body, badPath)
-				surgicalReq, buildErr := s.buildCountTokensRequest(ctx, c, account, cleaned, token, tokenType, reqModel, shouldMimicClaudeCode)
-				if buildErr == nil {
-					surgicalResp, surgicalErr := s.doWithAccountTLS(surgicalReq, proxyURL, account)
-					if surgicalErr == nil && surgicalResp.StatusCode < 400 {
-						resp = surgicalResp
-						respBody, err = readUpstreamResponseBodyLimited(resp.Body, maxReadBytes)
-						_ = resp.Body.Close()
-						if err != nil {
-							if errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
-								setOpsUpstreamError(c, http.StatusBadGateway, "upstream response too large", "")
-								s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Upstream response too large")
-								return err
-							}
-							s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to read response")
-							return err
-						}
-						countTokensSurgicalDone = true
-					} else if surgicalErr == nil {
-						_ = surgicalResp.Body.Close()
-					}
-				}
-			}
-		}
-
-		// Stage 1: full-strip fallback (if surgical didn't succeed)
-		if !countTokensSurgicalDone {
-			filteredBody := FilterThinkingBlocksForRetry(body)
-			retryReq, buildErr := s.buildCountTokensRequest(ctx, c, account, filteredBody, token, tokenType, reqModel, shouldMimicClaudeCode)
-			if buildErr == nil {
-				retryResp, retryErr := s.doWithAccountTLS(retryReq, proxyURL, account)
-				if retryErr == nil {
-					resp = retryResp
-					respBody, err = readUpstreamResponseBodyLimited(resp.Body, maxReadBytes)
-					_ = resp.Body.Close()
-					if err != nil {
-						if errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
-							setOpsUpstreamError(c, http.StatusBadGateway, "upstream response too large", "")
-							s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Upstream response too large")
-							return err
-						}
-						s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to read response")
+		filteredBody := FilterThinkingBlocksForRetry(body)
+		retryReq, buildErr := s.buildCountTokensRequest(ctx, c, account, filteredBody, token, tokenType, reqModel, shouldMimicClaudeCode)
+		if buildErr == nil {
+			retryResp, retryErr := s.httpUpstream.DoWithTLS(retryReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+			if retryErr == nil {
+				resp = retryResp
+				respBody, err = readUpstreamResponseBodyLimited(resp.Body, maxReadBytes)
+				_ = resp.Body.Close()
+				if err != nil {
+					if errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
+						setOpsUpstreamError(c, http.StatusBadGateway, "upstream response too large", "")
+						s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Upstream response too large")
 						return err
 					}
+					s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to read response")
+					return err
 				}
 			}
 		}
@@ -8472,7 +8443,7 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 		proxyURL = account.Proxy.URL()
 	}
 
-	resp, err := s.doWithAccountTLS(upstreamReq, proxyURL, account)
+	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		setOpsUpstreamError(c, 0, sanitizeUpstreamErrorMessage(err.Error()), "")
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -8480,6 +8451,7 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 			AccountID:          account.ID,
 			AccountName:        account.Name,
 			UpstreamStatusCode: 0,
+			UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
 			Passthrough:        true,
 			Kind:               "request_error",
 			Message:            sanitizeUpstreamErrorMessage(err.Error()),
@@ -8535,6 +8507,7 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 			AccountName:        account.Name,
 			UpstreamStatusCode: resp.StatusCode,
 			UpstreamRequestID:  resp.Header.Get("x-request-id"),
+			UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
 			Passthrough:        true,
 			Kind:               "http_error",
 			Message:            upstreamMsg,
@@ -8592,8 +8565,9 @@ func (s *GatewayService) buildCountTokensRequestAnthropicAPIKeyPassthrough(
 			if !allowedHeaders[lowerKey] {
 				continue
 			}
+			wireKey := resolveWireCasing(key)
 			for _, v := range values {
-				req.Header.Add(key, v)
+				addHeaderRaw(req.Header, wireKey, v)
 			}
 		}
 	}
@@ -8634,15 +8608,23 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 		clientHeaders = c.Request.Header
 	}
 
-	// OAuth 账号：应用统一指纹和重写 userID
+	// OAuth 账号：应用统一指纹和重写 userID（受设置开关控制）
 	// 如果启用了会话ID伪装，会在重写后替换 session 部分为固定值
+	ctEnableFP, ctEnableMPT := true, false
+	if s.settingService != nil {
+		ctEnableFP, ctEnableMPT = s.settingService.GetGatewayForwardingSettings(ctx)
+	}
+	var ctFingerprint *Fingerprint
 	if account.IsOAuth() && s.identityService != nil {
 		fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, clientHeaders)
 		if err == nil {
-			accountUUID := account.GetExtraString("account_uuid")
-			if accountUUID != "" && fp.ClientID != "" {
-				if newBody, err := s.identityService.RewriteUserIDWithMasking(ctx, body, account, accountUUID, fp.ClientID, fp.UserAgent); err == nil && len(newBody) > 0 {
-					body = newBody
+			ctFingerprint = fp
+			if !ctEnableMPT {
+				accountUUID := account.GetExtraString("account_uuid")
+				if accountUUID != "" && fp.ClientID != "" {
+					if newBody, err := s.identityService.RewriteUserIDWithMasking(ctx, body, account, accountUUID, fp.ClientID, fp.UserAgent); err == nil && len(newBody) > 0 {
+						body = newBody
+					}
 				}
 			}
 		}
@@ -8653,40 +8635,38 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 		return nil, err
 	}
 
-	// 设置认证头
+	// 设置认证头（保持原始大小写）
 	if tokenType == "oauth" {
-		req.Header.Set("authorization", "Bearer "+token)
+		setHeaderRaw(req.Header, "authorization", "Bearer "+token)
 	} else {
-		req.Header.Set("x-api-key", token)
+		setHeaderRaw(req.Header, "x-api-key", token)
 	}
 
-	// 白名单透传 headers
+	// 白名单透传 headers（恢复真实 wire casing）
 	for key, values := range clientHeaders {
 		lowerKey := strings.ToLower(key)
 		if allowedHeaders[lowerKey] {
+			wireKey := resolveWireCasing(key)
 			for _, v := range values {
-				req.Header.Add(key, v)
+				addHeaderRaw(req.Header, wireKey, v)
 			}
 		}
 	}
 
-	// OAuth 账号：应用指纹到请求头
-	if account.IsOAuth() && s.identityService != nil {
-		fp, _ := s.identityService.GetOrCreateFingerprint(ctx, account.ID, clientHeaders)
-		if fp != nil {
-			s.identityService.ApplyFingerprint(req, fp)
-		}
+	// OAuth 账号：应用指纹到请求头（受设置开关控制）
+	if ctEnableFP && ctFingerprint != nil {
+		s.identityService.ApplyFingerprint(req, ctFingerprint)
 	}
 
-	// 确保必要的 headers 存在
-	if req.Header.Get("content-type") == "" {
-		req.Header.Set("content-type", "application/json")
+	// 确保必要的 headers 存在（保持原始大小写）
+	if getHeaderRaw(req.Header, "content-type") == "" {
+		setHeaderRaw(req.Header, "content-type", "application/json")
 	}
-	if req.Header.Get("anthropic-version") == "" {
-		req.Header.Set("anthropic-version", "2023-06-01")
+	if getHeaderRaw(req.Header, "anthropic-version") == "" {
+		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
 	if tokenType == "oauth" {
-		applyClaudeOAuthHeaderDefaults(req, false)
+		applyClaudeOAuthHeaderDefaults(req)
 	}
 
 	// Build effective drop set for count_tokens: merge static defaults with dynamic beta policy filter rules
@@ -8696,40 +8676,35 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	if tokenType == "oauth" {
 		if mimicClaudeCode {
 			applyClaudeCodeMimicHeaders(req, false)
-			applyProfileAndProbeHeaders(req, account.GetTLSFingerprintProfile(), s.ccProbeService)
+			applyProfileAndProbeHeaders(req, s.tlsFPProfileService.ResolveProfileKey(account), s.ccProbeService)
 
-			incomingBeta := req.Header.Get("anthropic-beta")
+			incomingBeta := getHeaderRaw(req.Header, "anthropic-beta")
 			requiredBetas := []string{claude.BetaClaudeCode, claude.BetaOAuth, claude.BetaInterleavedThinking, claude.BetaTokenCounting}
-			req.Header.Set("anthropic-beta", mergeAnthropicBetaDropping(requiredBetas, incomingBeta, ctEffectiveDropSet))
+			setHeaderRaw(req.Header, "anthropic-beta", mergeAnthropicBetaDropping(requiredBetas, incomingBeta, ctEffectiveDropSet))
 		} else {
-			clientBetaHeader := req.Header.Get("anthropic-beta")
+			clientBetaHeader := getHeaderRaw(req.Header, "anthropic-beta")
 			if clientBetaHeader == "" {
-				req.Header.Set("anthropic-beta", claude.CountTokensBetaHeader)
+				setHeaderRaw(req.Header, "anthropic-beta", claude.CountTokensBetaHeader)
 			} else {
 				beta := s.getBetaHeader(modelID, clientBetaHeader)
 				if !strings.Contains(beta, claude.BetaTokenCounting) {
 					beta = beta + "," + claude.BetaTokenCounting
 				}
-				req.Header.Set("anthropic-beta", stripBetaTokensWithSet(beta, ctEffectiveDropSet))
+				setHeaderRaw(req.Header, "anthropic-beta", stripBetaTokensWithSet(beta, ctEffectiveDropSet))
 			}
 		}
 	} else {
 		// API-key accounts: apply beta policy filter to strip controlled tokens
-		if existingBeta := req.Header.Get("anthropic-beta"); existingBeta != "" {
-			req.Header.Set("anthropic-beta", stripBetaTokensWithSet(existingBeta, ctEffectiveDropSet))
+		if existingBeta := getHeaderRaw(req.Header, "anthropic-beta"); existingBeta != "" {
+			setHeaderRaw(req.Header, "anthropic-beta", stripBetaTokensWithSet(existingBeta, ctEffectiveDropSet))
 		} else if s.cfg != nil && s.cfg.Gateway.InjectBetaForAPIKey {
 			// API-key：与 messages 同步的按需 beta 注入（默认关闭）
 			if requestNeedsBetaFeatures(body) {
 				if beta := defaultAPIKeyBetaHeader(body); beta != "" {
-					req.Header.Set("anthropic-beta", beta)
+					setHeaderRaw(req.Header, "anthropic-beta", beta)
 				}
 			}
 		}
-	}
-
-	// Set dynamic per-request headers for count_tokens (shorter timeout).
-	if tokenType == "oauth" {
-		applyDynamicStainlessHeaders(req, clientHeaders, claude.CountTokensStainlessTimeout)
 	}
 
 	if c != nil && tokenType == "oauth" {
@@ -8897,42 +8872,178 @@ func reconcileCachedTokens(usage map[string]any) bool {
 	return true
 }
 
-func debugGatewayBodyLoggingEnabled() bool {
-	raw := strings.TrimSpace(os.Getenv(debugGatewayBodyEnv))
-	if raw == "" {
-		return false
+const debugGatewayBodyDefaultFilename = "gateway_debug.log"
+
+// initDebugGatewayBodyFile 初始化网关调试日志文件。
+//
+//   - "1"/"true" 等布尔值 → 当前目录下 gateway_debug.log
+//   - 已有目录路径        → 该目录下 gateway_debug.log
+//   - 其他               → 视为完整文件路径
+func (s *GatewayService) initDebugGatewayBodyFile(path string) {
+	if parseDebugEnvBool(path) {
+		path = debugGatewayBodyDefaultFilename
 	}
 
-	switch strings.ToLower(raw) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
-		return false
+	// 如果 path 指向一个已存在的目录，自动追加默认文件名
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		path = filepath.Join(path, debugGatewayBodyDefaultFilename)
 	}
+
+	// 确保父目录存在
+	if dir := filepath.Dir(path); dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			slog.Error("failed to create gateway debug log directory", "dir", dir, "error", err)
+			return
+		}
+	}
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		slog.Error("failed to open gateway debug log file", "path", path, "error", err)
+		return
+	}
+	s.debugGatewayBodyFile.Store(f)
+	slog.Info("gateway debug logging enabled", "path", path)
 }
 
-// debugLogRequestBody 打印请求 body 用于调试 metadata.user_id 重写。
-// 默认关闭，仅在设置环境变量时启用：
+// debugLogGatewaySnapshot 将网关请求的完整快照（headers + body）写入独立的调试日志文件，
+// 用于对比客户端原始请求和上游转发请求。
 //
-//	SUB2API_DEBUG_GATEWAY_BODY=1
-func debugLogRequestBody(tag string, body []byte) {
-	if !debugGatewayBodyLoggingEnabled() {
+// 启用方式（环境变量）：
+//
+//	SUB2API_DEBUG_GATEWAY_BODY=1                          # 写入 gateway_debug.log
+//	SUB2API_DEBUG_GATEWAY_BODY=/tmp/gateway_debug.log     # 写入指定路径
+//
+// tag: "CLIENT_ORIGINAL" 或 "UPSTREAM_FORWARD"
+func (s *GatewayService) debugLogGatewaySnapshot(tag string, headers http.Header, body []byte, extra map[string]string) {
+	f := s.debugGatewayBodyFile.Load()
+	if f == nil {
 		return
 	}
 
+	var buf strings.Builder
+	ts := time.Now().Format("2006-01-02 15:04:05.000")
+	fmt.Fprintf(&buf, "\n========== [%s] %s ==========\n", ts, tag)
+
+	// 1. context
+	if len(extra) > 0 {
+		fmt.Fprint(&buf, "--- context ---\n")
+		extraKeys := make([]string, 0, len(extra))
+		for k := range extra {
+			extraKeys = append(extraKeys, k)
+		}
+		sort.Strings(extraKeys)
+		for _, k := range extraKeys {
+			fmt.Fprintf(&buf, "  %s: %s\n", k, extra[k])
+		}
+	}
+
+	// 2. headers（按真实 Claude CLI wire 顺序排列，便于与抓包对比；auth 脱敏）
+	fmt.Fprint(&buf, "--- headers ---\n")
+	for _, k := range sortHeadersByWireOrder(headers) {
+		for _, v := range headers[k] {
+			fmt.Fprintf(&buf, "  %s: %s\n", k, safeHeaderValueForLog(k, v))
+		}
+	}
+
+	// 3. body（完整输出，格式化 JSON 便于 diff）
+	fmt.Fprint(&buf, "--- body ---\n")
 	if len(body) == 0 {
-		logger.LegacyPrintf("service.gateway", "[DEBUG_%s] body is empty", tag)
+		fmt.Fprint(&buf, "  (empty)\n")
+	} else {
+		var pretty bytes.Buffer
+		if json.Indent(&pretty, body, "  ", "  ") == nil {
+			fmt.Fprintf(&buf, "  %s\n", pretty.Bytes())
+		} else {
+			// JSON 格式化失败时原样输出
+			fmt.Fprintf(&buf, "  %s\n", body)
+		}
+	}
+
+	// 写入文件（调试用，并发写入可能交错但不影响可读性）
+	_, _ = f.WriteString(buf.String())
+}
+
+// SetUserQuotaChecker sets the per-user quota checker. Called during application startup
+// after the GatewayService is constructed.
+func (s *GatewayService) SetUserQuotaChecker(checker UserQuotaChecker) {
+	s.userQuotaChecker = checker
+}
+
+// SetPeakUsageCache sets the peak usage cache. Called during application startup
+// after the GatewayService is constructed.
+func (s *GatewayService) SetPeakUsageCache(cache PeakUsageCache) {
+	s.peakCache = cache
+}
+
+// SetCCProbeService sets the CC probe service for enhanced mimic headers.
+func (s *GatewayService) SetCCProbeService(probe *CCProbeService) {
+	s.ccProbeService = probe
+}
+
+// SetCCVersionDetectService sets the CC version detection service.
+func (s *GatewayService) SetCCVersionDetectService(svc *ClaudeCodeVersionDetectService) {
+	s.ccVersionDetectService = svc
+}
+
+// SetPricingService sets the pricing service for provider routing checks.
+func (s *GatewayService) SetPricingService(ps *PricingService) {
+	s.pricingService = ps
+}
+
+// RegisterUserActivity marks a user as active on an account for quota tracking.
+// Must be called after account selection on every request (Anthropic accounts only).
+func (s *GatewayService) RegisterUserActivity(ctx context.Context, account *Account, userID int64) {
+	if s.userQuotaChecker == nil {
 		return
 	}
+	s.userQuotaChecker.RegisterActivity(ctx, account, userID)
+}
 
-	// 提取 metadata 字段完整打印
-	metadataResult := gjson.GetBytes(body, "metadata")
-	if metadataResult.Exists() {
-		logger.LegacyPrintf("service.gateway", "[DEBUG_%s] metadata = %s", tag, metadataResult.Raw)
-	} else {
-		logger.LegacyPrintf("service.gateway", "[DEBUG_%s] metadata field not found", tag)
+// CheckUserQuotaForAccount checks whether userID may proceed on account.
+// Returns (true, "") if quota is not enabled or check passes.
+// Returns (false, reason) if the request should be blocked with 429.
+func (s *GatewayService) CheckUserQuotaForAccount(ctx context.Context, account *Account, userID int64, isSticky bool) (bool, string) {
+	if s.userQuotaChecker == nil {
+		return true, ""
+	}
+	return s.userQuotaChecker.CheckUserQuota(ctx, account, userID, isSticky)
+}
+
+// EffectiveUserQuota contains aggregated per-user quota data for API responses.
+type EffectiveUserQuota struct {
+	PerUserLimit float64
+	UserCost     float64
+	ActiveUsers  int64
+}
+
+// GetEffectiveUserQuota returns the user's quota status across quota-enabled accounts
+// in the given group. Returns nil if no quota data is available.
+func (s *GatewayService) GetEffectiveUserQuota(ctx context.Context, groupID int64, userID int64) (*EffectiveUserQuota, error) {
+	if s.userQuotaChecker == nil {
+		return nil, nil
 	}
 
-	// 全量打印 body
-	logger.LegacyPrintf("service.gateway", "[DEBUG_%s] body (%d bytes) = %s", tag, len(body), string(body))
+	accounts, err := s.accountRepo.ListByGroup(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Find the first account with active quota data for this user.
+	for i := range accounts {
+		acc := &accounts[i]
+		if !acc.IsUserQuotaEnabled() {
+			continue
+		}
+		limit, cost, active, hasData, err := s.userQuotaChecker.GetUserQuotaStatus(ctx, acc.ID, userID)
+		if err != nil || !hasData {
+			continue
+		}
+		return &EffectiveUserQuota{
+			PerUserLimit: limit,
+			UserCost:     cost,
+			ActiveUsers:  active,
+		}, nil
+	}
+	return nil, nil
 }

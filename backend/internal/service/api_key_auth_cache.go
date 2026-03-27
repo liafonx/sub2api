@@ -70,6 +70,7 @@ type APIKeyAuthGroupSnapshot struct {
 	AllowMessagesDispatch bool   `json:"allow_messages_dispatch"`
 	DefaultMappedModel    string `json:"default_mapped_model,omitempty"`
 
+	// Time-based rate multiplier rules (fork feature).
 	ScheduledRateConfig *ScheduledRateConfig `json:"scheduled_rate_config,omitempty"`
 }
 

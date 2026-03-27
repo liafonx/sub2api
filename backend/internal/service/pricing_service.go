@@ -34,6 +34,22 @@ var (
 		Mode:                            "chat",
 		SupportsPromptCaching:           true,
 	}
+	openAIGPT54MiniFallbackPricing = &LiteLLMModelPricing{
+		InputCostPerToken:       7.5e-07,
+		OutputCostPerToken:      4.5e-06,
+		CacheReadInputTokenCost: 7.5e-08,
+		LiteLLMProvider:         "openai",
+		Mode:                    "chat",
+		SupportsPromptCaching:   true,
+	}
+	openAIGPT54NanoFallbackPricing = &LiteLLMModelPricing{
+		InputCostPerToken:       2e-07,
+		OutputCostPerToken:      1.25e-06,
+		CacheReadInputTokenCost: 2e-08,
+		LiteLLMProvider:         "openai",
+		Mode:                    "chat",
+		SupportsPromptCaching:   true,
+	}
 )
 
 // LiteLLMModelPricing LiteLLM价格数据结构
@@ -86,11 +102,12 @@ type PricingService struct {
 	remoteClient PricingRemoteClient
 	mu           sync.RWMutex
 	pricingData  map[string]*LiteLLMModelPricing
-	// modelProvider is a denormalized index: lowercase model name → litellm_provider.
-	// Rebuilt atomically with pricingData under s.mu write lock.
+	lastUpdated  time.Time
+	localHash    string
+
+	// modelProvider is a model-name→litellm_provider index built from pricingData.
+	// Used by provider routing to reject mismatched model→platform combinations.
 	modelProvider map[string]string
-	lastUpdated   time.Time
-	localHash     string
 
 	// 停止信号
 	stopCh chan struct{}
@@ -100,11 +117,10 @@ type PricingService struct {
 // NewPricingService 创建价格服务
 func NewPricingService(cfg *config.Config, remoteClient PricingRemoteClient) *PricingService {
 	s := &PricingService{
-		cfg:           cfg,
-		remoteClient:  remoteClient,
-		pricingData:   make(map[string]*LiteLLMModelPricing),
-		modelProvider: make(map[string]string),
-		stopCh:        make(chan struct{}),
+		cfg:          cfg,
+		remoteClient: remoteClient,
+		pricingData:  make(map[string]*LiteLLMModelPricing),
+		stopCh:       make(chan struct{}),
 	}
 	return s
 }
@@ -295,7 +311,7 @@ func (s *PricingService) downloadPricingData() error {
 	// 更新内存数据
 	s.mu.Lock()
 	s.pricingData = data
-	s.modelProvider = buildModelProviderIndex(data)
+	s.rebuildModelProviderIndex()
 	s.lastUpdated = time.Now()
 	s.localHash = hashStr
 	s.mu.Unlock()
@@ -401,7 +417,7 @@ func (s *PricingService) loadPricingData(filePath string) error {
 
 	s.mu.Lock()
 	s.pricingData = pricingData
-	s.modelProvider = buildModelProviderIndex(pricingData)
+	s.rebuildModelProviderIndex()
 	s.localHash = hashStr
 
 	info, _ := os.Stat(filePath)
@@ -729,6 +745,18 @@ func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 		}
 	}
 
+	if strings.HasPrefix(model, "gpt-5.4-mini") {
+		logger.With(zap.String("component", "service.pricing")).
+			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.4-mini(static)"))
+		return openAIGPT54MiniFallbackPricing
+	}
+
+	if strings.HasPrefix(model, "gpt-5.4-nano") {
+		logger.With(zap.String("component", "service.pricing")).
+			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.4-nano(static)"))
+		return openAIGPT54NanoFallbackPricing
+	}
+
 	if strings.HasPrefix(model, "gpt-5.4") {
 		logger.With(zap.String("component", "service.pricing")).
 			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.4(static)"))
@@ -779,25 +807,6 @@ func (s *PricingService) generateOpenAIModelVariants(model string, datePattern *
 	return variants
 }
 
-// buildModelProviderIndex builds a lowercase model name → litellm_provider lookup map.
-func buildModelProviderIndex(data map[string]*LiteLLMModelPricing) map[string]string {
-	index := make(map[string]string, len(data))
-	for name, pricing := range data {
-		if pricing.LiteLLMProvider != "" {
-			index[strings.ToLower(name)] = pricing.LiteLLMProvider
-		}
-	}
-	return index
-}
-
-// GetModelProvider returns the litellm_provider for a model name, or "" if unknown.
-// Uses exact match on lowercase model name only — no fuzzy matching.
-func (s *PricingService) GetModelProvider(modelName string) string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.modelProvider[strings.ToLower(modelName)]
-}
-
 // GetStatus 获取服务状态
 func (s *PricingService) GetStatus() map[string]any {
 	s.mu.RLock()
@@ -823,6 +832,28 @@ func (s *PricingService) getPricingFilePath() string {
 // getHashFilePath 获取哈希文件路径
 func (s *PricingService) getHashFilePath() string {
 	return filepath.Join(s.cfg.Pricing.DataDir, "model_pricing.sha256")
+}
+
+// rebuildModelProviderIndex rebuilds the model→provider lookup from current pricingData.
+// Caller must hold s.mu write lock.
+func (s *PricingService) rebuildModelProviderIndex() {
+	idx := make(map[string]string, len(s.pricingData))
+	for name, p := range s.pricingData {
+		if p.LiteLLMProvider != "" {
+			idx[strings.ToLower(name)] = p.LiteLLMProvider
+		}
+	}
+	s.modelProvider = idx
+}
+
+// GetModelProvider returns the litellm_provider for the given model name, or "" if unknown.
+func (s *PricingService) GetModelProvider(modelName string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.modelProvider == nil {
+		return ""
+	}
+	return s.modelProvider[strings.ToLower(modelName)]
 }
 
 // isNumeric 检查字符串是否为纯数字

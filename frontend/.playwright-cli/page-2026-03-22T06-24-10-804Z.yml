@@ -1,0 +1,14 @@
+- generic [ref=e2]:
+  - generic [ref=e3]: Edit Group
+  - generic [ref=e5]:
+    - paragraph [ref=e6]: viewport=1280 outer=1230px (right=1255)
+    - generic [ref=e7]:
+      - paragraph [ref=e8]: card=1212px (right=1246)
+      - generic [ref=e9]:
+        - text: Start
+        - textbox [ref=e10]: 13:00
+        - paragraph [ref=e11]: "time: offset=1194 rect=1194 right=1237 box-sizing=border-box px=8px"
+      - generic [ref=e12]:
+        - text: Start Date
+        - textbox [ref=e13]: 2026-03-16
+        - paragraph [ref=e14]: "date: offset=1194 rect=1194 right=1237 box-sizing=border-box px=8px"

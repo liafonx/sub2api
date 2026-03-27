@@ -47,12 +47,13 @@ func TestBuildOAuthMetadataUserID_UsesAccountUUIDWhenPresent(t *testing.T) {
 		ID:   123,
 		Type: AccountTypeOAuth,
 		Extra: map[string]any{
-			"account_uuid": "acc-uuid",
+			"account_uuid":      "acc-uuid",
+			"claude_user_id":    "clientid123",
+			"anthropic_user_id": "",
 		},
 	}
 
-	fp := &Fingerprint{ClientID: "clientid123"}
-	got := svc.buildOAuthMetadataUserID(parsed, account, fp)
+	got := svc.buildOAuthMetadataUserID(parsed, account, nil)
 	require.NotEmpty(t, got)
 
 	// New format: user_{client}_account_{account_uuid}_session_{uuid}

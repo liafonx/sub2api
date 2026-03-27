@@ -121,6 +121,12 @@ func (c StubSessionLimitCache) GetActiveSessionCount(_ context.Context, _ int64)
 func (c StubSessionLimitCache) GetActiveSessionCountBatch(_ context.Context, _ []int64, _ map[int64]time.Duration) (map[int64]int, error) {
 	return nil, nil
 }
+func (c StubSessionLimitCache) RegisterUserSession(_ context.Context, _ int64, _ string, _ int, _ time.Duration) (bool, error) {
+	return true, nil
+}
+func (c StubSessionLimitCache) GetUserActiveSessionCount(_ context.Context, _ int64) (int, error) {
+	return 0, nil
+}
 func (c StubSessionLimitCache) IsSessionActive(_ context.Context, _ int64, _ string) (bool, error) {
 	return false, nil
 }
@@ -133,41 +139,3 @@ func (c StubSessionLimitCache) SetWindowCost(_ context.Context, _ int64, _ float
 func (c StubSessionLimitCache) GetWindowCostBatch(_ context.Context, _ []int64) (map[int64]float64, error) {
 	return nil, nil
 }
-func (c StubSessionLimitCache) RegisterUserSession(_ context.Context, _ int64, _ string, _ int, _ time.Duration) (bool, error) {
-	return true, nil
-}
-func (c StubSessionLimitCache) GetUserActiveSessionCount(_ context.Context, _ int64) (int, error) {
-	return 0, nil
-}
-
-// ============================================================
-// StubRPMCache — service.RPMCache 的空实现
-// ============================================================
-
-var _ service.RPMCache = StubRPMCache{}
-
-type StubRPMCache struct{}
-
-func (c StubRPMCache) IncrementRPM(_ context.Context, _ int64) (int, error) { return 0, nil }
-func (c StubRPMCache) GetRPM(_ context.Context, _ int64) (int, error)       { return 0, nil }
-func (c StubRPMCache) GetRPMBatch(_ context.Context, _ []int64) (map[int64]int, error) {
-	return nil, nil
-}
-func (c StubRPMCache) IncrementUserRPM(_ context.Context, _ int64) (int, error) { return 0, nil }
-func (c StubRPMCache) GetUserRPM(_ context.Context, _ int64) (int, error)       { return 0, nil }
-
-// ============================================================
-// StubPeakUsageCache — service.PeakUsageCache 的空实现
-// ============================================================
-
-var _ service.PeakUsageCache = StubPeakUsageCache{}
-
-type StubPeakUsageCache struct{}
-
-func (c StubPeakUsageCache) UpdatePeakIfGreater(_ context.Context, _ string, _ int64, _ string, _ int) error {
-	return nil
-}
-func (c StubPeakUsageCache) GetAllPeaks(_ context.Context, _ string, _ []int64) (map[int64]*service.PeakValues, error) {
-	return nil, nil
-}
-func (c StubPeakUsageCache) ResetPeaks(_ context.Context, _ string, _ []int64) error { return nil }

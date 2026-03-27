@@ -369,16 +369,15 @@ gateway:
     # 全量重建周期（秒），0 表示禁用
     full_rebuild_interval_seconds: 300
   # TLS fingerprint simulation / TLS 指纹伪装
-  # Profile key naming convention: {platform}_{arch}_{runtime}_v{major}_{minor}_{patch}
-  # e.g., "darwin_arm64_node_v24_3_0" → X-Stainless-OS: MacOS, Arch: arm64, Runtime: node, RuntimeVersion: v24.3.0
-  # Legacy keys like "claude_cli_v2" still work but won't auto-set platform identity headers.
+  # Default profile "claude_cli_v2" simulates Node.js 20.x
+  # 默认模板 "claude_cli_v2" 模拟 Node.js 20.x 指纹
   tls_fingerprint:
     enabled: true
     # profiles:
-    #   darwin_arm64_node_v24_3_0:
-    #     name: "Darwin arm64 Node.js v24.3.0"
-    #   linux_x64_node_v22_21_1:
-    #     name: "Linux x64 Node.js v22.21.1"
+    #   profile_1:
+    #     name: "Custom Profile 1"
+    #   profile_2:
+    #     name: "Custom Profile 2"
 
 # =============================================================================
 # Logging Configuration
@@ -882,11 +881,6 @@ pricing:
   # Hash check interval in minutes
   # 哈希检查间隔（分钟）
   hash_check_interval_minutes: 10
-  # Enforce provider routing: reject requests where the model's litellm_provider
-  # does not match the account's platform (e.g., block gpt-4o on anthropic accounts).
-  # Default: false (fail-open — unknown models always pass through)
-  # 强制提供商路由：拒绝模型的 litellm_provider 与账户平台不匹配的请求
-  enforce_provider_routing: false
 
 # =============================================================================
 # Billing Configuration
@@ -999,38 +993,3 @@ update:
   # Leave empty for direct connection (recommended for overseas servers)
   # 留空表示直连（适用于海外服务器）
   proxy_url: ""
-
-# =============================================================================
-# Claude Code Version Auto-Detect (版本自动检测配置)
-# =============================================================================
-claude_code_detect:
-  # npm registry URL for fetching the stable Claude Code version
-  # npm 注册表 URL，用于获取 Claude Code 稳定版本号
-  # Use "stable" dist-tag (not "latest") to avoid blocking users on official stable releases
-  # Default: "https://registry.npmjs.org/@anthropic-ai/claude-code/stable"
-  registry_url: "https://registry.npmjs.org/@anthropic-ai/claude-code/stable"
-
-  # Detection interval in hours
-  # 检测间隔（小时）
-  # Default: 6
-  interval_hours: 6
-
-# =============================================================================
-# CC Probe (On-machine Claude Code header probing)
-# =============================================================================
-# When enabled, captures real CC request headers via mitmproxy to keep
-# mimic-mode headers in sync with the installed CC version.
-# Requires: mitmdump (pip install mitmproxy) and claude CLI installed.
-cc_probe:
-  # Enable on-machine CC probing
-  enabled: false
-  # Path to the claude binary (default: "claude" from PATH)
-  cc_binary_path: "claude"
-  # Auto-update CC before probing
-  auto_update_cc: false
-  # Shell command to update CC (used when auto_update_cc is true).
-  # Default (when empty): "<cc_binary_path> update"
-  # Use an absolute path if the binary is not on the system PATH (e.g. launchd environments).
-  update_command: "claude update"
-  # Version check interval in hours (default: 1)
-  check_interval_hours: 1

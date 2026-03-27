@@ -17,6 +17,7 @@ import (
 	openaipkg "github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/singleflight"
@@ -241,12 +242,11 @@ type ClaudeUsageResponse struct {
 
 // ClaudeUsageFetchOptions 包含获取 Claude 用量数据所需的所有选项
 type ClaudeUsageFetchOptions struct {
-	AccessToken          string       // OAuth access token
-	ProxyURL             string       // 代理 URL（可选）
-	AccountID            int64        // 账号 ID（用于 TLS 指纹选择）
-	EnableTLSFingerprint bool         // 是否启用 TLS 指纹伪装
-	TLSProfileName       string       // 指定的 TLS 指纹 profile 名称（空字符串表示自动选择）
-	Fingerprint          *Fingerprint // 缓存的指纹信息（User-Agent 等）
+	AccessToken string                  // OAuth access token
+	ProxyURL    string                  // 代理 URL（可选）
+	AccountID   int64                   // 账号 ID（用于连接池隔离）
+	TLSProfile  *tlsfingerprint.Profile // TLS 指纹 Profile（nil 表示不启用）
+	Fingerprint *Fingerprint            // 缓存的指纹信息（User-Agent 等）
 }
 
 // ClaudeUsageFetcher fetches usage data from Anthropic OAuth API
@@ -265,6 +265,7 @@ type AccountUsageService struct {
 	antigravityQuotaFetcher *AntigravityQuotaFetcher
 	cache                   *UsageCache
 	identityCache           IdentityCache
+	tlsFPProfileService     *TLSFingerprintProfileService
 }
 
 // NewAccountUsageService 创建AccountUsageService实例
@@ -276,6 +277,7 @@ func NewAccountUsageService(
 	antigravityQuotaFetcher *AntigravityQuotaFetcher,
 	cache *UsageCache,
 	identityCache IdentityCache,
+	tlsFPProfileService *TLSFingerprintProfileService,
 ) *AccountUsageService {
 	return &AccountUsageService{
 		accountRepo:             accountRepo,
@@ -285,6 +287,7 @@ func NewAccountUsageService(
 		antigravityQuotaFetcher: antigravityQuotaFetcher,
 		cache:                   cache,
 		identityCache:           identityCache,
+		tlsFPProfileService:     tlsFPProfileService,
 	}
 }
 
@@ -772,7 +775,7 @@ func (s *AccountUsageService) getGeminiUsage(ctx context.Context, account *Accou
 }
 
 // getAntigravityUsage 获取 Antigravity 账户额度
-func (s *AccountUsageService) getAntigravityUsage(_ context.Context, account *Account) (*UsageInfo, error) {
+func (s *AccountUsageService) getAntigravityUsage(ctx context.Context, account *Account) (*UsageInfo, error) {
 	if s.antigravityQuotaFetcher == nil || !s.antigravityQuotaFetcher.CanFetch(account) {
 		now := time.Now()
 		return &UsageInfo{UpdatedAt: &now}, nil
@@ -1156,11 +1159,10 @@ func (s *AccountUsageService) fetchOAuthUsageRaw(ctx context.Context, account *A
 
 	// 构建完整的选项
 	opts := &ClaudeUsageFetchOptions{
-		AccessToken:          accessToken,
-		ProxyURL:             proxyURL,
-		AccountID:            account.ID,
-		EnableTLSFingerprint: account.IsTLSFingerprintEnabled(),
-		TLSProfileName:       account.GetTLSFingerprintProfile(),
+		AccessToken: accessToken,
+		ProxyURL:    proxyURL,
+		AccountID:   account.ID,
+		TLSProfile:  s.tlsFPProfileService.ResolveTLSProfile(account),
 	}
 
 	// 尝试获取缓存的 Fingerprint（包含 User-Agent 等信息）

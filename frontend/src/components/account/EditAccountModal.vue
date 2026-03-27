@@ -2046,10 +2046,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   mixedChannelWarningDetails.value = null
   mixedChannelWarningRawMessage.value = ''
   mixedChannelWarningAction.value = null
-  // Load TLS profiles for dropdown
-  adminAPI.system.getTLSProfiles().then(profiles => {
-    tlsProfiles.value = profiles
-  }).catch((err) => { console.warn('Failed to load TLS profiles:', err) })
   form.name = newAccount.name
   form.notes = newAccount.notes || ''
   form.proxy_id = newAccount.proxy_id
@@ -2316,6 +2312,10 @@ watch(
     }
     if (!wasShow || newAccount !== previousAccount) {
       syncFormFromAccount(newAccount)
+      // Load TLS profiles for dropdown
+      adminAPI.system.getTLSProfiles().then(profiles => {
+        tlsProfiles.value = profiles
+      }).catch((err) => { console.warn('Failed to load TLS profiles:', err) })
     }
   },
   { immediate: true }
@@ -2563,8 +2563,8 @@ function loadQuotaControlSettings(account: Account) {
   // Load TLS fingerprint setting
   if (account.enable_tls_fingerprint === true) {
     tlsFingerprintEnabled.value = true
-    tlsFingerprintProfile.value = account.tls_fingerprint_profile || 'auto'
   }
+  tlsFingerprintProfile.value = account.tls_fingerprint_profile ?? 'auto'
 
   // Load session ID masking setting
   if (account.session_id_masking_enabled === true) {
@@ -2964,7 +2964,7 @@ const handleSubmit = async () => {
         delete newExtra.window_cost_sticky_reserve
       }
 
-      // Per-user quota
+      // Per-user quota settings
       if (userQuotaEnabled.value && windowCostEnabled.value) {
         newExtra.user_quota_enabled = true
         if (userQuotaIdleTimeout.value != null && userQuotaIdleTimeout.value > 0) {

@@ -538,10 +538,12 @@ func TestAPIContracts(t *testing.T) {
 					"purchase_subscription_url": "",
 					"min_claude_code_version": "",
 					"max_claude_code_version": "",
-					"auto_detect_min_claude_code_version": false,
 					"allow_ungrouped_key_scheduling": false,
 					"backend_mode_enabled": false,
-					"custom_menu_items": []
+					"enable_fingerprint_unification": true,
+					"enable_metadata_passthrough": false,
+					"custom_menu_items": [],
+					"custom_endpoints": []
 				}
 			}`,
 		},
@@ -654,7 +656,7 @@ func newContractDeps(t *testing.T) *contractDeps {
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	usageHandler := handler.NewUsageHandler(usageService, apiKeyService)
 	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil, nil, nil)
-	adminAccountHandler := adminhandler.NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminAccountHandler := adminhandler.NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	jwtAuth := func(c *gin.Context) {
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{
@@ -828,6 +830,12 @@ func (r *stubUserRepo) EnableTotp(ctx context.Context, userID int64) error {
 func (r *stubUserRepo) DisableTotp(ctx context.Context, userID int64) error {
 	return errors.New("not implemented")
 }
+func (r *stubUserRepo) ListAllIDs(ctx context.Context) ([]int64, error) {
+	return nil, errors.New("not implemented")
+}
+func (r *stubUserRepo) GetByIDs(ctx context.Context, ids []int64) ([]*service.User, error) {
+	return nil, errors.New("not implemented")
+}
 
 type stubApiKeyCache struct{}
 
@@ -990,7 +998,7 @@ func (s *stubAccountRepo) List(ctx context.Context, params pagination.Pagination
 	return nil, nil, errors.New("not implemented")
 }
 
-func (s *stubAccountRepo) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64) ([]service.Account, *pagination.PaginationResult, error) {
+func (s *stubAccountRepo) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, *pagination.PaginationResult, error) {
 	return nil, nil, errors.New("not implemented")
 }
 

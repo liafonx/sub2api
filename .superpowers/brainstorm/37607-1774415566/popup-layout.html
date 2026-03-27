@@ -1,0 +1,117 @@
+<h2>Peak Usage Popup Layout</h2>
+<p class="subtitle">Click the Service Accounts or New Users Today card on the Dashboard → this popup opens</p>
+
+<div class="cards">
+  <!-- Option A: Modal with entity table -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 16px; background: #f8f9fa;">
+      <div style="font-family: system-ui; font-size: 12px; color: #333;">
+        <!-- Mock modal -->
+        <div style="background: white; border-radius: 12px; border: 1px solid #e0e0e0; padding: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.12);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <span style="font-weight: 700; font-size: 14px;">Peak Usage — Accounts</span>
+            <span style="color: #999; cursor: pointer;">✕</span>
+          </div>
+          <!-- Entity rows -->
+          <div style="border: 1px solid #eee; border-radius: 8px; overflow: hidden;">
+            <div style="display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr 80px; padding: 6px 10px; background: #f5f5f5; font-size: 10px; color: #666; font-weight: 600;">
+              <span>Account</span><span>Peak Conc.</span><span>Peak Sess.</span><span>Peak RPM</span><span></span>
+            </div>
+            <div style="display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr 80px; padding: 8px 10px; border-top: 1px solid #eee; font-size: 10px;">
+              <span style="font-weight: 500;">claude-main-1</span>
+              <span style="color: #e74c3c; font-weight: 600;">8/10</span>
+              <span>12</span>
+              <span>45</span>
+              <span style="color: #999; font-size: 9px; cursor: pointer;">Reset</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr 80px; padding: 8px 10px; border-top: 1px solid #eee; font-size: 10px;">
+              <span style="font-weight: 500;">gemini-backup</span>
+              <span style="color: #f39c12; font-weight: 600;">5/10</span>
+              <span>8</span>
+              <span>30</span>
+              <span style="color: #999; font-size: 9px; cursor: pointer;">Reset</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr 80px; padding: 8px 10px; border-top: 1px solid #eee; font-size: 10px;">
+              <span style="font-weight: 500;">openai-prod</span>
+              <span style="color: #27ae60; font-weight: 600;">2/10</span>
+              <span>3</span>
+              <span>15</span>
+              <span style="color: #999; font-size: 9px; cursor: pointer;">Reset</span>
+            </div>
+          </div>
+          <div style="margin-top: 10px; text-align: right;">
+            <span style="font-size: 9px; color: #999; background: #f0f0f0; padding: 3px 8px; border-radius: 4px; cursor: pointer;">Reset All</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A: Table Modal (BaseDialog)</h3>
+      <p>Uses existing BaseDialog component. Each entity is a row with peak values and per-row Reset. Familiar table layout. "Reset All" at bottom.</p>
+    </div>
+  </div>
+
+  <!-- Option B: Card-based list in modal -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 16px; background: #f8f9fa;">
+      <div style="font-family: system-ui; font-size: 12px; color: #333;">
+        <div style="background: white; border-radius: 12px; border: 1px solid #e0e0e0; padding: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.12);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <span style="font-weight: 700; font-size: 14px;">Peak Usage — Accounts</span>
+            <span style="color: #999; cursor: pointer;">✕</span>
+          </div>
+          <!-- Entity cards -->
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="border: 1px solid #eee; border-radius: 8px; padding: 10px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span style="font-weight: 600; font-size: 11px;">claude-main-1</span>
+                <span style="color: #999; font-size: 9px; cursor: pointer;">Reset</span>
+              </div>
+              <div style="display: flex; gap: 16px;">
+                <div style="text-align: center;">
+                  <div style="font-size: 9px; color: #888; text-transform: uppercase;">Concurrency</div>
+                  <div style="font-size: 14px; font-weight: 700; color: #e74c3c;">8</div>
+                </div>
+                <div style="text-align: center;">
+                  <div style="font-size: 9px; color: #888; text-transform: uppercase;">Sessions</div>
+                  <div style="font-size: 14px; font-weight: 700; color: #3498db;">12</div>
+                </div>
+                <div style="text-align: center;">
+                  <div style="font-size: 9px; color: #888; text-transform: uppercase;">RPM</div>
+                  <div style="font-size: 14px; font-weight: 700; color: #9b59b6;">45</div>
+                </div>
+              </div>
+            </div>
+            <div style="border: 1px solid #eee; border-radius: 8px; padding: 10px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span style="font-weight: 600; font-size: 11px;">gemini-backup</span>
+                <span style="color: #999; font-size: 9px; cursor: pointer;">Reset</span>
+              </div>
+              <div style="display: flex; gap: 16px;">
+                <div style="text-align: center;">
+                  <div style="font-size: 9px; color: #888; text-transform: uppercase;">Concurrency</div>
+                  <div style="font-size: 14px; font-weight: 700; color: #f39c12;">5</div>
+                </div>
+                <div style="text-align: center;">
+                  <div style="font-size: 9px; color: #888; text-transform: uppercase;">Sessions</div>
+                  <div style="font-size: 14px; font-weight: 700; color: #3498db;">8</div>
+                </div>
+                <div style="text-align: center;">
+                  <div style="font-size: 9px; color: #888; text-transform: uppercase;">RPM</div>
+                  <div style="font-size: 14px; font-weight: 700; color: #9b59b6;">30</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="margin-top: 10px; text-align: right;">
+            <span style="font-size: 9px; color: #999; background: #f0f0f0; padding: 3px 8px; border-radius: 4px; cursor: pointer;">Reset All</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B: Card List Modal</h3>
+      <p>Each entity is a mini-card with big metric numbers. More visual, easier to scan on mobile. Slightly more vertical space per entity.</p>
+    </div>
+  </div>
+</div>

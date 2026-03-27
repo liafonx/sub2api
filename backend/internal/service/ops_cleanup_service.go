@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/robfig/cron/v3"
-	"go.uber.org/zap"
 )
 
 const (
@@ -147,24 +146,11 @@ func (s *OpsCleanupService) runScheduled() {
 	counts, err := s.runCleanupOnce(ctx)
 	if err != nil {
 		s.recordHeartbeatError(runAt, time.Since(startedAt), err)
-		logger.L().Error("[OpsCleanup] cleanup failed",
-			zap.String("component", "service.ops_cleanup"),
-			zap.Error(err),
-		)
+		logger.LegacyPrintf("service.ops_cleanup", "[OpsCleanup] cleanup failed: %v", err)
 		return
 	}
 	s.recordHeartbeatSuccess(runAt, time.Since(startedAt), counts)
-	logger.L().Info("[OpsCleanup] cleanup complete",
-		zap.String("component", "service.ops_cleanup"),
-		zap.Int64("error_logs", counts.errorLogs),
-		zap.Int64("retry_attempts", counts.retryAttempts),
-		zap.Int64("alert_events", counts.alertEvents),
-		zap.Int64("system_logs", counts.systemLogs),
-		zap.Int64("log_audits", counts.logAudits),
-		zap.Int64("system_metrics", counts.systemMetrics),
-		zap.Int64("hourly_preagg", counts.hourlyPreagg),
-		zap.Int64("daily_preagg", counts.dailyPreagg),
-	)
+	logger.LegacyPrintf("service.ops_cleanup", "[OpsCleanup] cleanup complete: %s", counts)
 }
 
 type opsCleanupDeletedCounts struct {

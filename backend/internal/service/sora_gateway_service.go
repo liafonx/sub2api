@@ -148,10 +148,13 @@ func (s *SoraGatewayService) Forward(ctx context.Context, c *gin.Context, accoun
 		s.writeSoraError(c, http.StatusBadRequest, "invalid_request_error", "model is required", clientStream)
 		return nil, errors.New("model is required")
 	}
+	originalModel := reqModel
 
 	mappedModel := account.GetMappedModel(reqModel)
+	var upstreamModel string
 	if mappedModel != "" && mappedModel != reqModel {
 		reqModel = mappedModel
+		upstreamModel = mappedModel
 	}
 
 	modelCfg, ok := GetSoraModelConfig(reqModel)
@@ -213,13 +216,14 @@ func (s *SoraGatewayService) Forward(ctx context.Context, c *gin.Context, accoun
 			c.JSON(http.StatusOK, buildSoraNonStreamResponse(content, reqModel))
 		}
 		return &ForwardResult{
-			RequestID:    "",
-			Model:        reqModel,
-			Stream:       clientStream,
-			Duration:     time.Since(startTime),
-			FirstTokenMs: firstTokenMs,
-			Usage:        ClaudeUsage{},
-			MediaType:    "prompt",
+			RequestID:     "",
+			Model:         originalModel,
+			UpstreamModel: upstreamModel,
+			Stream:        clientStream,
+			Duration:      time.Since(startTime),
+			FirstTokenMs:  firstTokenMs,
+			Usage:         ClaudeUsage{},
+			MediaType:     "prompt",
 		}, nil
 	}
 
@@ -269,13 +273,14 @@ func (s *SoraGatewayService) Forward(ctx context.Context, c *gin.Context, accoun
 				c.JSON(http.StatusOK, resp)
 			}
 			return &ForwardResult{
-				RequestID:    "",
-				Model:        reqModel,
-				Stream:       clientStream,
-				Duration:     time.Since(startTime),
-				FirstTokenMs: firstTokenMs,
-				Usage:        ClaudeUsage{},
-				MediaType:    "prompt",
+				RequestID:     "",
+				Model:         originalModel,
+				UpstreamModel: upstreamModel,
+				Stream:        clientStream,
+				Duration:      time.Since(startTime),
+				FirstTokenMs:  firstTokenMs,
+				Usage:         ClaudeUsage{},
+				MediaType:     "prompt",
 			}, nil
 		}
 		if characterResult != nil && strings.TrimSpace(characterResult.Username) != "" {
@@ -419,16 +424,17 @@ func (s *SoraGatewayService) Forward(ctx context.Context, c *gin.Context, accoun
 	}
 
 	return &ForwardResult{
-		RequestID:    taskID,
-		Model:        reqModel,
-		Stream:       clientStream,
-		Duration:     time.Since(startTime),
-		FirstTokenMs: firstTokenMs,
-		Usage:        ClaudeUsage{},
-		MediaType:    mediaType,
-		MediaURL:     firstMediaURL(finalURLs),
-		ImageCount:   imageCount,
-		ImageSize:    imageSize,
+		RequestID:     taskID,
+		Model:         originalModel,
+		UpstreamModel: upstreamModel,
+		Stream:        clientStream,
+		Duration:      time.Since(startTime),
+		FirstTokenMs:  firstTokenMs,
+		Usage:         ClaudeUsage{},
+		MediaType:     mediaType,
+		MediaURL:      firstMediaURL(finalURLs),
+		ImageCount:    imageCount,
+		ImageSize:     imageSize,
 	}, nil
 }
 
@@ -796,7 +802,7 @@ func soraImageSizeFromModel(model string) string {
 	return "360"
 }
 
-func soraProErrorMessage(model, _ string) string {
+func soraProErrorMessage(model, upstreamMsg string) string {
 	modelLower := strings.ToLower(model)
 	if strings.Contains(modelLower, "sora2pro-hd") {
 		return "当前账号无法使用 Sora Pro-HD 模型，请更换模型或账号"

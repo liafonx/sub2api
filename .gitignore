@@ -110,15 +110,6 @@ backend/data/
 backend/config.yaml
 deploy/config.yaml
 backend/.installed
-deploy/nginx/
-deploy/caddy/
-deploy/AGENTS.md
-
-
-# ===================
-# Git worktrees
-# ===================
-.worktrees/
 
 # ===================
 # 其他
@@ -137,15 +128,19 @@ deploy/docker-compose.override.yml
 vite.config.js
 docs/*
 .serena/
-.agents/
-.agent/
-.cursor/
-skills-lock.json
-deploy/CRS-README.md
 .codex/
 frontend/coverage/
 aicodex
-Usage_Endpoint.md
 output/
-.playwright-cli/
-.superpowers/
+
+
+# Fork-specific ignores
+Usage_Endpoint.md
+deploy/AGENTS.md
+deploy/caddy/
+deploy/nginx/
+deploy/CRS-README.md
+.worktrees/
+skills-lock.json
+.agent/
+.agents/

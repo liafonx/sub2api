@@ -591,6 +591,31 @@ func (r *userRepository) EnableTotp(ctx context.Context, userID int64) error {
 	return nil
 }
 
+// ListAllIDs returns all user IDs. Used by peak-usage flush to enumerate users.
+func (r *userRepository) ListAllIDs(ctx context.Context) ([]int64, error) {
+	ids, err := r.client.User.Query().IDs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list all user IDs: %w", err)
+	}
+	return ids, nil
+}
+
+// GetByIDs fetches users by IDs in a single query.
+func (r *userRepository) GetByIDs(ctx context.Context, ids []int64) ([]*service.User, error) {
+	if len(ids) == 0 {
+		return []*service.User{}, nil
+	}
+	ents, err := r.client.User.Query().Where(dbuser.IDIn(ids...)).All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get users by IDs: %w", err)
+	}
+	out := make([]*service.User, 0, len(ents))
+	for _, e := range ents {
+		out = append(out, userEntityToService(e))
+	}
+	return out, nil
+}
+
 // DisableTotp 禁用用户的 TOTP 双因素认证
 func (r *userRepository) DisableTotp(ctx context.Context, userID int64) error {
 	client := clientFromContext(ctx, r.client)
@@ -603,33 +628,4 @@ func (r *userRepository) DisableTotp(ctx context.Context, userID int64) error {
 		return translatePersistenceError(err, service.ErrUserNotFound, nil)
 	}
 	return nil
-}
-
-func (r *userRepository) GetByIDs(ctx context.Context, ids []int64) ([]*service.User, error) {
-	if len(ids) == 0 {
-		return nil, nil
-	}
-	ms, err := r.client.User.Query().Where(dbuser.IDIn(ids...)).All(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]*service.User, len(ms))
-	for i, m := range ms {
-		out[i] = userEntityToService(m)
-	}
-	return out, nil
-}
-
-func (r *userRepository) ListAllIDs(ctx context.Context) ([]int64, error) {
-	rows, err := r.client.User.Query().
-		Select(dbuser.FieldID).
-		Ints(ctx)
-	if err != nil {
-		return nil, err
-	}
-	ids := make([]int64, len(rows))
-	for i, v := range rows {
-		ids[i] = int64(v)
-	}
-	return ids, nil
 }

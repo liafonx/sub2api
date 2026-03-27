@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"unsafe"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
@@ -35,6 +37,9 @@ var (
 	patternEmptyTextSpaced = []byte(`"text": ""`)
 	patternEmptyTextSp1    = []byte(`"text" : ""`)
 	patternEmptyTextSp2    = []byte(`"text" :""`)
+
+	sessionUserAgentProductPattern = regexp.MustCompile(`([A-Za-z0-9._-]+)/[A-Za-z0-9._-]+`)
+	sessionUserAgentVersionPattern = regexp.MustCompile(`\bv?\d+(?:\.\d+){1,3}\b`)
 )
 
 // SessionContext 粘性会话上下文，用于区分不同来源的请求。
@@ -76,6 +81,49 @@ type ParsedRequest struct {
 	OnUpstreamAccepted func()
 }
 
+// NormalizeSessionUserAgent reduces UA noise for sticky-session and digest hashing.
+// It preserves the set of product names from Product/Version tokens while
+// discarding version-only changes and incidental comments.
+func NormalizeSessionUserAgent(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+
+	matches := sessionUserAgentProductPattern.FindAllStringSubmatch(raw, -1)
+	if len(matches) == 0 {
+		return normalizeSessionUserAgentFallback(raw)
+	}
+
+	products := make([]string, 0, len(matches))
+	seen := make(map[string]struct{}, len(matches))
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+		product := strings.ToLower(strings.TrimSpace(match[1]))
+		if product == "" {
+			continue
+		}
+		if _, exists := seen[product]; exists {
+			continue
+		}
+		seen[product] = struct{}{}
+		products = append(products, product)
+	}
+	if len(products) == 0 {
+		return normalizeSessionUserAgentFallback(raw)
+	}
+	sort.Strings(products)
+	return strings.Join(products, "+")
+}
+
+func normalizeSessionUserAgentFallback(raw string) string {
+	normalized := strings.ToLower(strings.Join(strings.Fields(raw), " "))
+	normalized = sessionUserAgentVersionPattern.ReplaceAllString(normalized, "")
+	return strings.Join(strings.Fields(normalized), " ")
+}
+
 // ParseGatewayRequest 解析网关请求体并返回结构化结果。
 // protocol 指定请求协议格式（domain.PlatformAnthropic / domain.PlatformGemini），
 // 不同协议使用不同的 system/messages 字段名。
@@ -86,7 +134,10 @@ func ParseGatewayRequest(body []byte, protocol string) (*ParsedRequest, error) {
 		return nil, fmt.Errorf("invalid json")
 	}
 
-	jsonStr := string(body)
+	// 性能：
+	// - gjson.GetBytes 会把匹配的 Raw/Str 安全复制成 string（对于巨大 messages 会产生额外拷贝）。
+	// - 这里将 body 通过 unsafe 零拷贝视为 string，仅在本函数内使用，且 body 不会被修改。
+	jsonStr := *(*string)(unsafe.Pointer(&body))
 
 	parsed := &ParsedRequest{
 		Body: body,
@@ -203,6 +254,118 @@ func sliceRawFromBody(body []byte, r gjson.Result) []byte {
 	return []byte(r.Raw)
 }
 
+// stripEmptyTextBlocksFromSlice removes empty text blocks from a content slice (including nested tool_result content).
+// Returns (cleaned slice, true) if any blocks were removed, or (original, false) if unchanged.
+func stripEmptyTextBlocksFromSlice(blocks []any) ([]any, bool) {
+	var result []any
+	changed := false
+	for i, block := range blocks {
+		blockMap, ok := block.(map[string]any)
+		if !ok {
+			if result != nil {
+				result = append(result, block)
+			}
+			continue
+		}
+		blockType, _ := blockMap["type"].(string)
+
+		// Strip empty text blocks
+		if blockType == "text" {
+			if txt, _ := blockMap["text"].(string); txt == "" {
+				if result == nil {
+					result = make([]any, 0, len(blocks))
+					result = append(result, blocks[:i]...)
+				}
+				changed = true
+				continue
+			}
+		}
+
+		// Recurse into tool_result nested content
+		if blockType == "tool_result" {
+			if nestedContent, ok := blockMap["content"].([]any); ok {
+				if cleaned, nestedChanged := stripEmptyTextBlocksFromSlice(nestedContent); nestedChanged {
+					if result == nil {
+						result = make([]any, 0, len(blocks))
+						result = append(result, blocks[:i]...)
+					}
+					changed = true
+					blockCopy := make(map[string]any, len(blockMap))
+					for k, v := range blockMap {
+						blockCopy[k] = v
+					}
+					blockCopy["content"] = cleaned
+					result = append(result, blockCopy)
+					continue
+				}
+			}
+		}
+
+		if result != nil {
+			result = append(result, block)
+		}
+	}
+	if !changed {
+		return blocks, false
+	}
+	return result, true
+}
+
+// StripEmptyTextBlocks removes empty text blocks from the request body (including nested tool_result content).
+// This is a lightweight pre-filter for the initial request path to prevent upstream 400 errors.
+// Returns the original body unchanged if no empty text blocks are found.
+func StripEmptyTextBlocks(body []byte) []byte {
+	// Fast path: check if body contains empty text patterns
+	hasEmptyTextBlock := bytes.Contains(body, patternEmptyText) ||
+		bytes.Contains(body, patternEmptyTextSpaced) ||
+		bytes.Contains(body, patternEmptyTextSp1) ||
+		bytes.Contains(body, patternEmptyTextSp2)
+	if !hasEmptyTextBlock {
+		return body
+	}
+
+	jsonStr := *(*string)(unsafe.Pointer(&body))
+	msgsRes := gjson.Get(jsonStr, "messages")
+	if !msgsRes.Exists() || !msgsRes.IsArray() {
+		return body
+	}
+
+	var messages []any
+	if err := json.Unmarshal(sliceRawFromBody(body, msgsRes), &messages); err != nil {
+		return body
+	}
+
+	modified := false
+	for _, msg := range messages {
+		msgMap, ok := msg.(map[string]any)
+		if !ok {
+			continue
+		}
+		content, ok := msgMap["content"].([]any)
+		if !ok {
+			continue
+		}
+		if cleaned, changed := stripEmptyTextBlocksFromSlice(content); changed {
+			modified = true
+			msgMap["content"] = cleaned
+		}
+	}
+
+	if !modified {
+		return body
+	}
+
+	msgsBytes, err := json.Marshal(messages)
+	if err != nil {
+		return body
+	}
+	out, err := sjson.SetRawBytes(body, "messages", msgsBytes)
+	if err != nil {
+		return body
+	}
+	return out
+}
+
 // FilterThinkingBlocks removes thinking blocks from request body
 // Returns filtered body or original body if filtering fails (fail-safe)
 // This prevents 400 errors from invalid thinking block signatures
@@ -258,7 +421,7 @@ func FilterThinkingBlocksForRetry(body []byte) []byte {
 
 	// 尽量避免把整个 body Unmarshal 成 map（会产生大量 map/接口分配）。
 	// 这里先用 gjson 把 messages 子树摘出来，后续只对 messages 做 Unmarshal/Marshal。
-	jsonStr := string(body)
+	jsonStr := *(*string)(unsafe.Pointer(&body))
 	msgsRes := gjson.Get(jsonStr, "messages")
 	if !msgsRes.Exists() || !msgsRes.IsArray() {
 		return body
@@ -376,6 +539,23 @@ func FilterThinkingBlocksForRetry(body []byte) []byte {
 				}
 			}
 
+			// Recursively strip empty text blocks from tool_result nested content.
+			if blockType == "tool_result" {
+				if nestedContent, ok := blockMap["content"].([]any); ok {
+					if cleaned, changed := stripEmptyTextBlocksFromSlice(nestedContent); changed {
+						modifiedThisMsg = true
+						ensureNewContent(bi)
+						blockCopy := make(map[string]any, len(blockMap))
+						for k, v := range blockMap {
+							blockCopy[k] = v
+						}
+						blockCopy["content"] = cleaned
+						newContent = append(newContent, blockCopy)
+						continue
+					}
+				}
+			}
+
 			if newContent != nil {
 				newContent = append(newContent, block)
 			}
@@ -445,7 +625,7 @@ func FilterThinkingBlocksForRetry(body []byte) []byte {
 // 当顶层 "thinking" 字段被禁用时必须调用，否则上游会返回
 // "strategy requires thinking to be enabled or adaptive"。
 func removeThinkingDependentContextStrategies(body []byte) []byte {
-	jsonStr := string(body)
+	jsonStr := *(*string)(unsafe.Pointer(&body))
 	editsRes := gjson.Get(jsonStr, "context_management.edits")
 	if !editsRes.Exists() || !editsRes.IsArray() {
 		return body
@@ -874,7 +1054,6 @@ func RectifyThinkingBudget(body []byte) ([]byte, bool) {
 	return modified, changed
 }
 
-// =========================
 // Surgical Thinking Block Removal
 // =========================
 

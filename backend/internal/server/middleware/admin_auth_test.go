@@ -200,3 +200,9 @@ func (s *stubUserRepo) EnableTotp(ctx context.Context, userID int64) error {
 func (s *stubUserRepo) DisableTotp(ctx context.Context, userID int64) error {
 	panic("unexpected DisableTotp call")
 }
+func (s *stubUserRepo) ListAllIDs(ctx context.Context) ([]int64, error) {
+	panic("unexpected ListAllIDs call")
+}
+func (s *stubUserRepo) GetByIDs(ctx context.Context, ids []int64) ([]*service.User, error) {
+	panic("unexpected GetByIDs call")
+}

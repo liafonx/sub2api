@@ -76,9 +76,6 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // openAIGateway
 		nil, // scheduledTestRunner
 		nil, // backupSvc
-		nil, // claudeCodeVersionDetect
-		nil, // peakUsageSvc
-		nil, // ccProbeSvc
 	)
 
 	require.NotPanics(t, func() {

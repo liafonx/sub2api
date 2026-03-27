@@ -115,9 +115,7 @@ watch(
     if (isOpen) {
       // 保存当前焦点元素
       previousActiveElement = document.activeElement as HTMLElement
-      // Measure scrollbar width before hiding it, then compensate via CSS var
-      const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth
-      document.documentElement.style.setProperty('--scrollbar-width', `${scrollbarWidth}px`)
+      // 使用CSS类而不是直接操作style,更易于管理多个对话框
       document.body.classList.add('modal-open')
 
       // 等待DOM更新后设置焦点到对话框
@@ -130,7 +128,6 @@ watch(
       }
     } else {
       document.body.classList.remove('modal-open')
-      document.documentElement.style.removeProperty('--scrollbar-width')
       // 恢复之前的焦点
       if (previousActiveElement && typeof previousActiveElement.focus === 'function') {
         previousActiveElement.focus()

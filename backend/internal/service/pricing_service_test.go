@@ -84,7 +84,7 @@ func TestGetModelPricing_OpenAIFallbackMatchedLoggedAsInfo(t *testing.T) {
 func TestGetModelPricing_Gpt54UsesStaticFallbackWhenRemoteMissing(t *testing.T) {
 	svc := &PricingService{
 		pricingData: map[string]*LiteLLMModelPricing{
-			"gpt-5.1-codex": {InputCostPerToken: 1.25e-6},
+			"gpt-5.1-codex": &LiteLLMModelPricing{InputCostPerToken: 1.25e-6},
 		},
 	}
 
@@ -96,6 +96,36 @@ func TestGetModelPricing_Gpt54UsesStaticFallbackWhenRemoteMissing(t *testing.T) 
 	require.Equal(t, 272000, got.LongContextInputTokenThreshold)
 	require.InDelta(t, 2.0, got.LongContextInputCostMultiplier, 1e-12)
 	require.InDelta(t, 1.5, got.LongContextOutputCostMultiplier, 1e-12)
+}
+
+func TestGetModelPricing_Gpt54MiniUsesDedicatedStaticFallbackWhenRemoteMissing(t *testing.T) {
+	svc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"gpt-5.1-codex": {InputCostPerToken: 1.25e-6},
+		},
+	}
+
+	got := svc.GetModelPricing("gpt-5.4-mini")
+	require.NotNil(t, got)
+	require.InDelta(t, 7.5e-7, got.InputCostPerToken, 1e-12)
+	require.InDelta(t, 4.5e-6, got.OutputCostPerToken, 1e-12)
+	require.InDelta(t, 7.5e-8, got.CacheReadInputTokenCost, 1e-12)
+	require.Zero(t, got.LongContextInputTokenThreshold)
+}
+
+func TestGetModelPricing_Gpt54NanoUsesDedicatedStaticFallbackWhenRemoteMissing(t *testing.T) {
+	svc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"gpt-5.1-codex": {InputCostPerToken: 1.25e-6},
+		},
+	}
+
+	got := svc.GetModelPricing("gpt-5.4-nano")
+	require.NotNil(t, got)
+	require.InDelta(t, 2e-7, got.InputCostPerToken, 1e-12)
+	require.InDelta(t, 1.25e-6, got.OutputCostPerToken, 1e-12)
+	require.InDelta(t, 2e-8, got.CacheReadInputTokenCost, 1e-12)
+	require.Zero(t, got.LongContextInputTokenThreshold)
 }
 
 func TestParsePricingData_PreservesPriorityAndServiceTierFields(t *testing.T) {
@@ -157,35 +187,4 @@ func TestParsePricingData_PreservesServiceTierPriorityFields(t *testing.T) {
 	require.InDelta(t, 0.00000025, pricing.CacheReadInputTokenCost, 1e-12)
 	require.InDelta(t, 0.0000005, pricing.CacheReadInputTokenCostPriority, 1e-12)
 	require.True(t, pricing.SupportsServiceTier)
-}
-
-func TestBuildModelProviderIndex(t *testing.T) {
-	data := map[string]*LiteLLMModelPricing{
-		"gpt-4o":                     {LiteLLMProvider: "openai"},
-		"claude-3-5-sonnet-20241022": {LiteLLMProvider: "anthropic"},
-		"gemini-1.5-pro":             {LiteLLMProvider: "vertex_ai-language-models"},
-		"no-provider-model":          {LiteLLMProvider: ""},
-	}
-
-	index := buildModelProviderIndex(data)
-
-	require.Equal(t, "openai", index["gpt-4o"])
-	require.Equal(t, "anthropic", index["claude-3-5-sonnet-20241022"])
-	require.Equal(t, "vertex_ai-language-models", index["gemini-1.5-pro"])
-	require.NotContains(t, index, "no-provider-model", "models with empty provider should be excluded")
-}
-
-func TestGetModelProvider(t *testing.T) {
-	svc := &PricingService{
-		modelProvider: map[string]string{
-			"gpt-4o":                     "openai",
-			"claude-3-5-sonnet-20241022": "anthropic",
-		},
-	}
-
-	require.Equal(t, "openai", svc.GetModelProvider("gpt-4o"))
-	require.Equal(t, "openai", svc.GetModelProvider("GPT-4O"), "should be case-insensitive")
-	require.Equal(t, "anthropic", svc.GetModelProvider("claude-3-5-sonnet-20241022"))
-	require.Equal(t, "", svc.GetModelProvider("unknown-model"), "unknown model returns empty string")
-	require.Equal(t, "", svc.GetModelProvider(""), "empty model returns empty string")
 }

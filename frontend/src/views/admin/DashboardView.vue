@@ -310,9 +310,9 @@ import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import Icon from '@/components/icons/Icon.vue'
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import Select from '@/components/common/Select.vue'
+import PeakUsageModal from '@/components/admin/PeakUsageModal.vue'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'
 import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
-import PeakUsageModal from '@/components/admin/PeakUsageModal.vue'
 
 import {
   Chart as ChartJS,
@@ -339,6 +339,12 @@ ChartJS.register(
 
 const appStore = useAppStore()
 const router = useRouter()
+const stats = ref<DashboardStats | null>(null)
+const loading = ref(false)
+const chartsLoading = ref(false)
+const userTrendLoading = ref(false)
+const rankingLoading = ref(false)
+const rankingError = ref(false)
 
 // Peak usage modal state
 const showPeakModal = ref(false)
@@ -348,12 +354,6 @@ function openPeakModal(type: 'account' | 'user') {
   peakEntityType.value = type
   showPeakModal.value = true
 }
-const stats = ref<DashboardStats | null>(null)
-const loading = ref(false)
-const chartsLoading = ref(false)
-const userTrendLoading = ref(false)
-const rankingLoading = ref(false)
-const rankingError = ref(false)
 
 // Chart data
 const trendData = ref<TrendDataPoint[]>([])

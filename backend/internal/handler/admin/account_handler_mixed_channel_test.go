@@ -2,7 +2,6 @@ package admin
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -16,7 +15,7 @@ import (
 func setupAccountMixedChannelRouter(adminSvc *stubAdminService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	accountHandler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	accountHandler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	router.POST("/api/v1/admin/accounts/check-mixed-channel", accountHandler.CheckMixedChannel)
 	router.POST("/api/v1/admin/accounts", accountHandler.Create)
 	router.PUT("/api/v1/admin/accounts/:id", accountHandler.Update)
@@ -172,55 +171,6 @@ func TestAccountHandlerBulkUpdateMixedChannelConflict(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, "mixed_channel_warning", resp["error"])
 	require.Contains(t, resp["message"], "claude-max")
-}
-
-// mockUserQuotaChecker is a test double for service.UserQuotaChecker.
-type mockUserQuotaChecker struct {
-	notifyCalledWith *service.Account
-}
-
-func (m *mockUserQuotaChecker) CheckUserQuota(_ context.Context, _ *service.Account, _ int64, _ bool) (bool, string) {
-	return true, "disabled"
-}
-
-func (m *mockUserQuotaChecker) RegisterActivity(_ context.Context, _ *service.Account, _ int64) {}
-
-func (m *mockUserQuotaChecker) IncrementUserCost(_ context.Context, _ int64, _ int64, _ float64) {}
-
-func (m *mockUserQuotaChecker) GetDisplayMetaBatch(_ context.Context, _ []int64) (map[int64]service.QuotaDisplayMeta, error) {
-	return nil, nil
-}
-
-func (m *mockUserQuotaChecker) GetUserQuotaStatus(_ context.Context, _ int64, _ int64) (float64, float64, int64, bool, error) {
-	return 0, 0, 0, false, nil
-}
-
-func (m *mockUserQuotaChecker) NotifyAccountUpdated(_ context.Context, account *service.Account) {
-	m.notifyCalledWith = account
-}
-
-var _ service.UserQuotaChecker = (*mockUserQuotaChecker)(nil)
-
-func TestAccountHandlerUpdate_CallsNotifyAccountUpdated(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	adminSvc := newStubAdminService()
-	quotaMock := &mockUserQuotaChecker{}
-	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, quotaMock)
-
-	router := gin.New()
-	router.PUT("/api/v1/admin/accounts/:id", handler.Update)
-
-	body, _ := json.Marshal(map[string]any{
-		"name": "updated-account",
-	})
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/accounts/3", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.NotNil(t, quotaMock.notifyCalledWith, "expected NotifyAccountUpdated to be called")
-	require.Equal(t, int64(3), quotaMock.notifyCalledWith.ID)
 }
 
 func TestAccountHandlerBulkUpdateMixedChannelConfirmSkips(t *testing.T) {

@@ -279,7 +279,7 @@ func normalizePrompt(text string) string {
 	return strings.Join(strings.Fields(text), " ")
 }
 
-// diceCoefficient 计算两个字符串的 Dice 系数（Sørensen–Dice coefficient）
+// diceCoefficient 计算两个字符串的 Dice 系数（Sorensen-Dice coefficient）
 // 这是 string-similarity 库使用的算法
 // 公式: 2 * |intersection| / (|bigrams(a)| + |bigrams(b)|)
 func diceCoefficient(a, b string) float64 {

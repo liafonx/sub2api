@@ -82,7 +82,7 @@ type stubConcurrencyCache struct {
 	ConcurrencyCache
 	loadBatchErr    error
 	loadMap         map[int64]*AccountLoadInfo
-	acquireResults  map[int64]bool
+	acquireResults  map[int64]int
 	waitCounts      map[int64]int
 	skipDefaultLoad bool
 }
@@ -109,10 +109,7 @@ func (w *failingGinWriter) Write(p []byte) (int, error) {
 func (c stubConcurrencyCache) AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (int, error) {
 	if c.acquireResults != nil {
 		if result, ok := c.acquireResults[accountID]; ok {
-			if result {
-				return 1, nil
-			}
-			return 0, nil
+			return result, nil
 		}
 	}
 	return 1, nil
@@ -521,7 +518,7 @@ func TestOpenAISelectAccountWithLoadAwareness_NoSlotFallbackWait(t *testing.T) {
 	}
 	cache := &stubGatewayCache{}
 	concurrencyCache := stubConcurrencyCache{
-		acquireResults: map[int64]bool{1: false},
+		acquireResults: map[int64]int{1: 0},
 		loadMap: map[int64]*AccountLoadInfo{
 			1: {AccountID: 1, LoadRate: 10},
 		},
@@ -583,7 +580,7 @@ func TestOpenAISelectAccountWithLoadAwareness_StickyWaitPlan(t *testing.T) {
 		sessionBindings: map[string]int64{"openai:" + sessionHash: 1},
 	}
 	concurrencyCache := stubConcurrencyCache{
-		acquireResults: map[int64]bool{1: false},
+		acquireResults: map[int64]int{1: 0},
 		waitCounts:     map[int64]int{1: 0},
 	}
 
@@ -778,7 +775,7 @@ func TestOpenAISelectAccountWithLoadAwareness_LoadBatchErrorNoAcquire(t *testing
 	cache := &stubGatewayCache{}
 	concurrencyCache := stubConcurrencyCache{
 		loadBatchErr:   errors.New("load batch failed"),
-		acquireResults: map[int64]bool{1: false},
+		acquireResults: map[int64]int{1: 0},
 	}
 
 	svc := &OpenAIGatewayService{

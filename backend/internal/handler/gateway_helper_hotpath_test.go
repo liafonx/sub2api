@@ -17,8 +17,8 @@ import (
 type helperConcurrencyCacheStub struct {
 	mu sync.Mutex
 
-	accountSeq []bool
-	userSeq    []bool
+	accountSeq []int
+	userSeq    []int
 
 	accountAcquireCalls int
 	userAcquireCalls    int
@@ -35,10 +35,7 @@ func (s *helperConcurrencyCacheStub) AcquireAccountSlot(ctx context.Context, acc
 	}
 	v := s.accountSeq[0]
 	s.accountSeq = s.accountSeq[1:]
-	if v {
-		return 1, nil
-	}
-	return 0, nil
+	return v, nil
 }
 
 func (s *helperConcurrencyCacheStub) ReleaseAccountSlot(ctx context.Context, accountID int64, requestID string) error {
@@ -81,10 +78,7 @@ func (s *helperConcurrencyCacheStub) AcquireUserSlot(ctx context.Context, userID
 	}
 	v := s.userSeq[0]
 	s.userSeq = s.userSeq[1:]
-	if v {
-		return 1, nil
-	}
-	return 0, nil
+	return v, nil
 }
 
 func (s *helperConcurrencyCacheStub) ReleaseUserSlot(ctx context.Context, userID int64, requestID string) error {
@@ -225,8 +219,8 @@ func TestSetClaudeCodeClientContext_ReuseParsedRequestAndContextCache(t *testing
 
 func TestWaitForSlotWithPingTimeout_AccountAndUserAcquire(t *testing.T) {
 	cache := &helperConcurrencyCacheStub{
-		accountSeq: []bool{false, true},
-		userSeq:    []bool{false, true},
+		accountSeq: []int{0, 1},
+		userSeq:    []int{0, 1},
 	}
 	concurrency := service.NewConcurrencyService(cache, nil)
 	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond)
@@ -257,7 +251,7 @@ func TestWaitForSlotWithPingTimeout_AccountAndUserAcquire(t *testing.T) {
 
 func TestWaitForSlotWithPingTimeout_TimeoutAndStreamPing(t *testing.T) {
 	cache := &helperConcurrencyCacheStub{
-		accountSeq: []bool{false, false, false},
+		accountSeq: []int{0, 0, 0},
 	}
 	concurrency := service.NewConcurrencyService(cache, nil)
 
@@ -302,7 +296,7 @@ func TestWaitForSlotWithPingTimeout_AcquireError(t *testing.T) {
 
 func TestAcquireAccountSlotWithWaitTimeout_ImmediateAttemptBeforeBackoff(t *testing.T) {
 	cache := &helperConcurrencyCacheStub{
-		accountSeq: []bool{false},
+		accountSeq: []int{0},
 	}
 	concurrency := service.NewConcurrencyService(cache, nil)
 	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond)

@@ -92,7 +92,7 @@ func (m *mockAccountRepoForPlatform) Delete(ctx context.Context, id int64) error
 func (m *mockAccountRepoForPlatform) List(ctx context.Context, params pagination.PaginationParams) ([]Account, *pagination.PaginationResult, error) {
 	return nil, nil, nil
 }
-func (m *mockAccountRepoForPlatform) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64) ([]Account, *pagination.PaginationResult, error) {
+func (m *mockAccountRepoForPlatform) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, *pagination.PaginationResult, error) {
 	return nil, nil, nil
 }
 func (m *mockAccountRepoForPlatform) ListByGroup(ctx context.Context, groupID int64) ([]Account, error) {
@@ -1821,7 +1821,7 @@ func TestAccount_IsMixedSchedulingEnabled(t *testing.T) {
 		},
 		{
 			name:     "antigravity平台-mixed_scheduling=false-返回false",
-			account:  Account{Platform: PlatformAntigravity, Extra: map[string]any{"mixed_scheduling": false}},
+			account:  Account{Platform: PlatformAntigravity, Extra: map[string]any{"mixed_scheduling": 0}},
 			expected: false,
 		},
 		{
@@ -1848,7 +1848,7 @@ func TestAccount_IsMixedSchedulingEnabled(t *testing.T) {
 type mockConcurrencyService struct {
 	accountLoads      map[int64]*AccountLoadInfo
 	accountWaitCounts map[int64]int
-	acquireResults    map[int64]bool
+	acquireResults    map[int64]int
 }
 
 func (m *mockConcurrencyService) GetAccountsLoadBatch(ctx context.Context, accounts []AccountWithConcurrency) (map[int64]*AccountLoadInfo, error) {
@@ -1881,7 +1881,7 @@ func (m *mockConcurrencyService) GetAccountWaitingCount(ctx context.Context, acc
 type mockConcurrencyCache struct {
 	acquireAccountCalls int
 	loadBatchCalls      int
-	acquireResults      map[int64]bool
+	acquireResults      map[int64]int
 	loadBatchErr        error
 	loadMap             map[int64]*AccountLoadInfo
 	waitCounts          map[int64]int
@@ -1892,10 +1892,7 @@ func (m *mockConcurrencyCache) AcquireAccountSlot(ctx context.Context, accountID
 	m.acquireAccountCalls++
 	if m.acquireResults != nil {
 		if result, ok := m.acquireResults[accountID]; ok {
-			if result {
-				return 1, nil
-			}
-			return 0, nil
+			return result, nil
 		}
 	}
 	return 1, nil
@@ -2382,7 +2379,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 		cfg.Gateway.Scheduling.StickySessionMaxWaiting = 1
 
 		concurrencyCache := &mockConcurrencyCache{
-			acquireResults: map[int64]bool{1: false},
+			acquireResults: map[int64]int{1: 0},
 			waitCounts:     map[int64]int{1: 0},
 		}
 
@@ -2476,7 +2473,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 		cfg.Gateway.Scheduling.StickySessionMaxWaiting = 1
 
 		concurrencyCache := &mockConcurrencyCache{
-			acquireResults: map[int64]bool{1: false},
+			acquireResults: map[int64]int{1: 0},
 			waitCounts:     map[int64]int{1: 0},
 		}
 
@@ -2697,7 +2694,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 		cfg.Gateway.Scheduling.LoadBatchEnabled = true
 
 		concurrencyCache := &mockConcurrencyCache{
-			acquireResults: map[int64]bool{1: false, 2: false},
+			acquireResults: map[int64]int{1: 0, 2: 0},
 			loadMap: map[int64]*AccountLoadInfo{
 				1: {AccountID: 1, LoadRate: 10},
 				2: {AccountID: 2, LoadRate: 20},
@@ -2797,7 +2794,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 
 		concurrencyCache := &mockConcurrencyCache{
 			loadBatchErr:   errors.New("load batch failed"),
-			acquireResults: map[int64]bool{1: false, 2: false},
+			acquireResults: map[int64]int{1: 0, 2: 0},
 		}
 
 		svc := &GatewayService{
@@ -3048,7 +3045,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 		cfg.Gateway.Scheduling.LoadBatchEnabled = true
 
 		concurrencyCache := &mockConcurrencyCache{
-			acquireResults: map[int64]bool{1: false, 2: false},
+			acquireResults: map[int64]int{1: 0, 2: 0},
 			loadMap: map[int64]*AccountLoadInfo{
 				1: {AccountID: 1, LoadRate: 10},
 				2: {AccountID: 2, LoadRate: 20},

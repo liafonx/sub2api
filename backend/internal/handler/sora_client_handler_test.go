@@ -951,6 +951,10 @@ func (r *stubUserRepoForHandler) DisableTotp(context.Context, int64) error      
 func (r *stubUserRepoForHandler) AddGroupToAllowedGroups(context.Context, int64, int64) error {
 	return nil
 }
+func (r *stubUserRepoForHandler) ListAllIDs(context.Context) ([]int64, error) { return nil, nil }
+func (r *stubUserRepoForHandler) GetByIDs(context.Context, []int64) ([]*service.User, error) {
+	return nil, nil
+}
 
 // ==================== NewSoraClientHandler ====================
 
@@ -2072,7 +2076,7 @@ func (r *stubAccountRepoForHandler) Delete(context.Context, int64) error        
 func (r *stubAccountRepoForHandler) List(context.Context, pagination.PaginationParams) ([]service.Account, *pagination.PaginationResult, error) {
 	return nil, nil, nil
 }
-func (r *stubAccountRepoForHandler) ListWithFilters(context.Context, pagination.PaginationParams, string, string, string, string, int64) ([]service.Account, *pagination.PaginationResult, error) {
+func (r *stubAccountRepoForHandler) ListWithFilters(context.Context, pagination.PaginationParams, string, string, string, string, int64, string) ([]service.Account, *pagination.PaginationResult, error) {
 	return nil, nil, nil
 }
 func (r *stubAccountRepoForHandler) ListByGroup(context.Context, int64) ([]service.Account, error) {
@@ -2224,7 +2228,7 @@ func (s *stubSoraClientForHandler) GetVideoTask(_ context.Context, _ *service.Ac
 func newMinimalGatewayService(accountRepo service.AccountRepository) *service.GatewayService {
 	return service.NewGatewayService(
 		accountRepo, nil, nil, nil, nil, nil, nil, nil, nil,
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 	)
 }
 

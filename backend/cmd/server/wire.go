@@ -95,7 +95,9 @@ func provideCleanup(
 	openAIGateway *service.OpenAIGatewayService,
 	scheduledTestRunner *service.ScheduledTestRunnerService,
 	backupSvc *service.BackupService,
+	claudeCodeVersionDetect *service.ClaudeCodeVersionDetectService,
 	peakUsageSvc *service.PeakUsageService,
+	ccProbeSvc *service.CCProbeService,
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -241,6 +243,18 @@ func provideCleanup(
 			{"PeakUsageService", func() error {
 				if peakUsageSvc != nil {
 					peakUsageSvc.Stop()
+				}
+				return nil
+			}},
+			{"CCProbeService", func() error {
+				if ccProbeSvc != nil {
+					ccProbeSvc.Stop()
+				}
+				return nil
+			}},
+			{"ClaudeCodeVersionDetectService", func() error {
+				if claudeCodeVersionDetect != nil {
+					claudeCodeVersionDetect.Stop()
 				}
 				return nil
 			}},

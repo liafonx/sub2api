@@ -21,6 +21,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/util/soraerror"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
@@ -67,8 +68,9 @@ type AccountTestService struct {
 	antigravityGatewayService *AntigravityGatewayService
 	httpUpstream              HTTPUpstream
 	cfg                       *config.Config
-	identityService           *IdentityService
-	ccProbeService            *CCProbeService
+	tlsFPProfileService       *TLSFingerprintProfileService
+	identityService           *IdentityService // fork: per-account fingerprint lookup
+	ccProbeService            *CCProbeService  // fork: live version header overlay
 	soraTestGuardMu           sync.Mutex
 	soraTestLastRun           map[int64]time.Time
 	soraTestCooldown          time.Duration
@@ -83,6 +85,7 @@ func NewAccountTestService(
 	antigravityGatewayService *AntigravityGatewayService,
 	httpUpstream HTTPUpstream,
 	cfg *config.Config,
+	tlsFPProfileService *TLSFingerprintProfileService,
 ) *AccountTestService {
 	return &AccountTestService{
 		accountRepo:               accountRepo,
@@ -90,6 +93,7 @@ func NewAccountTestService(
 		antigravityGatewayService: antigravityGatewayService,
 		httpUpstream:              httpUpstream,
 		cfg:                       cfg,
+		tlsFPProfileService:       tlsFPProfileService,
 		soraTestLastRun:           make(map[int64]time.Time),
 		soraTestCooldown:          defaultSoraTestCooldown,
 	}
@@ -269,7 +273,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 	c.Writer.Flush()
 
-	// Fetch fingerprint once — used for both payload identity and header overlay.
+	// Fetch fingerprint once -- used for both payload identity and header overlay.
 	var fingerprint *Fingerprint
 	var fpClientID, fpAccountUUID, fpUAVersion string
 	if s.identityService != nil {
@@ -293,9 +297,9 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	// Full mimic pipeline — must match gateway_service.buildUpstreamRequest for trait consistency.
+	// Full mimic pipeline -- must match gateway_service.buildUpstreamRequest for trait consistency.
 	applyClaudeCodeMimicHeaders(req, true)
-	applyProfileAndProbeHeaders(req, account.GetTLSFingerprintProfile(), s.ccProbeService)
+	applyProfileAndProbeHeaders(req, s.tlsFPProfileService.ResolveProfileKey(account), s.ccProbeService)
 	if fingerprint != nil {
 		s.identityService.ApplyFingerprint(req, fingerprint)
 	}
@@ -315,7 +319,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		proxyURL = account.Proxy.URL()
 	}
 
-	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, account.IsTLSFingerprintEnabled(), account.GetTLSFingerprintProfile())
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
 	}
@@ -325,7 +329,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		body, _ := io.ReadAll(resp.Body)
 		errMsg := fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body))
 
-		// 403 表示账号被上游封禁，标记为 error 状态
+		// 403 means upstream banned the account
 		if resp.StatusCode == http.StatusForbidden {
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
@@ -405,7 +409,7 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 		proxyURL = account.Proxy.URL()
 	}
 
-	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, false, account.GetTLSFingerprintProfile())
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, nil)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
 	}
@@ -535,7 +539,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		proxyURL = account.Proxy.URL()
 	}
 
-	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, account.IsTLSFingerprintEnabled(), account.GetTLSFingerprintProfile())
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
 	}
@@ -625,7 +629,7 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 		proxyURL = account.Proxy.URL()
 	}
 
-	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, account.IsTLSFingerprintEnabled(), account.GetTLSFingerprintProfile())
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
 	}
@@ -896,9 +900,9 @@ func (s *AccountTestService) testSoraAccountConnection(c *gin.Context, account *
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
-	enableSoraTLSFingerprint := s.shouldEnableSoraTLSFingerprint()
+	soraTLSProfile := s.resolveSoraTLSProfile()
 
-	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, enableSoraTLSFingerprint, account.GetTLSFingerprintProfile())
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, soraTLSProfile)
 	if err != nil {
 		recorder.addStep("me", "failed", 0, "network_error", err.Error())
 		s.emitSoraProbeSummary(c, recorder)
@@ -963,7 +967,7 @@ func (s *AccountTestService) testSoraAccountConnection(c *gin.Context, account *
 		subReq.Header.Set("Origin", "https://sora.chatgpt.com")
 		subReq.Header.Set("Referer", "https://sora.chatgpt.com/")
 
-		subResp, subErr := s.httpUpstream.DoWithTLS(subReq, proxyURL, account.ID, account.Concurrency, enableSoraTLSFingerprint, account.GetTLSFingerprintProfile())
+		subResp, subErr := s.httpUpstream.DoWithTLS(subReq, proxyURL, account.ID, account.Concurrency, soraTLSProfile)
 		if subErr != nil {
 			recorder.addStep("subscription", "failed", 0, "network_error", subErr.Error())
 			s.sendEvent(c, TestEvent{Type: "content", Text: fmt.Sprintf("Subscription check skipped: %s", subErr.Error())})
@@ -992,7 +996,7 @@ func (s *AccountTestService) testSoraAccountConnection(c *gin.Context, account *
 	}
 
 	// 追加 Sora2 能力探测（对齐 sora2api 的测试思路）：邀请码 + 剩余额度。
-	s.testSora2Capabilities(c, ctx, account, authToken, proxyURL, enableSoraTLSFingerprint, recorder)
+	s.testSora2Capabilities(c, ctx, account, authToken, proxyURL, soraTLSProfile, recorder)
 
 	s.emitSoraProbeSummary(c, recorder)
 	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
@@ -1005,7 +1009,7 @@ func (s *AccountTestService) testSora2Capabilities(
 	account *Account,
 	authToken string,
 	proxyURL string,
-	enableTLSFingerprint bool,
+	tlsProfile *tlsfingerprint.Profile,
 	recorder *soraProbeRecorder,
 ) {
 	inviteStatus, inviteHeader, inviteBody, err := s.fetchSoraTestEndpoint(
@@ -1014,7 +1018,7 @@ func (s *AccountTestService) testSora2Capabilities(
 		authToken,
 		soraInviteMineURL,
 		proxyURL,
-		enableTLSFingerprint,
+		tlsProfile,
 	)
 	if err != nil {
 		if recorder != nil {
@@ -1031,7 +1035,7 @@ func (s *AccountTestService) testSora2Capabilities(
 			authToken,
 			soraBootstrapURL,
 			proxyURL,
-			enableTLSFingerprint,
+			tlsProfile,
 		)
 		if bootstrapErr == nil && bootstrapStatus == http.StatusOK {
 			if recorder != nil {
@@ -1044,7 +1048,7 @@ func (s *AccountTestService) testSora2Capabilities(
 				authToken,
 				soraInviteMineURL,
 				proxyURL,
-				enableTLSFingerprint,
+				tlsProfile,
 			)
 			if err != nil {
 				if recorder != nil {
@@ -1096,7 +1100,7 @@ func (s *AccountTestService) testSora2Capabilities(
 		authToken,
 		soraRemainingURL,
 		proxyURL,
-		enableTLSFingerprint,
+		tlsProfile,
 	)
 	if remainingErr != nil {
 		if recorder != nil {
@@ -1137,7 +1141,7 @@ func (s *AccountTestService) fetchSoraTestEndpoint(
 	authToken string,
 	url string,
 	proxyURL string,
-	enableTLSFingerprint bool,
+	tlsProfile *tlsfingerprint.Profile,
 ) (int, http.Header, []byte, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -1150,7 +1154,7 @@ func (s *AccountTestService) fetchSoraTestEndpoint(
 	req.Header.Set("Origin", "https://sora.chatgpt.com")
 	req.Header.Set("Referer", "https://sora.chatgpt.com/")
 
-	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, enableTLSFingerprint, account.GetTLSFingerprintProfile())
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, tlsProfile)
 	if err != nil {
 		return 0, nil, nil, err
 	}
@@ -1239,11 +1243,12 @@ func parseSoraRemainingSummary(body []byte) string {
 	return strings.Join(parts, " | ")
 }
 
-func (s *AccountTestService) shouldEnableSoraTLSFingerprint() bool {
-	if s == nil || s.cfg == nil {
-		return true
+func (s *AccountTestService) resolveSoraTLSProfile() *tlsfingerprint.Profile {
+	if s == nil || s.cfg == nil || !s.cfg.Sora.Client.DisableTLSFingerprint {
+		// Sora TLS fingerprint enabled — use built-in default profile
+		return &tlsfingerprint.Profile{Name: "Built-in Default (Sora)"}
 	}
-	return !s.cfg.Sora.Client.DisableTLSFingerprint
+	return nil // disabled
 }
 
 func isCloudflareChallengeResponse(statusCode int, headers http.Header, body []byte) bool {

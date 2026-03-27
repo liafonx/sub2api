@@ -547,13 +547,9 @@ router.afterEach((to) => {
 router.onError((error) => {
   console.error('Router error:', error)
 
-  // Always clear navigation loading state on error — afterEach is never called for failed navigations
-  navigationLoading.endNavigation()
-
   // Check if this is a dynamic import failure (chunk loading error)
   const isChunkLoadError =
     error.message?.includes('Failed to fetch dynamically imported module') ||
-    error.message?.includes('Importing a module script failed') || // Safari/WebKit
     error.message?.includes('Loading chunk') ||
     error.message?.includes('Loading CSS chunk') ||
     error.name === 'ChunkLoadError'

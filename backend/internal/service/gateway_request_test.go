@@ -435,6 +435,122 @@ func TestFilterThinkingBlocksForRetry_StripsEmptyTextBlocks(t *testing.T) {
 	require.NotEmpty(t, block1["text"])
 }
 
+func TestFilterThinkingBlocksForRetry_StripsNestedEmptyTextInToolResult(t *testing.T) {
+	// Empty text blocks nested inside tool_result content should also be stripped
+	input := []byte(`{
+		"messages":[
+			{"role":"user","content":[
+				{"type":"tool_result","tool_use_id":"t1","content":[
+					{"type":"text","text":"valid result"},
+					{"type":"text","text":""}
+				]}
+			]}
+		]
+	}`)
+
+	out := FilterThinkingBlocksForRetry(input)
+
+	var req map[string]any
+	require.NoError(t, json.Unmarshal(out, &req))
+	msgs := req["messages"].([]any)
+	msg0 := msgs[0].(map[string]any)
+	content0 := msg0["content"].([]any)
+	require.Len(t, content0, 1)
+	toolResult := content0[0].(map[string]any)
+	require.Equal(t, "tool_result", toolResult["type"])
+	nestedContent := toolResult["content"].([]any)
+	require.Len(t, nestedContent, 1)
+	require.Equal(t, "valid result", nestedContent[0].(map[string]any)["text"])
+}
+
+func TestFilterThinkingBlocksForRetry_NestedAllEmptyGetsEmptySlice(t *testing.T) {
+	// If all nested content blocks in tool_result are empty text, content becomes empty slice
+	input := []byte(`{
+		"messages":[
+			{"role":"user","content":[
+				{"type":"tool_result","tool_use_id":"t1","content":[
+					{"type":"text","text":""}
+				]},
+				{"type":"text","text":"hello"}
+			]}
+		]
+	}`)
+
+	out := FilterThinkingBlocksForRetry(input)
+
+	var req map[string]any
+	require.NoError(t, json.Unmarshal(out, &req))
+	msgs := req["messages"].([]any)
+	msg0 := msgs[0].(map[string]any)
+	content0 := msg0["content"].([]any)
+	require.Len(t, content0, 2)
+	toolResult := content0[0].(map[string]any)
+	nestedContent := toolResult["content"].([]any)
+	require.Len(t, nestedContent, 0)
+}
+
+func TestStripEmptyTextBlocks(t *testing.T) {
+	t.Run("strips top-level empty text", func(t *testing.T) {
+		input := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"hello"},{"type":"text","text":""}]}]}`)
+		out := StripEmptyTextBlocks(input)
+		var req map[string]any
+		require.NoError(t, json.Unmarshal(out, &req))
+		msgs := req["messages"].([]any)
+		content := msgs[0].(map[string]any)["content"].([]any)
+		require.Len(t, content, 1)
+		require.Equal(t, "hello", content[0].(map[string]any)["text"])
+	})
+
+	t.Run("strips nested empty text in tool_result", func(t *testing.T) {
+		input := []byte(`{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"ok"},{"type":"text","text":""}]}]}]}`)
+		out := StripEmptyTextBlocks(input)
+		var req map[string]any
+		require.NoError(t, json.Unmarshal(out, &req))
+		msgs := req["messages"].([]any)
+		content := msgs[0].(map[string]any)["content"].([]any)
+		toolResult := content[0].(map[string]any)
+		nestedContent := toolResult["content"].([]any)
+		require.Len(t, nestedContent, 1)
+		require.Equal(t, "ok", nestedContent[0].(map[string]any)["text"])
+	})
+
+	t.Run("no-op when no empty text", func(t *testing.T) {
+		input := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`)
+		out := StripEmptyTextBlocks(input)
+		require.Equal(t, input, out)
+	})
+
+	t.Run("preserves non-map blocks in content", func(t *testing.T) {
+		// tool_result content can be a string; non-map blocks should pass through unchanged
+		input := []byte(`{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"string content"},{"type":"text","text":""}]}]}`)
+		out := StripEmptyTextBlocks(input)
+		var req map[string]any
+		require.NoError(t, json.Unmarshal(out, &req))
+		msgs := req["messages"].([]any)
+		content := msgs[0].(map[string]any)["content"].([]any)
+		require.Len(t, content, 1)
+		toolResult := content[0].(map[string]any)
+		require.Equal(t, "tool_result", toolResult["type"])
+		require.Equal(t, "string content", toolResult["content"])
+	})
+
+	t.Run("handles deeply nested tool_result", func(t *testing.T) {
+		// Recursive: tool_result containing another tool_result with empty text
+		input := []byte(`{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"tool_result","tool_use_id":"t2","content":[{"type":"text","text":""},{"type":"text","text":"deep"}]}]}]}]}`)
+		out := StripEmptyTextBlocks(input)
+		var req map[string]any
+		require.NoError(t, json.Unmarshal(out, &req))
+		msgs := req["messages"].([]any)
+		content := msgs[0].(map[string]any)["content"].([]any)
+		outer := content[0].(map[string]any)
+		innerContent := outer["content"].([]any)
+		inner := innerContent[0].(map[string]any)
+		deepContent := inner["content"].([]any)
+		require.Len(t, deepContent, 1)
+		require.Equal(t, "deep", deepContent[0].(map[string]any)["text"])
+	})
+}
+
 func TestFilterThinkingBlocksForRetry_PreservesNonEmptyTextBlocks(t *testing.T) {
 	// Non-empty text blocks should pass through unchanged
 	input := []byte(`{
@@ -1093,399 +1209,5 @@ func BenchmarkParseGatewayRequest_New_Large(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _ = ParseGatewayRequest(data, "")
-	}
-}
-
-// ============ Surgical Thinking Block Removal Tests ============
-
-func TestIsExactSignatureError(t *testing.T) {
-	tests := []struct {
-		name     string
-		errorMsg string
-		want     bool
-	}{
-		{
-			name:     "matches standard signature error with dot notation",
-			errorMsg: "messages.105.content.0: invalid `signature` in `thinking` block",
-			want:     true,
-		},
-		{
-			name:     "matches signature error with bracket notation",
-			errorMsg: "messages[105].content[0]: invalid `signature` in `thinking` block",
-			want:     true,
-		},
-		{
-			name:     "does not match expected thinking error",
-			errorMsg: "messages.1.content.0: Expected `thinking` or `redacted_thinking`",
-			want:     false,
-		},
-		{
-			name:     "does not match cannot be modified error",
-			errorMsg: "thinking block cannot be modified",
-			want:     false,
-		},
-		{
-			name:     "does not match signature error without path",
-			errorMsg: "invalid signature in thinking block",
-			want:     false,
-		},
-		{
-			name:     "does not match empty content error",
-			errorMsg: "content blocks must be non-empty",
-			want:     false,
-		},
-		{
-			name:     "does not match when only signature present",
-			errorMsg: "messages.1.content.0: bad signature",
-			want:     false, // no "thinking" in error
-		},
-		{
-			name:     "does not match when only thinking present",
-			errorMsg: "messages.1.content.0: invalid thinking block format",
-			want:     false, // no "signature" in error
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isExactSignatureError(tt.errorMsg)
-			if got != tt.want {
-				t.Errorf("isExactSignatureError(%q) = %v, want %v", tt.errorMsg, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestSurgicallyRemoveInvalidThinkingBlock(t *testing.T) {
-	makeBody := func(messages []interface{}) []byte {
-		b, _ := json.Marshal(map[string]interface{}{"messages": messages})
-		return b
-	}
-
-	thinkingBlock := map[string]interface{}{"type": "thinking", "thinking": "...", "signature": "bad-sig"}
-	redactedBlock := map[string]interface{}{"type": "redacted_thinking", "data": "..."}
-	textBlock := map[string]interface{}{"type": "text", "text": "hello"}
-
-	// 3-message conversation: user → assistant (with thinking + text) → user
-	threeMsg := func() []byte {
-		return makeBody([]interface{}{
-			map[string]interface{}{"role": "user", "content": []interface{}{textBlock}},
-			map[string]interface{}{"role": "assistant", "content": []interface{}{thinkingBlock, textBlock}},
-			map[string]interface{}{"role": "user", "content": []interface{}{textBlock}},
-		})
-	}
-
-	tests := []struct {
-		name          string
-		body          []byte
-		errorMsg      string
-		wantOK        bool
-		wantPathMatch string // exact expected path
-	}{
-		{
-			name:          "dot notation removes thinking block",
-			body:          threeMsg(),
-			errorMsg:      "messages.1.content.0: invalid `signature` in `thinking` block",
-			wantOK:        true,
-			wantPathMatch: "messages.1.content.0",
-		},
-		{
-			name:          "bracket notation removes thinking block",
-			body:          threeMsg(),
-			errorMsg:      "messages[1].content[0]: invalid `signature` in `thinking` block",
-			wantOK:        true,
-			wantPathMatch: "messages.1.content.0",
-		},
-		{
-			name: "handles redacted_thinking block",
-			body: makeBody([]interface{}{
-				map[string]interface{}{"role": "user", "content": []interface{}{textBlock}},
-				map[string]interface{}{"role": "assistant", "content": []interface{}{redactedBlock, textBlock}},
-				map[string]interface{}{"role": "user", "content": []interface{}{textBlock}},
-			}),
-			errorMsg:      "messages.1.content.0: invalid `signature` in `thinking` block",
-			wantOK:        true,
-			wantPathMatch: "messages.1.content.0",
-		},
-		{
-			name: "returns false for non-thinking block type (text at content.0)",
-			body: makeBody([]interface{}{
-				map[string]interface{}{"role": "user", "content": []interface{}{textBlock}},
-				map[string]interface{}{"role": "assistant", "content": []interface{}{textBlock, thinkingBlock}},
-				map[string]interface{}{"role": "user", "content": []interface{}{textBlock}},
-			}),
-			errorMsg: "messages.1.content.0: invalid `signature` in `thinking` block",
-			wantOK:   false, // content.0 is text, not thinking
-		},
-		{
-			name: "returns false when target is latest assistant message",
-			body: makeBody([]interface{}{
-				map[string]interface{}{"role": "user", "content": []interface{}{textBlock}},
-				map[string]interface{}{"role": "assistant", "content": []interface{}{thinkingBlock, textBlock}},
-			}),
-			errorMsg: "messages.1.content.0: invalid `signature` in `thinking` block",
-			wantOK:   false, // message 1 is the last message and it's assistant
-		},
-		{
-			name: "returns false when content array would be empty",
-			body: makeBody([]interface{}{
-				map[string]interface{}{"role": "user", "content": []interface{}{textBlock}},
-				map[string]interface{}{"role": "assistant", "content": []interface{}{thinkingBlock}}, // only 1 block
-				map[string]interface{}{"role": "user", "content": []interface{}{textBlock}},
-			}),
-			errorMsg: "messages.1.content.0: invalid `signature` in `thinking` block",
-			wantOK:   false,
-		},
-		{
-			name:     "returns false for unparseable error message",
-			body:     makeBody([]interface{}{}),
-			errorMsg: "some other error without path",
-			wantOK:   false,
-		},
-		{
-			// SurgicallyRemoveInvalidThinkingBlock only validates the path and block type;
-			// it does NOT gate on the error being a signature error. The caller (isExactSignatureError)
-			// is responsible for that check. So a parseable path pointing to a thinking block succeeds.
-			name:          "succeeds for non-signature errors with valid path pointing to thinking block",
-			body:          threeMsg(),
-			errorMsg:      "messages.1.content.0: Expected `thinking` or `redacted_thinking`",
-			wantOK:        true,
-			wantPathMatch: "messages.1.content.0",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cleaned, path, ok := SurgicallyRemoveInvalidThinkingBlock(tt.body, tt.errorMsg)
-			require.Equal(t, tt.wantOK, ok)
-			if ok {
-				if tt.wantPathMatch != "" {
-					require.Equal(t, tt.wantPathMatch, path)
-				}
-				// Verify the removed block is gone from the result
-				require.NotEqual(t, string(tt.body), string(cleaned), "body should have changed")
-				// Verify result is valid JSON
-				var parsed map[string]interface{}
-				require.NoError(t, json.Unmarshal(cleaned, &parsed))
-			} else {
-				// On failure, original body returned unchanged
-				require.Equal(t, string(tt.body), string(cleaned))
-				require.Equal(t, "", path)
-			}
-		})
-	}
-}
-
-func TestSurgicallyRemoveInvalidThinkingBlock_PreservesOtherContent(t *testing.T) {
-	// After removal of content.0 (thinking), content.1 (text) should shift to content.0
-	thinkingBlock := map[string]interface{}{"type": "thinking", "thinking": "thought", "signature": "bad"}
-	textBlock := map[string]interface{}{"type": "text", "text": "answer"}
-
-	body, _ := json.Marshal(map[string]interface{}{
-		"messages": []interface{}{
-			map[string]interface{}{"role": "user", "content": []interface{}{map[string]interface{}{"type": "text", "text": "q"}}},
-			map[string]interface{}{"role": "assistant", "content": []interface{}{thinkingBlock, textBlock}},
-			map[string]interface{}{"role": "user", "content": []interface{}{map[string]interface{}{"type": "text", "text": "q2"}}},
-		},
-	})
-
-	cleaned, _, ok := SurgicallyRemoveInvalidThinkingBlock(body, "messages.1.content.0: invalid `signature` in `thinking` block")
-	require.True(t, ok)
-
-	var parsed map[string]interface{}
-	require.NoError(t, json.Unmarshal(cleaned, &parsed))
-
-	msgs := parsed["messages"].([]interface{})
-	assistantMsg := msgs[1].(map[string]interface{})
-	content := assistantMsg["content"].([]interface{})
-	require.Len(t, content, 1, "thinking block removed, only text remains")
-	remaining := content[0].(map[string]interface{})
-	require.Equal(t, "text", remaining["type"])
-	require.Equal(t, "answer", remaining["text"])
-}
-
-func TestSurgicallyRemoveInvalidThinkingBlock_IgnoresToolResult(t *testing.T) {
-	// Thinking block with bad signature at content.0; tool_result at content.1
-	// Surgical removal must not touch the tool_result block.
-	thinkingBlock := map[string]interface{}{"type": "thinking", "thinking": "thought", "signature": "bad"}
-	toolResultBlock := map[string]interface{}{
-		"type":        "tool_result",
-		"tool_use_id": "tu_abc",
-		"content":     []interface{}{map[string]interface{}{"type": "text", "text": "result text"}},
-	}
-
-	body, _ := json.Marshal(map[string]interface{}{
-		"messages": []interface{}{
-			map[string]interface{}{"role": "user", "content": []interface{}{map[string]interface{}{"type": "text", "text": "q"}}},
-			map[string]interface{}{"role": "assistant", "content": []interface{}{thinkingBlock, toolResultBlock}},
-			map[string]interface{}{"role": "user", "content": []interface{}{map[string]interface{}{"type": "text", "text": "q2"}}},
-		},
-	})
-
-	cleaned, _, ok := SurgicallyRemoveInvalidThinkingBlock(body, "messages.1.content.0: invalid `signature` in `thinking` block")
-	require.True(t, ok)
-
-	var parsed map[string]interface{}
-	require.NoError(t, json.Unmarshal(cleaned, &parsed))
-
-	msgs := parsed["messages"].([]interface{})
-	assistantMsg := msgs[1].(map[string]interface{})
-	content := assistantMsg["content"].([]interface{})
-	require.Len(t, content, 1, "only tool_result remains after thinking block removed")
-
-	remaining := content[0].(map[string]interface{})
-	require.Equal(t, "tool_result", remaining["type"])
-	require.Equal(t, "tu_abc", remaining["tool_use_id"])
-
-	// Verify nested content inside tool_result is preserved exactly
-	nestedContent := remaining["content"].([]interface{})
-	require.Len(t, nestedContent, 1)
-	nestedItem := nestedContent[0].(map[string]interface{})
-	require.Equal(t, "text", nestedItem["type"])
-	require.Equal(t, "result text", nestedItem["text"])
-}
-
-func TestSurgicallyRemoveInvalidThinkingBlock_ReindexVerification(t *testing.T) {
-	// Three content blocks: thinking(bad) at 0, text at 1, redacted_thinking(ok) at 2
-	// After removing content.0, content.1 (text) becomes new content.0
-	// and content.2 (redacted_thinking) becomes new content.1
-	thinkingBlock := map[string]interface{}{"type": "thinking", "thinking": "thought", "signature": "bad"}
-	textBlock := map[string]interface{}{"type": "text", "text": "midanswer"}
-	redactedBlock := map[string]interface{}{"type": "redacted_thinking", "data": "enc"}
-
-	body, _ := json.Marshal(map[string]interface{}{
-		"messages": []interface{}{
-			map[string]interface{}{"role": "user", "content": []interface{}{map[string]interface{}{"type": "text", "text": "q"}}},
-			map[string]interface{}{"role": "assistant", "content": []interface{}{thinkingBlock, textBlock, redactedBlock}},
-			map[string]interface{}{"role": "user", "content": []interface{}{map[string]interface{}{"type": "text", "text": "q2"}}},
-		},
-	})
-
-	cleaned, _, ok := SurgicallyRemoveInvalidThinkingBlock(body, "messages.1.content.0: invalid `signature` in `thinking` block")
-	require.True(t, ok)
-
-	var parsed map[string]interface{}
-	require.NoError(t, json.Unmarshal(cleaned, &parsed))
-
-	msgs := parsed["messages"].([]interface{})
-	assistantMsg := msgs[1].(map[string]interface{})
-	content := assistantMsg["content"].([]interface{})
-	require.Len(t, content, 2, "one thinking block removed, two remain")
-
-	// content.0 should now be the text block (was content.1)
-	require.Equal(t, "text", content[0].(map[string]interface{})["type"])
-	require.Equal(t, "midanswer", content[0].(map[string]interface{})["text"])
-
-	// content.1 should now be the redacted_thinking block (was content.2)
-	require.Equal(t, "redacted_thinking", content[1].(map[string]interface{})["type"])
-}
-
-func TestParseThinkingBlockPath(t *testing.T) {
-	tests := []struct {
-		input       string
-		wantMsg     int
-		wantContent int
-		wantOK      bool
-	}{
-		// dot notation
-		{"messages.0.content.0", 0, 0, true},
-		{"messages.5.content.3", 5, 3, true},
-		{"messages.10.content.2", 10, 2, true},
-		{"messages.105.content.12", 105, 12, true},
-		// bracket notation
-		{"messages[7].content[4]", 7, 4, true},
-		{"messages[0].content[0]", 0, 0, true},
-		// invalid
-		{"invalid.path", 0, 0, false},
-		{"", 0, 0, false},
-	}
-	for _, tc := range tests {
-		t.Run(tc.input, func(t *testing.T) {
-			m, c, ok := parseThinkingBlockPath(tc.input)
-			require.Equal(t, tc.wantMsg, m)
-			require.Equal(t, tc.wantContent, c)
-			require.Equal(t, tc.wantOK, ok)
-		})
-	}
-}
-
-func TestStripCachedInvalidThinkingPaths_DoubleDigitIndices(t *testing.T) {
-	// Build a message with 12 content blocks: indices 0-11, with bad thinking at 2 and 10.
-	// Lexicographic sort would incorrectly order "content.9" > "content.10",
-	// causing index shift corruption. Numeric sort handles this correctly.
-	contentBlocks := make([]interface{}, 12)
-	for i := 0; i < 12; i++ {
-		contentBlocks[i] = map[string]interface{}{"type": "text", "text": fmt.Sprintf("block_%d", i)}
-	}
-	// Place bad thinking blocks at indices 2 and 10
-	contentBlocks[2] = map[string]interface{}{"type": "thinking", "thinking": "bad2", "signature": "bad"}
-	contentBlocks[10] = map[string]interface{}{"type": "thinking", "thinking": "bad10", "signature": "bad"}
-
-	body, _ := json.Marshal(map[string]interface{}{
-		"messages": []interface{}{
-			map[string]interface{}{"role": "assistant", "content": contentBlocks},
-		},
-	})
-
-	paths := []string{"messages.0.content.2", "messages.0.content.10"}
-
-	cleaned := stripCachedInvalidThinkingPaths(body, paths)
-
-	var parsed map[string]interface{}
-	require.NoError(t, json.Unmarshal(cleaned, &parsed))
-
-	msgs := parsed["messages"].([]interface{})
-	content := msgs[0].(map[string]interface{})["content"].([]interface{})
-	require.Len(t, content, 10, "two blocks removed from 12")
-
-	// Verify no thinking blocks remain
-	for i, block := range content {
-		b := block.(map[string]interface{})
-		require.Equal(t, "text", b["type"], "block at index %d should be text, got %s", i, b["type"])
-	}
-}
-
-func TestStripCachedInvalidThinkingPaths_CrossMessageDoubleDigit(t *testing.T) {
-	// Two messages: message 1 has bad block at content.10, message 10 has bad block at content.1.
-	// Tests that both msgIdx and contentIdx sort numerically.
-	makeContent := func(n int, badIdx int) []interface{} {
-		blocks := make([]interface{}, n)
-		for i := 0; i < n; i++ {
-			blocks[i] = map[string]interface{}{"type": "text", "text": fmt.Sprintf("b%d", i)}
-		}
-		blocks[badIdx] = map[string]interface{}{"type": "thinking", "thinking": "bad", "signature": "bad"}
-		return blocks
-	}
-
-	messages := make([]interface{}, 11)
-	for i := 0; i < 11; i++ {
-		messages[i] = map[string]interface{}{"role": "user", "content": []interface{}{map[string]interface{}{"type": "text", "text": "q"}}}
-	}
-	messages[1] = map[string]interface{}{"role": "assistant", "content": makeContent(12, 10)}
-	messages[10] = map[string]interface{}{"role": "assistant", "content": makeContent(3, 1)}
-
-	body, _ := json.Marshal(map[string]interface{}{"messages": messages})
-
-	paths := []string{"messages.1.content.10", "messages.10.content.1"}
-
-	cleaned := stripCachedInvalidThinkingPaths(body, paths)
-
-	var parsed map[string]interface{}
-	require.NoError(t, json.Unmarshal(cleaned, &parsed))
-
-	msgs := parsed["messages"].([]interface{})
-
-	// Message 1: had 12 blocks, removed 1 → 11
-	content1 := msgs[1].(map[string]interface{})["content"].([]interface{})
-	require.Len(t, content1, 11)
-	for i, block := range content1 {
-		require.Equal(t, "text", block.(map[string]interface{})["type"], "msg1 block %d", i)
-	}
-
-	// Message 10: had 3 blocks, removed 1 → 2
-	content10 := msgs[10].(map[string]interface{})["content"].([]interface{})
-	require.Len(t, content10, 2)
-	for i, block := range content10 {
-		require.Equal(t, "text", block.(map[string]interface{})["type"], "msg10 block %d", i)
 	}
 }

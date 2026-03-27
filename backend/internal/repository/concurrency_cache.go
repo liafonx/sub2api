@@ -70,7 +70,7 @@ var (
 		if count < maxConcurrency then
 			redis.call('ZADD', key, now, requestID)
 			redis.call('EXPIRE', key, ttl)
-			return redis.call('ZCARD', key)
+			return count + 1
 		end
 
 		return 0
@@ -235,10 +235,9 @@ func accountWaitKey(accountID int64) string {
 func (c *concurrencyCache) AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (int, error) {
 	key := accountSlotKey(accountID)
 	// 时间戳在 Lua 脚本内使用 Redis TIME 命令获取，确保多实例时钟一致
-	// Returns the new concurrency count (>0) on success, or 0 when rejected.
 	result, err := acquireScript.Run(ctx, c.rdb, []string{key}, maxConcurrency, c.slotTTLSeconds, requestID).Int()
 	if err != nil {
-		return 0, fmt.Errorf("AcquireAccountSlot: %w", err)
+		return 0, err
 	}
 	return result, nil
 }
@@ -253,7 +252,7 @@ func (c *concurrencyCache) GetAccountConcurrency(ctx context.Context, accountID 
 	// 时间戳在 Lua 脚本内使用 Redis TIME 命令获取
 	result, err := getCountScript.Run(ctx, c.rdb, []string{key}, c.slotTTLSeconds).Int()
 	if err != nil {
-		return 0, fmt.Errorf("GetAccountConcurrency: %w", err)
+		return 0, err
 	}
 	return result, nil
 }
@@ -300,10 +299,9 @@ func (c *concurrencyCache) GetAccountConcurrencyBatch(ctx context.Context, accou
 func (c *concurrencyCache) AcquireUserSlot(ctx context.Context, userID int64, maxConcurrency int, requestID string) (int, error) {
 	key := userSlotKey(userID)
 	// 时间戳在 Lua 脚本内使用 Redis TIME 命令获取，确保多实例时钟一致
-	// Returns the new concurrency count (>0) on success, or 0 when rejected.
 	result, err := acquireScript.Run(ctx, c.rdb, []string{key}, maxConcurrency, c.slotTTLSeconds, requestID).Int()
 	if err != nil {
-		return 0, fmt.Errorf("AcquireUserSlot: %w", err)
+		return 0, err
 	}
 	return result, nil
 }
@@ -318,7 +316,7 @@ func (c *concurrencyCache) GetUserConcurrency(ctx context.Context, userID int64)
 	// 时间戳在 Lua 脚本内使用 Redis TIME 命令获取
 	result, err := getCountScript.Run(ctx, c.rdb, []string{key}, c.slotTTLSeconds).Int()
 	if err != nil {
-		return 0, fmt.Errorf("GetUserConcurrency: %w", err)
+		return 0, err
 	}
 	return result, nil
 }

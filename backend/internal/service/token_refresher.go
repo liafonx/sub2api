@@ -66,21 +66,6 @@ func (r *ClaudeTokenRefresher) Refresh(ctx context.Context, account *Account) (m
 	newCredentials := BuildClaudeAccountCredentials(tokenInfo)
 	newCredentials = MergeCredentials(account.Credentials, newCredentials)
 
-	// Persist AccountUUID/OrgUUID returned in refresh response into account.Extra
-	if tokenInfo.AccountUUID != "" || tokenInfo.OrgUUID != "" {
-		newExtra := make(map[string]any, len(account.Extra)+2)
-		for k, v := range account.Extra {
-			newExtra[k] = v
-		}
-		if tokenInfo.AccountUUID != "" {
-			newExtra["account_uuid"] = tokenInfo.AccountUUID
-		}
-		if tokenInfo.OrgUUID != "" {
-			newExtra["org_uuid"] = tokenInfo.OrgUUID
-		}
-		account.Extra = newExtra
-	}
-
 	return newCredentials, nil
 }
 

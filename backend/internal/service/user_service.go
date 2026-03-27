@@ -50,15 +50,15 @@ type UserRepository interface {
 	// RemoveGroupFromUserAllowedGroups 移除单个用户的指定分组权限
 	RemoveGroupFromUserAllowedGroups(ctx context.Context, userID int64, groupID int64) error
 
+	// ListAllIDs returns all user IDs (used by peak-usage flush).
+	ListAllIDs(ctx context.Context) ([]int64, error)
+	// GetByIDs fetches users by IDs in a single query.
+	GetByIDs(ctx context.Context, ids []int64) ([]*User, error)
+
 	// TOTP 双因素认证
 	UpdateTotpSecret(ctx context.Context, userID int64, encryptedSecret *string) error
 	EnableTotp(ctx context.Context, userID int64) error
 	DisableTotp(ctx context.Context, userID int64) error
-
-	// ListAllIDs returns the IDs of all users. Used for peak usage flush.
-	ListAllIDs(ctx context.Context) ([]int64, error)
-	// GetByIDs returns users with matching IDs. Used for peak usage enrichment.
-	GetByIDs(ctx context.Context, ids []int64) ([]*User, error)
 }
 
 // UpdateProfileRequest 更新用户资料请求

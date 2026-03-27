@@ -34,11 +34,11 @@ func ProvideUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, b
 }
 
 // ProvideEmailQueueService creates EmailQueueService with default worker count.
-// Returns nil if email verification is disabled — callers already nil-check before use.
+// Returns nil if email verification is disabled -- callers already nil-check before use.
 func ProvideEmailQueueService(emailService *EmailService, settingService *SettingService) *EmailQueueService {
 	ctx := context.Background()
 	if !settingService.IsEmailVerifyEnabled(ctx) {
-		logger.LegacyPrintf("service.email_queue", "%s", "[EmailQueue] Email Verification Not Enabled — skipping email queue workers")
+		logger.LegacyPrintf("service.email_queue", "%s", "[EmailQueue] Email Verification Not Enabled -- skipping email queue workers")
 		return nil
 	}
 	return NewEmailQueueService(emailService, 3)
@@ -312,10 +312,10 @@ func ProvideSoraMediaCleanupService(storage *SoraMediaStorage, cfg *config.Confi
 	return svc
 }
 
-// ProvideClaudeCodeVersionDetectService 创建并启动 Claude Code 版本自动检测服务
+// ProvideClaudeCodeVersionDetectService creates and starts Claude Code version auto-detection service.
 func ProvideClaudeCodeVersionDetectService(settingService *SettingService, cfg *config.Config, ccProbeSvc *CCProbeService) *ClaudeCodeVersionDetectService {
 	svc := NewClaudeCodeVersionDetectService(settingService, cfg.Update.ProxyURL, cfg.Security.ProxyFallback.AllowDirectOnError, cfg.ClaudeCodeDetect.RegistryURL, cfg.ClaudeCodeDetect.IntervalHours)
-	// Register probe callback BEFORE Start() — Start() runs detectAndUpdate() on first tick.
+	// Register probe callback BEFORE Start() -- Start() runs detectAndUpdate() on first tick.
 	if ccProbeSvc != nil {
 		svc.SetOnNewVersionCallback(func() { ccProbeSvc.TriggerProbe("npm_version_changed") })
 	}
@@ -521,6 +521,7 @@ var ProviderSet = wire.NewSet(
 	NewUsageCache,
 	NewTotpService,
 	NewErrorPassthroughService,
+	NewTLSFingerprintProfileService,
 	NewDigestSessionStore,
 	ProvideIdempotencyCoordinator,
 	ProvideSystemOperationLockService,
