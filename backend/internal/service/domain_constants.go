@@ -200,6 +200,16 @@ const (
 	SettingKeyBetaPolicySettings = "beta_policy_settings"
 
 	// =========================
+	// Scheduled Test Prompt
+	// =========================
+
+	// SettingKeyScheduledTestPrompt stores the custom user message sent during scheduled account health checks.
+	SettingKeyScheduledTestPrompt = "scheduled_test_prompt"
+
+	// DefaultScheduledTestPrompt is the fallback prompt when none is configured.
+	DefaultScheduledTestPrompt = "hi"
+
+	// =========================
 	// Sora S3 存储配置
 	// =========================
 

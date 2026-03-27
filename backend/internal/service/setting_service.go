@@ -16,6 +16,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -536,6 +537,9 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)
 
+	// Scheduled test prompt
+	updates[SettingKeyScheduledTestPrompt] = settings.ScheduledTestPrompt
+
 	// Read the previous auto-detect value before overwriting, so we can detect false->true transitions.
 	prevAutoDetect, _ := s.settingRepo.GetValue(ctx, SettingKeyAutoDetectMinClaudeCodeVersion)
 
@@ -915,6 +919,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		CustomMenuItems:                  settings[SettingKeyCustomMenuItems],
 		CustomEndpoints:                  settings[SettingKeyCustomEndpoints],
 		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
+		ScheduledTestPrompt:              settings[SettingKeyScheduledTestPrompt],
 	}
 
 	// 解析整数类型
@@ -2248,4 +2253,19 @@ func (s *SettingService) SetProbePrompt(ctx context.Context, prompt string) erro
 		prompt = DefaultProbePrompt
 	}
 	return s.settingRepo.Set(ctx, SettingKeyProbePrompt, prompt)
+}
+
+// GetScheduledTestPrompt returns the configured scheduled test prompt, falling back to DefaultScheduledTestPrompt.
+func (s *SettingService) GetScheduledTestPrompt(ctx context.Context) string {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyScheduledTestPrompt)
+	if err != nil {
+		if !errors.Is(err, ErrSettingNotFound) {
+			logger.LegacyPrintf("service.setting", "GetScheduledTestPrompt: %v", err)
+		}
+		return DefaultScheduledTestPrompt
+	}
+	if value == "" {
+		return DefaultScheduledTestPrompt
+	}
+	return value
 }

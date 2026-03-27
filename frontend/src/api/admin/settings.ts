@@ -42,6 +42,7 @@ export interface SystemSettings {
   purchase_subscription_url: string
   sora_client_enabled: boolean
   backend_mode_enabled: boolean
+  scheduled_test_prompt: string
   custom_menu_items: CustomMenuItem[]
   custom_endpoints: CustomEndpoint[]
   // SMTP settings
@@ -118,6 +119,7 @@ export interface UpdateSettingsRequest {
   purchase_subscription_url?: string
   sora_client_enabled?: boolean
   backend_mode_enabled?: boolean
+  scheduled_test_prompt?: string
   custom_menu_items?: CustomMenuItem[]
   custom_endpoints?: CustomEndpoint[]
   smtp_host?: string

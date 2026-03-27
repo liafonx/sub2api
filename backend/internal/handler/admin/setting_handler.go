@@ -133,6 +133,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		BackendModeEnabled:                   settings.BackendModeEnabled,
 		EnableFingerprintUnification:         settings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:            settings.EnableMetadataPassthrough,
+		ScheduledTestPrompt:                  settings.ScheduledTestPrompt,
 	})
 }
 
@@ -218,6 +219,9 @@ type UpdateSettingsRequest struct {
 	// Gateway forwarding behavior
 	EnableFingerprintUnification *bool `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough    *bool `json:"enable_metadata_passthrough"`
+
+	// Scheduled test prompt
+	ScheduledTestPrompt string `json:"scheduled_test_prompt"`
 }
 
 // UpdateSettings 更新系统设置
@@ -587,6 +591,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		AutoDetectMinClaudeCodeVersion:   req.AutoDetectMinClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:      req.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:               req.BackendModeEnabled,
+		ScheduledTestPrompt:              req.ScheduledTestPrompt,
 		OpsMonitoringEnabled: func() bool {
 			if req.OpsMonitoringEnabled != nil {
 				return *req.OpsMonitoringEnabled
@@ -705,6 +710,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		BackendModeEnabled:                   updatedSettings.BackendModeEnabled,
 		EnableFingerprintUnification:         updatedSettings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:            updatedSettings.EnableMetadataPassthrough,
+		ScheduledTestPrompt:                  updatedSettings.ScheduledTestPrompt,
 	})
 }
 

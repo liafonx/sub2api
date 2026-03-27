@@ -18,6 +18,7 @@ type ScheduledTestRunnerService struct {
 	scheduledSvc   *ScheduledTestService
 	accountTestSvc *AccountTestService
 	rateLimitSvc   *RateLimitService
+	settingService *SettingService
 	cfg            *config.Config
 
 	cron      *cron.Cron
@@ -32,12 +33,14 @@ func NewScheduledTestRunnerService(
 	accountTestSvc *AccountTestService,
 	rateLimitSvc *RateLimitService,
 	cfg *config.Config,
+	settingService *SettingService,
 ) *ScheduledTestRunnerService {
 	return &ScheduledTestRunnerService{
 		planRepo:       planRepo,
 		scheduledSvc:   scheduledSvc,
 		accountTestSvc: accountTestSvc,
 		rateLimitSvc:   rateLimitSvc,
+		settingService: settingService,
 		cfg:            cfg,
 	}
 }
@@ -101,6 +104,8 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 		return
 	}
 
+	prompt := s.settingService.GetScheduledTestPrompt(ctx)
+
 	logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] found %d due plans", len(plans))
 
 	sem := make(chan struct{}, scheduledTestDefaultMaxWorkers)
@@ -112,15 +117,15 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 		go func(p *ScheduledTestPlan) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			s.runOnePlan(ctx, p)
+			s.runOnePlan(ctx, p, prompt)
 		}(plan)
 	}
 
 	wg.Wait()
 }
 
-func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *ScheduledTestPlan) {
-	result, err := s.accountTestSvc.RunTestBackground(ctx, plan.AccountID, plan.ModelID)
+func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *ScheduledTestPlan, prompt string) {
+	result, err := s.accountTestSvc.RunTestBackground(ctx, plan.AccountID, plan.ModelID, prompt)
 	if err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d RunTestBackground error: %v", plan.ID, err)
 		return

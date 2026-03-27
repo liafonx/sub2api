@@ -1340,6 +1340,20 @@
                 <span class="toggle-slider"></span>
               </label>
             </div>
+            <div class="mt-4">
+              <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t('admin.settings.scheduling.scheduledTestPrompt') }}
+              </label>
+              <input
+                v-model="form.scheduled_test_prompt"
+                type="text"
+                class="input w-full max-w-lg"
+                :placeholder="t('admin.settings.scheduling.scheduledTestPromptPlaceholder')"
+              />
+              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.scheduling.scheduledTestPromptHint') }}
+              </p>
+            </div>
           </div>
         </div>
 
@@ -2283,6 +2297,7 @@ const form = reactive<SettingsForm>({
   cc_version_detected_at: '',
   // 分组隔离
   allow_ungrouped_key_scheduling: false,
+  scheduled_test_prompt: '',
   // Gateway forwarding behavior
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false
@@ -2594,6 +2609,7 @@ async function saveSettings() {
       max_claude_code_version: form.max_claude_code_version,
       auto_detect_min_claude_code_version: form.auto_detect_min_claude_code_version,
       allow_ungrouped_key_scheduling: form.allow_ungrouped_key_scheduling,
+      scheduled_test_prompt: form.scheduled_test_prompt,
       enable_fingerprint_unification: form.enable_fingerprint_unification,
       enable_metadata_passthrough: form.enable_metadata_passthrough
     }
