@@ -130,12 +130,18 @@ func (s *GatewayService) getCachedInvalidThinkingPaths(body []byte) []string {
 }
 
 // stripCachedInvalidThinkingPaths pre-strips known-bad thinking blocks before forwarding.
-// Paths are deleted in reverse lexicographic order so index shifts don't corrupt earlier entries.
+// Paths are deleted in reverse numeric order (msgIdx DESC, contentIdx DESC) so higher-index
+// deletions don't shift lower-index elements.
 func stripCachedInvalidThinkingPaths(body []byte, paths []string) []byte {
 	sorted := make([]string, len(paths))
 	copy(sorted, paths)
 	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i] > sorted[j] // reverse lexicographic; works for messages.N.content.M
+		mi, ci, _ := parseThinkingBlockPath(sorted[i])
+		mj, cj, _ := parseThinkingBlockPath(sorted[j])
+		if mi != mj {
+			return mi > mj
+		}
+		return ci > cj
 	})
 	for _, p := range sorted {
 		if cleaned, err := sjson.DeleteBytes(body, p); err == nil {

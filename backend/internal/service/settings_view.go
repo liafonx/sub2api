@@ -69,6 +69,7 @@ type SystemSettings struct {
 	MinClaudeCodeVersion           string
 	MaxClaudeCodeVersion           string
 	AutoDetectMinClaudeCodeVersion bool
+	CCVersionDetectedAt            string // RFC3339 timestamp of last successful npm check
 
 	// 分组隔离：允许未分组 Key 调度（默认 false → 403）
 	AllowUngroupedKeyScheduling bool

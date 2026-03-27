@@ -142,6 +142,11 @@ func (s *ClaudeCodeVersionDetectService) detectAndUpdate() {
 		return // error already logged inside fetchStableVersion
 	}
 
+	// Record last successful check time regardless of version change
+	if err := s.settingService.UpdateCCVersionDetectedAt(ctx); err != nil {
+		slog.Warn("claude_code_version_detect.timestamp_update_failed", "error", err)
+	}
+
 	currentVersion := settings.MinClaudeCodeVersion
 	if currentVersion == newVersion {
 		slog.Debug("claude_code_version_detect.version_unchanged", "version", newVersion)

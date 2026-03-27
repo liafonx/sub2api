@@ -916,6 +916,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.MinClaudeCodeVersion = settings[SettingKeyMinClaudeCodeVersion]
 	result.MaxClaudeCodeVersion = settings[SettingKeyMaxClaudeCodeVersion]
 	result.AutoDetectMinClaudeCodeVersion = settings[SettingKeyAutoDetectMinClaudeCodeVersion] == "true"
+	result.CCVersionDetectedAt = settings[SettingKeyCCVersionDetectedAt]
 
 	// 分组隔离
 	result.AllowUngroupedKeyScheduling = settings[SettingKeyAllowUngroupedKeyScheduling] == "true"
@@ -1372,6 +1373,11 @@ func (s *SettingService) UpdateMinClaudeCodeVersionFromDetect(ctx context.Contex
 		s.onUpdate()
 	}
 	return nil
+}
+
+// UpdateCCVersionDetectedAt stores the current UTC time as the last successful npm check timestamp.
+func (s *SettingService) UpdateCCVersionDetectedAt(ctx context.Context) error {
+	return s.settingRepo.Set(ctx, SettingKeyCCVersionDetectedAt, time.Now().UTC().Format(time.RFC3339))
 }
 
 // GetRectifierSettings 获取请求整流器配置

@@ -4547,9 +4547,9 @@ export default {
           "Reject Claude Code clients above this version (semver format). Leave empty to allow any version.",
         autoDetect: "Auto-Detect Latest Version",
         autoDetectHint:
-          "Automatically fetch the latest stable Claude Code version from npm every 6 hours and set it as the minimum version.",
-        autoDetectActiveHint:
-          "Version is auto-detected from the npm registry every 6 hours.",
+          "Automatically fetch the latest stable Claude Code version from npm and set it as the minimum version.",
+        autoDetectActiveHint: "Last checked: {time}.",
+        autoDetectActiveHintNoTime: "Waiting for first check...",
       },
       scheduling: {
         title: "Gateway Scheduling Settings",

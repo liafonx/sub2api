@@ -81,6 +81,7 @@ type SystemSettings struct {
 	MinClaudeCodeVersion           string `json:"min_claude_code_version"`
 	MaxClaudeCodeVersion           string `json:"max_claude_code_version"`
 	AutoDetectMinClaudeCodeVersion bool   `json:"auto_detect_min_claude_code_version"`
+	CCVersionDetectedAt            string `json:"cc_version_detected_at,omitempty"`
 
 	// 分组隔离
 	AllowUngroupedKeyScheduling bool `json:"allow_ungrouped_key_scheduling"`

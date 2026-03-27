@@ -4505,8 +4505,9 @@ export default {
           "拒绝高于此版本的 Claude Code 客户端请求（semver 格式）。留空则不限制最高版本。",
         autoDetect: "自动检测最新版本",
         autoDetectHint:
-          "每 6 小时自动从 npm 获取最新稳定版 Claude Code 版本号并设置为最低版本。",
-        autoDetectActiveHint: "版本号由 npm 注册表自动检测，每 6 小时更新。",
+          "自动从 npm 获取最新稳定版 Claude Code 版本号并设置为最低版本。",
+        autoDetectActiveHint: "上次检查：{time}。",
+        autoDetectActiveHintNoTime: "等待首次检查…",
       },
       scheduling: {
         title: "网关调度设置",

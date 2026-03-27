@@ -1379,3 +1379,113 @@ func TestSurgicallyRemoveInvalidThinkingBlock_ReindexVerification(t *testing.T) 
 	// content.1 should now be the redacted_thinking block (was content.2)
 	require.Equal(t, "redacted_thinking", content[1].(map[string]interface{})["type"])
 }
+
+func TestParseThinkingBlockPath(t *testing.T) {
+	tests := []struct {
+		input       string
+		wantMsg     int
+		wantContent int
+		wantOK      bool
+	}{
+		// dot notation
+		{"messages.0.content.0", 0, 0, true},
+		{"messages.5.content.3", 5, 3, true},
+		{"messages.10.content.2", 10, 2, true},
+		{"messages.105.content.12", 105, 12, true},
+		// bracket notation
+		{"messages[7].content[4]", 7, 4, true},
+		{"messages[0].content[0]", 0, 0, true},
+		// invalid
+		{"invalid.path", 0, 0, false},
+		{"", 0, 0, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			m, c, ok := parseThinkingBlockPath(tc.input)
+			require.Equal(t, tc.wantMsg, m)
+			require.Equal(t, tc.wantContent, c)
+			require.Equal(t, tc.wantOK, ok)
+		})
+	}
+}
+
+func TestStripCachedInvalidThinkingPaths_DoubleDigitIndices(t *testing.T) {
+	// Build a message with 12 content blocks: indices 0-11, with bad thinking at 2 and 10.
+	// Lexicographic sort would incorrectly order "content.9" > "content.10",
+	// causing index shift corruption. Numeric sort handles this correctly.
+	contentBlocks := make([]interface{}, 12)
+	for i := 0; i < 12; i++ {
+		contentBlocks[i] = map[string]interface{}{"type": "text", "text": fmt.Sprintf("block_%d", i)}
+	}
+	// Place bad thinking blocks at indices 2 and 10
+	contentBlocks[2] = map[string]interface{}{"type": "thinking", "thinking": "bad2", "signature": "bad"}
+	contentBlocks[10] = map[string]interface{}{"type": "thinking", "thinking": "bad10", "signature": "bad"}
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{"role": "assistant", "content": contentBlocks},
+		},
+	})
+
+	paths := []string{"messages.0.content.2", "messages.0.content.10"}
+
+	cleaned := stripCachedInvalidThinkingPaths(body, paths)
+
+	var parsed map[string]interface{}
+	require.NoError(t, json.Unmarshal(cleaned, &parsed))
+
+	msgs := parsed["messages"].([]interface{})
+	content := msgs[0].(map[string]interface{})["content"].([]interface{})
+	require.Len(t, content, 10, "two blocks removed from 12")
+
+	// Verify no thinking blocks remain
+	for i, block := range content {
+		b := block.(map[string]interface{})
+		require.Equal(t, "text", b["type"], "block at index %d should be text, got %s", i, b["type"])
+	}
+}
+
+func TestStripCachedInvalidThinkingPaths_CrossMessageDoubleDigit(t *testing.T) {
+	// Two messages: message 1 has bad block at content.10, message 10 has bad block at content.1.
+	// Tests that both msgIdx and contentIdx sort numerically.
+	makeContent := func(n int, badIdx int) []interface{} {
+		blocks := make([]interface{}, n)
+		for i := 0; i < n; i++ {
+			blocks[i] = map[string]interface{}{"type": "text", "text": fmt.Sprintf("b%d", i)}
+		}
+		blocks[badIdx] = map[string]interface{}{"type": "thinking", "thinking": "bad", "signature": "bad"}
+		return blocks
+	}
+
+	messages := make([]interface{}, 11)
+	for i := 0; i < 11; i++ {
+		messages[i] = map[string]interface{}{"role": "user", "content": []interface{}{map[string]interface{}{"type": "text", "text": "q"}}}
+	}
+	messages[1] = map[string]interface{}{"role": "assistant", "content": makeContent(12, 10)}
+	messages[10] = map[string]interface{}{"role": "assistant", "content": makeContent(3, 1)}
+
+	body, _ := json.Marshal(map[string]interface{}{"messages": messages})
+
+	paths := []string{"messages.1.content.10", "messages.10.content.1"}
+
+	cleaned := stripCachedInvalidThinkingPaths(body, paths)
+
+	var parsed map[string]interface{}
+	require.NoError(t, json.Unmarshal(cleaned, &parsed))
+
+	msgs := parsed["messages"].([]interface{})
+
+	// Message 1: had 12 blocks, removed 1 → 11
+	content1 := msgs[1].(map[string]interface{})["content"].([]interface{})
+	require.Len(t, content1, 11)
+	for i, block := range content1 {
+		require.Equal(t, "text", block.(map[string]interface{})["type"], "msg1 block %d", i)
+	}
+
+	// Message 10: had 3 blocks, removed 1 → 2
+	content10 := msgs[10].(map[string]interface{})["content"].([]interface{})
+	require.Len(t, content10, 2)
+	for i, block := range content10 {
+		require.Equal(t, "text", block.(map[string]interface{})["type"], "msg10 block %d", i)
+	}
+}

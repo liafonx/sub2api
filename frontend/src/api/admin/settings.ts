@@ -83,6 +83,7 @@ export interface SystemSettings {
   min_claude_code_version: string;
   max_claude_code_version: string;
   auto_detect_min_claude_code_version: boolean;
+  cc_version_detected_at?: string; // RFC3339 timestamp of last successful npm check
 
   // 分组隔离
   allow_ungrouped_key_scheduling: boolean;

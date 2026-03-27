@@ -124,6 +124,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		MinClaudeCodeVersion:                 settings.MinClaudeCodeVersion,
 		MaxClaudeCodeVersion:                 settings.MaxClaudeCodeVersion,
 		AutoDetectMinClaudeCodeVersion:       settings.AutoDetectMinClaudeCodeVersion,
+		CCVersionDetectedAt:                  settings.CCVersionDetectedAt,
 		AllowUngroupedKeyScheduling:          settings.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                   settings.BackendModeEnabled,
 	})
@@ -609,6 +610,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		MinClaudeCodeVersion:                 updatedSettings.MinClaudeCodeVersion,
 		MaxClaudeCodeVersion:                 updatedSettings.MaxClaudeCodeVersion,
 		AutoDetectMinClaudeCodeVersion:       updatedSettings.AutoDetectMinClaudeCodeVersion,
+		CCVersionDetectedAt:                  updatedSettings.CCVersionDetectedAt,
 		AllowUngroupedKeyScheduling:          updatedSettings.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                   updatedSettings.BackendModeEnabled,
 	})

@@ -242,6 +242,9 @@ const (
 	// SettingKeyAutoDetectMinClaudeCodeVersion 是否自动从 npm 检测最低版本号（"true"/"false"）
 	SettingKeyAutoDetectMinClaudeCodeVersion = "auto_detect_min_claude_code_version"
 
+	// SettingKeyCCVersionDetectedAt 上次成功从 npm 检测版本的时间（RFC3339 格式，由检测服务写入）
+	SettingKeyCCVersionDetectedAt = "cc_version_detected_at"
+
 	// SettingKeyAllowUngroupedKeyScheduling 允许未分组 API Key 调度（默认 false：未分组 Key 返回 403）
 	SettingKeyAllowUngroupedKeyScheduling = "allow_ungrouped_key_scheduling"
 

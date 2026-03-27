@@ -1138,7 +1138,9 @@
               />
               <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                 {{ form.auto_detect_min_claude_code_version
-                  ? t('admin.settings.claudeCode.autoDetectActiveHint')
+                  ? (form.cc_version_detected_at
+                    ? t('admin.settings.claudeCode.autoDetectActiveHint', { time: formatDate(form.cc_version_detected_at) })
+                    : t('admin.settings.claudeCode.autoDetectActiveHintNoTime'))
                   : t('admin.settings.claudeCode.minVersionHint') }}
               </p>
             </div>
@@ -1925,6 +1927,7 @@ import ImageUpload from '@/components/common/ImageUpload.vue'
 import BackupSettings from '@/views/admin/BackupView.vue'
 import DataManagementSettings from '@/views/admin/DataManagementView.vue'
 import { useClipboard } from '@/composables/useClipboard'
+import { formatDate } from '@/utils/format'
 import { useAppStore } from '@/stores'
 import { useAdminSettingsStore } from '@/stores/adminSettings'
 import {
@@ -2087,6 +2090,7 @@ const form = reactive<SettingsForm>({
   min_claude_code_version: '',
   max_claude_code_version: '',
   auto_detect_min_claude_code_version: false,
+  cc_version_detected_at: '',
   // 分组隔离
   allow_ungrouped_key_scheduling: false
 })
