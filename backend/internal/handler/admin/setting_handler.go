@@ -127,6 +127,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		CCVersionDetectedAt:                  settings.CCVersionDetectedAt,
 		AllowUngroupedKeyScheduling:          settings.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                   settings.BackendModeEnabled,
+		ScheduledTestPrompt:                  settings.ScheduledTestPrompt,
 	})
 }
 
@@ -207,6 +208,9 @@ type UpdateSettingsRequest struct {
 
 	// Backend Mode
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
+
+	// Scheduled test prompt
+	ScheduledTestPrompt string `json:"scheduled_test_prompt"`
 }
 
 // UpdateSettings 更新系统设置
@@ -510,6 +514,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		AutoDetectMinClaudeCodeVersion:   req.AutoDetectMinClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:      req.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:               req.BackendModeEnabled,
+		ScheduledTestPrompt:              req.ScheduledTestPrompt,
 		OpsMonitoringEnabled: func() bool {
 			if req.OpsMonitoringEnabled != nil {
 				return *req.OpsMonitoringEnabled
@@ -613,6 +618,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		CCVersionDetectedAt:                  updatedSettings.CCVersionDetectedAt,
 		AllowUngroupedKeyScheduling:          updatedSettings.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                   updatedSettings.BackendModeEnabled,
+		ScheduledTestPrompt:                  updatedSettings.ScheduledTestPrompt,
 	})
 }
 

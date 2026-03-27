@@ -88,6 +88,9 @@ type SystemSettings struct {
 
 	// Backend Mode
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
+
+	// Scheduled test prompt
+	ScheduledTestPrompt string `json:"scheduled_test_prompt"`
 }
 
 type DefaultSubscriptionSetting struct {
