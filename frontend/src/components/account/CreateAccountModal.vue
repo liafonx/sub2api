@@ -2215,10 +2215,10 @@
           </div>
           <div v-if="tlsFingerprintEnabled" class="mt-3">
             <label class="input-label text-xs">{{ t('admin.accounts.quotaControl.tlsFingerprint.profile') }}</label>
-            <select v-model="tlsFingerprintProfile"
+            <select v-model="tlsFingerprintProfileId"
               class="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-dark-500 dark:bg-dark-700 dark:text-white">
-              <option value="auto">{{ t('admin.accounts.quotaControl.tlsFingerprint.profileAuto') }}</option>
-              <option v-for="name in tlsProfiles" :key="name" :value="name">{{ name }}</option>
+              <option :value="null">{{ t('admin.accounts.quotaControl.tlsFingerprint.profileAuto') }}</option>
+              <option v-for="p in tlsFingerprintProfiles" :key="p.id" :value="p.id">{{ p.name }}</option>
             </select>
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.quotaControl.tlsFingerprint.profileHint') }}</p>
           </div>
@@ -3137,8 +3137,8 @@ const umqModeOptions = computed(() => [
   { value: 'serialize', label: t('admin.accounts.quotaControl.rpmLimit.umqModeSerialize') },
 ])
 const tlsFingerprintEnabled = ref(false)
-const tlsFingerprintProfile = ref<string>('auto')
-const tlsProfiles = ref<string[]>([])
+const tlsFingerprintProfileId = ref<number | null>(null)
+const tlsFingerprintProfiles = ref<{ id: number; name: string }[]>([])
 const sessionIdMaskingEnabled = ref(false)
 const cacheTTLOverrideEnabled = ref(false)
 const cacheTTLOverrideTarget = ref<string>('5m')
@@ -3305,8 +3305,8 @@ watch(
   (newVal) => {
     if (newVal) {
       // Load TLS profiles for dropdown
-      adminAPI.system.getTLSProfiles().then(profiles => {
-        tlsProfiles.value = profiles
+      adminAPI.tlsFingerprintProfiles.list().then(profiles => {
+        tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name }))
       }).catch((err) => { console.warn('Failed to load TLS profiles:', err) })
       // Modal opened - fill related models
       allowedModels.value = [...getModelsByPlatform(form.platform)]
@@ -3810,7 +3810,7 @@ const resetForm = () => {
   rpmStickyBuffer.value = null
   userMsgQueueMode.value = ''
   tlsFingerprintEnabled.value = false
-  tlsFingerprintProfile.value = 'auto'
+  tlsFingerprintProfileId.value = null
   sessionIdMaskingEnabled.value = false
   cacheTTLOverrideEnabled.value = false
   cacheTTLOverrideTarget.value = '5m'
@@ -4897,8 +4897,8 @@ const handleAnthropicExchange = async (authCode: string) => {
     // Add TLS fingerprint settings
     if (tlsFingerprintEnabled.value) {
       extra.enable_tls_fingerprint = true
-      if (tlsFingerprintProfile.value && tlsFingerprintProfile.value !== 'auto') {
-        extra.tls_fingerprint_profile = tlsFingerprintProfile.value
+      if (tlsFingerprintProfileId.value != null) {
+        extra.tls_fingerprint_profile_id = tlsFingerprintProfileId.value
       }
     }
 
@@ -5023,8 +5023,8 @@ const handleCookieAuth = async (sessionKey: string) => {
         // Add TLS fingerprint settings
         if (tlsFingerprintEnabled.value) {
           extra.enable_tls_fingerprint = true
-          if (tlsFingerprintProfile.value && tlsFingerprintProfile.value !== 'auto') {
-            extra.tls_fingerprint_profile = tlsFingerprintProfile.value
+          if (tlsFingerprintProfileId.value != null) {
+            extra.tls_fingerprint_profile_id = tlsFingerprintProfileId.value
           }
         }
 

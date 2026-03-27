@@ -2462,7 +2462,10 @@ export default {
           label: 'TLS 指纹模拟',
           hint: '模拟 Node.js/Claude Code 客户端的 TLS 指纹',
           defaultProfile: '内置默认',
-          randomProfile: '随机'
+          randomProfile: '随机',
+          profile: '配置文件',
+          profileAuto: '自动（内置默认）',
+          profileHint: '选择 TLS 指纹配置文件。自动使用内置默认值。'
         },
         sessionIdMasking: {
           label: '会话 ID 伪装',

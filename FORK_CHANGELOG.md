@@ -6,31 +6,9 @@ Patches not in upstream (`Wei-Shaw/sub2api`).
 
 ## Active Patches
 
-### Patch 1: TLS Fingerprint Registry Fix
+### Patch 1: TLS Fingerprint Registry Fix — SUPERSEDED
 
-**Problem**: `InitGlobalRegistry()` was never called — config profiles were silently ignored and only the built-in default was used.
-
-**Fix**: Call `InitGlobalRegistry(&cfg.Gateway.TLSFingerprint)` in `NewHTTPUpstream()`.
-
-**Files**: `backend/internal/repository/http_upstream.go`
-
-**Upstream status**: NOT fixed as of v0.1.85. PR submitted: https://github.com/Wei-Shaw/sub2api/pull/611
-
-**Profile selection**: Profiles are selected deterministically: `accountID % numProfiles` (sorted alphabetically by key name).
-
-To override the built-in default, use the key `claude_cli_v2` in config.yaml:
-
-```yaml
-gateway:
-  tls_fingerprint:
-    enabled: true
-    profiles:
-      claude_cli_v2:
-        name: "Your Custom Profile Name"
-        cipher_suites: [...]
-        curves: [...]
-        point_formats: [...]
-```
+**Status**: SUPERSEDED as of upstream v0.1.105. Upstream replaced the static config-based profile registry with a DB-backed `TLSFingerprintProfileService`. The old `InitGlobalRegistry()` call is no longer needed — profiles are now resolved via `TLSFingerprintProfileService.GetProfileByID()`. No fork fix required.
 
 ---
 
@@ -123,7 +101,7 @@ user_quota:meta:{accountID}               → Hash (epoch, per_user_limit, per_u
 **Purpose**: Profile key was missing from the TLS client cache key, causing all accounts to share the same transport regardless of their configured TLS fingerprint profile.
 
 **Files**:
-- `backend/internal/pkg/tlsfingerprint/registry.go`
+- `backend/internal/pkg/tlsfingerprint/profile_identity.go` (renamed from `registry.go` in v0.1.105)
 - `backend/internal/repository/http_upstream.go`
 - `backend/internal/repository/claude_usage_service.go`
 - `backend/internal/service/account_usage_service.go`
@@ -316,8 +294,7 @@ Also fixes OpenAI OAuth token refresh to pass `client_id` from stored credential
 Run after every upstream merge to confirm patches survived:
 
 ```bash
-# Patch 1: TLS registry init
-grep InitGlobalRegistry backend/internal/repository/http_upstream.go
+# Patch 1: SUPERSEDED — no verification needed
 
 # Patch 2: HTTP/2 upstream
 grep '"h2"' backend/internal/pkg/tlsfingerprint/dialer.go
@@ -331,7 +308,7 @@ ls backend/internal/repository/user_quota_cache.go
 grep X25519MLKEM768 backend/internal/pkg/tlsfingerprint/dialer.go
 
 # Patch 5: TLS profile cache key
-grep profileKey backend/internal/pkg/tlsfingerprint/registry.go
+grep profileKey backend/internal/pkg/tlsfingerprint/profile_identity.go
 
 # Patch 6: Peak usage log
 ls backend/internal/service/peak_usage_service.go

@@ -165,11 +165,11 @@ This is the `liafonx/sub2api` fork. Full patch details, verification commands, a
 
 | # | Patch | Key Files | Status |
 |---|-------|-----------|--------|
-| 1 | TLS Fingerprint Registry Fix | `repository/http_upstream.go` | PR #611 submitted |
+| 1 | TLS Fingerprint Registry Fix | ~~`repository/http_upstream.go`~~ | SUPERSEDED (v0.1.105) |
 | 2 | HTTP/2 Upstream | `pkg/tlsfingerprint/h2_roundtripper.go` | Active (2026-03-02) |
 | 3 | Per-User Quota Allocation | `service/user_quota_service.go`, `repository/user_quota_cache.go` | Active (2026-03-08) |
 | 4 | Full X25519MLKEM768 Support | `pkg/tlsfingerprint/dialer.go` | Active (2026-03-13) |
-| 5 | TLS Profile Cache Key Fix | `pkg/tlsfingerprint/registry.go`, `repository/http_upstream.go` | Active (2026-03-13) |
+| 5 | TLS Profile Cache Key Fix | `pkg/tlsfingerprint/profile_identity.go`, `repository/http_upstream.go` | Active (2026-03-13) |
 | 6 | Peak Usage Log | `service/peak_usage_service.go`, `handler/admin/peak_usage_handler.go` | Active (2026-03-25) |
 | 7 | Claude Code Version Detection | `service/claude_code_version_detect_service.go` | Active |
 | 8 | CC Probe Service | `service/cc_probe_service.go`, `repository/cc_probe_cache.go` | Active (2026-03-25) |

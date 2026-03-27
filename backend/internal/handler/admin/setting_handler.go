@@ -127,6 +127,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		OpsMetricsIntervalSeconds:            settings.OpsMetricsIntervalSeconds,
 		MinClaudeCodeVersion:                 settings.MinClaudeCodeVersion,
 		MaxClaudeCodeVersion:                 settings.MaxClaudeCodeVersion,
+		AutoDetectMinClaudeCodeVersion:       settings.AutoDetectMinClaudeCodeVersion,
+		CCVersionDetectedAt:                  settings.CCVersionDetectedAt,
 		AllowUngroupedKeyScheduling:          settings.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                   settings.BackendModeEnabled,
 		EnableFingerprintUnification:         settings.EnableFingerprintUnification,
@@ -203,8 +205,9 @@ type UpdateSettingsRequest struct {
 	OpsQueryModeDefault          *string `json:"ops_query_mode_default"`
 	OpsMetricsIntervalSeconds    *int    `json:"ops_metrics_interval_seconds"`
 
-	MinClaudeCodeVersion string `json:"min_claude_code_version"`
-	MaxClaudeCodeVersion string `json:"max_claude_code_version"`
+	MinClaudeCodeVersion           string `json:"min_claude_code_version"`
+	MaxClaudeCodeVersion           string `json:"max_claude_code_version"`
+	AutoDetectMinClaudeCodeVersion bool   `json:"auto_detect_min_claude_code_version"`
 
 	// 分组隔离
 	AllowUngroupedKeyScheduling bool `json:"allow_ungrouped_key_scheduling"`
@@ -581,6 +584,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		IdentityPatchPrompt:              req.IdentityPatchPrompt,
 		MinClaudeCodeVersion:             req.MinClaudeCodeVersion,
 		MaxClaudeCodeVersion:             req.MaxClaudeCodeVersion,
+		AutoDetectMinClaudeCodeVersion:   req.AutoDetectMinClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:      req.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:               req.BackendModeEnabled,
 		OpsMonitoringEnabled: func() bool {
@@ -695,6 +699,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpsMetricsIntervalSeconds:            updatedSettings.OpsMetricsIntervalSeconds,
 		MinClaudeCodeVersion:                 updatedSettings.MinClaudeCodeVersion,
 		MaxClaudeCodeVersion:                 updatedSettings.MaxClaudeCodeVersion,
+		AutoDetectMinClaudeCodeVersion:       updatedSettings.AutoDetectMinClaudeCodeVersion,
+		CCVersionDetectedAt:                  updatedSettings.CCVersionDetectedAt,
 		AllowUngroupedKeyScheduling:          updatedSettings.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                   updatedSettings.BackendModeEnabled,
 		EnableFingerprintUnification:         updatedSettings.EnableFingerprintUnification,
