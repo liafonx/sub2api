@@ -44,7 +44,8 @@ const APIKeyBetaHeader = BetaClaudeCode + "," + BetaInterleavedThinking + "," + 
 // APIKeyHaikuBetaHeader Haiku 模型在 API-key 账号下使用的 anthropic-beta header（不包含 oauth / claude-code）
 const APIKeyHaikuBetaHeader = BetaInterleavedThinking
 
-// DefaultHeaders 是 Claude Code 客户端默认请求头。
+// DefaultHeaders 是 Claude Code 客户端默认请求头（legacy — kept for backwards compatibility).
+// New code should use FingerprintManagedHeaders or DynamicDefaults instead.
 var DefaultHeaders = map[string]string{
 	// Keep these in sync with recent Claude CLI traffic to reduce the chance
 	// that Claude Code-scoped OAuth credentials are rejected as "non-CLI" usage.
@@ -59,6 +60,28 @@ var DefaultHeaders = map[string]string{
 	"X-Stainless-Timeout":                       "600",
 	"X-App":                                     "cli",
 	"Anthropic-Dangerous-Direct-Browser-Access": "true",
+}
+
+// FingerprintManagedHeaders are static per-account headers controlled by the
+// pre-computed fingerprint (probe + profile overlay). Used as fallback in
+// BuildFingerprintFromProbeAndProfile when probe data is unavailable.
+// Derived from DefaultHeaders minus DynamicDefaults via init() to prevent divergence.
+var FingerprintManagedHeaders map[string]string
+
+func init() {
+	FingerprintManagedHeaders = make(map[string]string, len(DefaultHeaders)-len(DynamicDefaults))
+	for k, v := range DefaultHeaders {
+		if _, isDynamic := DynamicDefaults[k]; !isDynamic {
+			FingerprintManagedHeaders[k] = v
+		}
+	}
+}
+
+// DynamicDefaults are per-request headers filled as missing defaults.
+// These are NOT managed by the fingerprint — they vary per-request.
+var DynamicDefaults = map[string]string{
+	"X-Stainless-Retry-Count": "0",
+	"X-Stainless-Timeout":     "600",
 }
 
 // DefaultStainlessTimeout is the default X-Stainless-Timeout for /messages requests.

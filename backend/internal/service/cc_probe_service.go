@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,22 +35,31 @@ type CapturedBodyTraits struct {
 // CCProbeService probes a locally installed Claude Code binary to capture
 // version-dependent request headers via mitmproxy.
 type CCProbeService struct {
-	cfg             *config.CCProbeConfig
-	cache           CCProbeCache
-	mu              sync.RWMutex
-	latestTraits    *CCVersionTraits
-	fallbackFile    string // path to persist last-known-good traits
-	stopCh          chan struct{}
-	wg              sync.WaitGroup
-	probeInProgress atomic.Bool // prevents overlapping probes
-	probePrompt     string      // custom probe prompt (guarded by mu)
-	traitRegistry   *CCTraitRegistry
+	cfg                  *config.CCProbeConfig
+	cache                CCProbeCache
+	mu                   sync.RWMutex
+	latestTraits         *CCVersionTraits
+	fallbackFile         string // path to persist last-known-good traits
+	stopCh               chan struct{}
+	wg                   sync.WaitGroup
+	probeInProgress      atomic.Bool // prevents overlapping probes
+	probePrompt          string      // custom probe prompt (guarded by mu)
+	traitRegistry        *CCTraitRegistry
+	onFingerprintRebuild func() // callback fired after successful probe capture
 }
 
 // SetTraitRegistry wires the CCTraitRegistry so probe results feed inbound detection.
 func (s *CCProbeService) SetTraitRegistry(r *CCTraitRegistry) {
 	s.mu.Lock()
 	s.traitRegistry = r
+	s.mu.Unlock()
+}
+
+// SetOnFingerprintRebuild registers a callback invoked after a successful probe
+// capture. Used by IdentityService to trigger RebuildAllFingerprints.
+func (s *CCProbeService) SetOnFingerprintRebuild(fn func()) {
+	s.mu.Lock()
+	s.onFingerprintRebuild = fn
 	s.mu.Unlock()
 }
 
@@ -511,9 +519,15 @@ def request(flow: http.HTTPFlow):
 	// Feed inbound detection registry if wired
 	s.mu.RLock()
 	registry := s.traitRegistry
+	rebuildFn := s.onFingerprintRebuild
 	s.mu.RUnlock()
 	if registry != nil {
 		registry.UpdateFromProbe(traits, captured.BodyTraits)
+	}
+
+	// Trigger fingerprint rebuild for all accounts after new probe capture
+	if rebuildFn != nil {
+		rebuildFn()
 	}
 
 	return nil
@@ -559,32 +573,6 @@ func (s *CCProbeService) saveToFile(traits *CCVersionTraits) error {
 		return err
 	}
 	return os.WriteFile(s.fallbackFile, data, 0600)
-}
-
-// ApplyMimicHeadersFromProbe applies captured CC headers to a request,
-// overriding only the version-dependent headers (User-Agent, X-Stainless-Package-Version).
-// Platform-identity headers (OS, Arch, Runtime, RuntimeVersion, Lang) are NOT overridden here
-// because they come from the TLS profile identity instead.
-func (s *CCProbeService) ApplyVersionHeaders(req *http.Request) {
-	s.mu.RLock()
-	traits := s.latestTraits
-	s.mu.RUnlock()
-
-	if traits == nil || len(traits.Headers) == 0 {
-		slog.Debug("cc_probe.apply_headers_skipped", "reason", "no_traits")
-		return
-	}
-
-	// Only apply version-dependent headers from probe
-	versionHeaders := []string{
-		"user-agent",
-		"x-stainless-package-version",
-	}
-	for _, key := range versionHeaders {
-		if v, ok := traits.Headers[key]; ok && v != "" {
-			req.Header.Set(key, v)
-		}
-	}
 }
 
 // waitForTCPReady polls until a TCP connection to addr succeeds or timeout expires.

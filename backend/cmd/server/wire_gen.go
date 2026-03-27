@@ -215,10 +215,21 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		ccProbeService.SetProbePrompt(prompt)
 	}
 	identityService.SetCCProbeService(ccProbeService)
-	gatewayService.SetCCProbeService(ccProbeService)
+	identityService.SetTLSFPProfileService(tlsFingerprintProfileService)
+	identityService.SetAccountRepo(accountRepository)
 	ccProbeService.SetTraitRegistry(ccTraitRegistry)
+	// Rebuild all fingerprints when probe captures new CC version
+	ccProbeService.SetOnFingerprintRebuild(identityService.RebuildAllFingerprints)
 	accountTestService.SetIdentityService(identityService)
 	accountTestService.SetCCProbeService(ccProbeService)
+
+	// Admin service: trigger single-account fingerprint rebuild on TLS profile changes
+	service.SetOnAccountFingerprintRebuild(adminService, func(ctx context.Context, account *service.Account) {
+		identityService.RebuildAccountFingerprint(ctx, account)
+	})
+
+	// Startup: rebuild all account fingerprints from current probe + profile data
+	identityService.RebuildAllFingerprints()
 
 	// Fork: user quota cleanup ticker
 	service.StartUserQuotaCleanupTicker(context.Background(), userQuotaService, 15*time.Second)

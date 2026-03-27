@@ -25,7 +25,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
@@ -626,7 +625,6 @@ type GatewayService struct {
 	modelsListCacheTTL     time.Duration
 	settingService         *SettingService
 	responseHeaderFilter   *responseheaders.CompiledHeaderFilter
-	ccProbeService         *CCProbeService                 // optional, injected post-construction
 	ccVersionDetectService *ClaudeCodeVersionDetectService // optional, injected post-construction
 	badThinkingPathCache   *gocache.Cache
 	debugModelRouting      atomic.Bool
@@ -5929,8 +5927,6 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 			// - 强制 Claude Code 指纹相关请求头（尤其是 user-agent/x-stainless/x-app）
 			// - 保留 incoming beta 的同时，确保 OAuth 所需 beta 存在
 			applyClaudeCodeMimicHeaders(req, reqStream)
-			// Overlay profile-derived platform headers and probe-captured version headers.
-			applyProfileAndProbeHeaders(req, s.tlsFPProfileService.ResolveProfileKey(account), s.ccProbeService)
 
 			incomingBeta := getHeaderRaw(req.Header, "anthropic-beta")
 			// Match real Claude CLI traffic (per mitmproxy reports):
@@ -6046,26 +6042,20 @@ func defaultAPIKeyBetaHeader(body []byte) string {
 	return claude.APIKeyBetaHeader
 }
 
-// applyProfileIdentityHeaders overlays TLS-profile-derived platform headers
-// (OS, Arch, Runtime, RuntimeVersion, Lang) on top of the base mimic headers.
+// applyMimicNonStainlessHeaders sets only the non-fingerprint-managed mimic headers.
+// The fingerprint (probe+profile) handles all X-Stainless-*, UA, X-App, and
+// Anthropic-Dangerous-Direct-Browser-Access. This function sets only:
+//   - Accept: application/json
+//   - x-stainless-helper-method: stream (if isStream)
+//
 // Package-level so both GatewayService and AccountTestService can call it.
-func applyProfileIdentityHeaders(req *http.Request, profileKey string) {
-	if identity, ok := tlsfingerprint.CachedParseProfileIdentity(profileKey); ok {
-		req.Header.Set("X-Stainless-OS", identity.OS)
-		req.Header.Set("X-Stainless-Arch", identity.Arch)
-		req.Header.Set("X-Stainless-Runtime", identity.Runtime)
-		req.Header.Set("X-Stainless-Runtime-Version", identity.RuntimeVersion)
-		req.Header.Set("X-Stainless-Lang", identity.Lang)
+func applyMimicNonStainlessHeaders(req *http.Request, isStream bool) {
+	if req == nil {
+		return
 	}
-}
-
-// applyProfileAndProbeHeaders overlays TLS-profile-derived platform headers and
-// probe-captured version headers on top of the base mimic headers.
-// Package-level so both GatewayService and AccountTestService can call it.
-func applyProfileAndProbeHeaders(req *http.Request, profileKey string, probe *CCProbeService) {
-	applyProfileIdentityHeaders(req, profileKey)
-	if probe != nil {
-		probe.ApplyVersionHeaders(req)
+	setHeaderRaw(req.Header, "Accept", "application/json")
+	if isStream {
+		setHeaderRaw(req.Header, "x-stainless-helper-method", "stream")
 	}
 }
 
@@ -6095,7 +6085,10 @@ func applyClaudeOAuthHeaderDefaults(req *http.Request) {
 	if getHeaderRaw(req.Header, "Accept") == "" {
 		setHeaderRaw(req.Header, "Accept", "application/json")
 	}
-	for key, value := range claude.DefaultHeaders {
+	// Only fill dynamic per-request defaults (Retry-Count, Timeout).
+	// Fingerprint-managed headers (UA, X-Stainless-*, X-App, etc.) are handled
+	// by ApplyFingerprint and should NOT be filled from stale defaults here.
+	for key, value := range claude.DynamicDefaults {
 		if value == "" {
 			continue
 		}
@@ -6389,28 +6382,17 @@ func buildBetaTokenSet(tokens []string) map[string]struct{} {
 
 var defaultDroppedBetasSet = buildBetaTokenSet(claude.DroppedBetas)
 
-// applyClaudeCodeMimicHeaders forces "Claude Code-like" request headers.
-// This mirrors opencode-anthropic-auth behavior: do not trust downstream
-// headers when using Claude Code-scoped OAuth credentials.
+// applyClaudeCodeMimicHeaders sets non-fingerprint mimic headers for OAuth requests.
+// Fingerprint-managed headers (UA, X-Stainless-*, X-App, etc.) are handled by
+// ApplyFingerprint. This function composes:
+//   - applyClaudeOAuthHeaderDefaults (Retry-Count, Timeout, Accept conditionally)
+//   - applyMimicNonStainlessHeaders (Accept forced, x-stainless-helper-method)
 func applyClaudeCodeMimicHeaders(req *http.Request, isStream bool) {
 	if req == nil {
 		return
 	}
-	// Start with the standard defaults (fill missing).
 	applyClaudeOAuthHeaderDefaults(req)
-	// Then force key headers to match Claude Code fingerprint regardless of what the client sent.
-	// 使用 resolveWireCasing 确保 key 与真实 wire format 一致（如 "x-app" 而非 "X-App"）
-	for key, value := range claude.DefaultHeaders {
-		if value == "" {
-			continue
-		}
-		setHeaderRaw(req.Header, resolveWireCasing(key), value)
-	}
-	// Real Claude CLI uses Accept: application/json (even for streaming).
-	setHeaderRaw(req.Header, "Accept", "application/json")
-	if isStream {
-		setHeaderRaw(req.Header, "x-stainless-helper-method", "stream")
-	}
+	applyMimicNonStainlessHeaders(req, isStream)
 }
 
 func truncateForLog(b []byte, maxBytes int) string {
@@ -8688,7 +8670,6 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	if tokenType == "oauth" {
 		if mimicClaudeCode {
 			applyClaudeCodeMimicHeaders(req, false)
-			applyProfileAndProbeHeaders(req, s.tlsFPProfileService.ResolveProfileKey(account), s.ccProbeService)
 
 			incomingBeta := getHeaderRaw(req.Header, "anthropic-beta")
 			requiredBetas := []string{claude.BetaClaudeCode, claude.BetaOAuth, claude.BetaInterleavedThinking, claude.BetaTokenCounting}
@@ -8986,11 +8967,6 @@ func (s *GatewayService) SetUserQuotaChecker(checker UserQuotaChecker) {
 // after the GatewayService is constructed.
 func (s *GatewayService) SetPeakUsageCache(cache PeakUsageCache) {
 	s.peakCache = cache
-}
-
-// SetCCProbeService sets the CC probe service for enhanced mimic headers.
-func (s *GatewayService) SetCCProbeService(probe *CCProbeService) {
-	s.ccProbeService = probe
 }
 
 // SetCCVersionDetectService sets the CC version detection service.

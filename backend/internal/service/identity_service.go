@@ -13,7 +13,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -37,15 +39,17 @@ var defaultFingerprint = Fingerprint{
 
 // Fingerprint represents account fingerprint data
 type Fingerprint struct {
-	ClientID                string
-	UserAgent               string
-	StainlessLang           string
-	StainlessPackageVersion string
-	StainlessOS             string
-	StainlessArch           string
-	StainlessRuntime        string
-	StainlessRuntimeVersion string
-	UpdatedAt               int64 `json:",omitempty"` // Unix timestamp，用于判断是否需要续期TTL
+	ClientID                     string
+	UserAgent                    string
+	StainlessLang                string
+	StainlessPackageVersion      string
+	StainlessOS                  string
+	StainlessArch                string
+	StainlessRuntime             string
+	StainlessRuntimeVersion      string
+	XApp                         string `json:",omitempty"` // e.g., "cli"
+	DangerousDirectBrowserAccess string `json:",omitempty"` // e.g., "true"
+	UpdatedAt                    int64  `json:",omitempty"` // Unix timestamp，用于判断是否需要续期TTL
 }
 
 // IdentityCache defines cache operations for identity service
@@ -63,8 +67,10 @@ type IdentityCache interface {
 
 // IdentityService 管理OAuth账号的请求身份指纹
 type IdentityService struct {
-	cache          IdentityCache
-	ccProbeService *CCProbeService
+	cache               IdentityCache
+	ccProbeService      *CCProbeService
+	tlsFPProfileService *TLSFingerprintProfileService
+	accountRepo         AccountRepository
 }
 
 // NewIdentityService 创建新的IdentityService
@@ -75,6 +81,16 @@ func NewIdentityService(cache IdentityCache) *IdentityService {
 // SetCCProbeService injects the CC probe service for probe-aware fingerprint defaults.
 func (s *IdentityService) SetCCProbeService(probe *CCProbeService) {
 	s.ccProbeService = probe
+}
+
+// SetTLSFPProfileService injects the TLS fingerprint profile service for profile-aware rebuilds.
+func (s *IdentityService) SetTLSFPProfileService(svc *TLSFingerprintProfileService) {
+	s.tlsFPProfileService = svc
+}
+
+// SetAccountRepo injects the account repository for bulk fingerprint rebuilds.
+func (s *IdentityService) SetAccountRepo(repo AccountRepository) {
+	s.accountRepo = repo
 }
 
 // GetFingerprint retrieves the cached fingerprint for an account without creating one.
@@ -249,6 +265,12 @@ func (s *IdentityService) ApplyFingerprint(req *http.Request, fp *Fingerprint) {
 	}
 	if fp.StainlessRuntimeVersion != "" {
 		setHeaderRaw(req.Header, "X-Stainless-Runtime-Version", fp.StainlessRuntimeVersion)
+	}
+	if fp.XApp != "" {
+		setHeaderRaw(req.Header, "x-app", fp.XApp)
+	}
+	if fp.DangerousDirectBrowserAccess != "" {
+		setHeaderRaw(req.Header, "Anthropic-Dangerous-Direct-Browser-Access", fp.DangerousDirectBrowserAccess)
 	}
 }
 
@@ -485,4 +507,151 @@ func isNewerVersion(newUA, cachedUA string) bool {
 	}
 
 	return newPatch > cachedPatch
+}
+
+// BuildFingerprintFromProbeAndProfile creates a Fingerprint from probe-captured
+// headers (base) with profile-derived overlay (OS/Arch/Runtime/RuntimeVersion/Lang).
+// If probeHeaders is empty, falls back to claude.FingerprintManagedHeaders.
+// Preserves existing ClientID from Redis (read-then-write).
+func (s *IdentityService) BuildFingerprintFromProbeAndProfile(ctx context.Context, accountID int64, probeHeaders map[string]string, profileKey string) *Fingerprint {
+	fp := &Fingerprint{}
+
+	// Determine header source: probe or fallback
+	src := probeHeaders
+	if len(src) == 0 {
+		slog.Warn("identity.build_fingerprint_fallback",
+			"account_id", accountID,
+			"reason", "no_probe_headers",
+			"fallback", "FingerprintManagedHeaders",
+		)
+		src = claude.FingerprintManagedHeaders
+	}
+
+	// Populate from source (probe headers use lowercase keys)
+	fp.UserAgent = probeHeaderGet(src, "user-agent", "User-Agent")
+	fp.StainlessPackageVersion = probeHeaderGet(src, "x-stainless-package-version", "X-Stainless-Package-Version")
+	fp.StainlessLang = probeHeaderGet(src, "x-stainless-lang", "X-Stainless-Lang")
+	fp.StainlessOS = probeHeaderGet(src, "x-stainless-os", "X-Stainless-OS")
+	fp.StainlessArch = probeHeaderGet(src, "x-stainless-arch", "X-Stainless-Arch")
+	fp.StainlessRuntime = probeHeaderGet(src, "x-stainless-runtime", "X-Stainless-Runtime")
+	fp.StainlessRuntimeVersion = probeHeaderGet(src, "x-stainless-runtime-version", "X-Stainless-Runtime-Version")
+	fp.XApp = probeHeaderGet(src, "x-app", "X-App")
+	fp.DangerousDirectBrowserAccess = probeHeaderGet(src, "anthropic-dangerous-direct-browser-access", "Anthropic-Dangerous-Direct-Browser-Access")
+
+	// Profile overlay: OS, Arch, Runtime, RuntimeVersion, Lang
+	if profileKey != "" {
+		if identity, ok := tlsfingerprint.CachedParseProfileIdentity(profileKey); ok {
+			fp.StainlessOS = identity.OS
+			fp.StainlessArch = identity.Arch
+			fp.StainlessRuntime = identity.Runtime
+			fp.StainlessRuntimeVersion = identity.RuntimeVersion
+			fp.StainlessLang = identity.Lang
+		}
+	}
+
+	// Preserve existing ClientID (read-then-write, never blind overwrite)
+	if existing, err := s.cache.GetFingerprint(ctx, accountID); err == nil && existing != nil && existing.ClientID != "" {
+		fp.ClientID = existing.ClientID
+	} else {
+		fp.ClientID = generateClientID()
+	}
+
+	fp.UpdatedAt = time.Now().Unix()
+
+	// Persist to cache
+	if err := s.cache.SetFingerprint(ctx, accountID, fp); err != nil {
+		slog.Warn("identity.build_fingerprint_cache_error",
+			"account_id", accountID,
+			"error", err,
+		)
+	}
+
+	return fp
+}
+
+// probeHeaderGet reads a header from the source map, trying lowercase key first
+// then the title-case fallback (for FingerprintManagedHeaders which uses title-case keys).
+func probeHeaderGet(src map[string]string, lowerKey, titleKey string) string {
+	if v, ok := src[lowerKey]; ok && v != "" {
+		return v
+	}
+	if v, ok := src[titleKey]; ok && v != "" {
+		return v
+	}
+	return ""
+}
+
+// currentProbeHeaders returns the latest probe-captured headers, or nil if unavailable.
+func (s *IdentityService) currentProbeHeaders() map[string]string {
+	if s.ccProbeService == nil {
+		return nil
+	}
+	if traits := s.ccProbeService.GetLatestTraits(); traits != nil {
+		return traits.Headers
+	}
+	return nil
+}
+
+// RebuildAccountFingerprint rebuilds the fingerprint for a single account from
+// current probe data + profile key. Returns the new fingerprint or nil on error.
+func (s *IdentityService) RebuildAccountFingerprint(ctx context.Context, account *Account) *Fingerprint {
+	probeHeaders := s.currentProbeHeaders()
+
+	var profileKey string
+	if s.tlsFPProfileService != nil {
+		profileKey = s.tlsFPProfileService.ResolveProfileKey(account)
+	}
+
+	fp := s.BuildFingerprintFromProbeAndProfile(ctx, account.ID, probeHeaders, profileKey)
+	slog.Debug("identity.rebuild_account_fingerprint",
+		"account_id", account.ID,
+		"profile_key", profileKey,
+		"ua", fp.UserAgent,
+	)
+	return fp
+}
+
+// RebuildAllFingerprints rebuilds fingerprints for all Anthropic OAuth/SetupToken accounts.
+// Runs asynchronously in a goroutine. Safe to call from startup or probe callback.
+func (s *IdentityService) RebuildAllFingerprints() {
+	if s.accountRepo == nil {
+		slog.Warn("identity.rebuild_all_skipped", "reason", "no_account_repo")
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		accounts, err := s.accountRepo.ListByPlatform(ctx, PlatformAnthropic)
+		if err != nil {
+			slog.Error("identity.rebuild_all_list_error", "error", err)
+			return
+		}
+
+		// Hoist probe header lookup outside the loop — single read for all accounts.
+		probeHeaders := s.currentProbeHeaders()
+
+		rebuilt := 0
+		for i := range accounts {
+			acc := &accounts[i]
+			// Only OAuth/SetupToken accounts use fingerprints
+			if !acc.IsOAuth() {
+				continue
+			}
+
+			var profileKey string
+			if s.tlsFPProfileService != nil {
+				profileKey = s.tlsFPProfileService.ResolveProfileKey(acc)
+			}
+
+			s.BuildFingerprintFromProbeAndProfile(ctx, acc.ID, probeHeaders, profileKey)
+			rebuilt++
+		}
+
+		slog.Info("identity.rebuild_all_complete",
+			"total_accounts", len(accounts),
+			"rebuilt", rebuilt,
+		)
+	}()
 }

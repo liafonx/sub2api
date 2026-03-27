@@ -440,23 +440,24 @@ const (
 
 // adminServiceImpl implements AdminService
 type adminServiceImpl struct {
-	userRepo             UserRepository
-	groupRepo            GroupRepository
-	accountRepo          AccountRepository
-	soraAccountRepo      SoraAccountRepository // Sora 账号扩展表仓储
-	proxyRepo            ProxyRepository
-	apiKeyRepo           APIKeyRepository
-	redeemCodeRepo       RedeemCodeRepository
-	userGroupRateRepo    UserGroupRateRepository
-	billingCacheService  *BillingCacheService
-	proxyProber          ProxyExitInfoProber
-	proxyLatencyCache    ProxyLatencyCache
-	authCacheInvalidator APIKeyAuthCacheInvalidator
-	entClient            *dbent.Client // 用于开启数据库事务
-	settingService       *SettingService
-	defaultSubAssigner   DefaultSubscriptionAssigner
-	userSubRepo          UserSubscriptionRepository
-	privacyClientFactory PrivacyClientFactory
+	userRepo                    UserRepository
+	groupRepo                   GroupRepository
+	accountRepo                 AccountRepository
+	soraAccountRepo             SoraAccountRepository // Sora 账号扩展表仓储
+	proxyRepo                   ProxyRepository
+	apiKeyRepo                  APIKeyRepository
+	redeemCodeRepo              RedeemCodeRepository
+	userGroupRateRepo           UserGroupRateRepository
+	billingCacheService         *BillingCacheService
+	proxyProber                 ProxyExitInfoProber
+	proxyLatencyCache           ProxyLatencyCache
+	authCacheInvalidator        APIKeyAuthCacheInvalidator
+	entClient                   *dbent.Client // 用于开启数据库事务
+	settingService              *SettingService
+	defaultSubAssigner          DefaultSubscriptionAssigner
+	userSubRepo                 UserSubscriptionRepository
+	privacyClientFactory        PrivacyClientFactory
+	onAccountFingerprintRebuild func(ctx context.Context, account *Account) // optional callback for TLS profile changes
 }
 
 type userGroupRateBatchReader interface {
@@ -501,6 +502,15 @@ func NewAdminService(
 		defaultSubAssigner:   defaultSubAssigner,
 		userSubRepo:          userSubRepo,
 		privacyClientFactory: privacyClientFactory,
+	}
+}
+
+// SetOnAccountFingerprintRebuild registers a callback invoked after an account's
+// TLS fingerprint profile changes (create or update). Used by IdentityService
+// to trigger single-account fingerprint rebuild.
+func SetOnAccountFingerprintRebuild(svc AdminService, fn func(ctx context.Context, account *Account)) {
+	if impl, ok := svc.(*adminServiceImpl); ok {
+		impl.onAccountFingerprintRebuild = fn
 	}
 }
 
@@ -1587,6 +1597,11 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		}
 	}
 
+	// Trigger fingerprint rebuild for newly created Anthropic OAuth/SetupToken accounts
+	if s.onAccountFingerprintRebuild != nil && account.IsAnthropicOAuthOrSetupToken() {
+		s.onAccountFingerprintRebuild(ctx, account)
+	}
+
 	return account, nil
 }
 
@@ -1596,6 +1611,10 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		return nil, err
 	}
 	wasOveragesEnabled := account.IsOveragesEnabled()
+
+	// Snapshot TLS state before applying changes (for fingerprint rebuild trigger)
+	oldTLSEnabled := account.IsTLSFingerprintEnabled()
+	oldTLSProfileID := account.GetTLSFingerprintProfileID()
 
 	if input.Name != "" {
 		account.Name = input.Name
@@ -1725,6 +1744,16 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err != nil {
 		return nil, err
 	}
+
+	// Trigger fingerprint rebuild only when TLS state actually changed
+	if s.onAccountFingerprintRebuild != nil && updated.IsAnthropicOAuthOrSetupToken() {
+		newTLSEnabled := updated.IsTLSFingerprintEnabled()
+		newTLSProfileID := updated.GetTLSFingerprintProfileID()
+		if oldTLSEnabled != newTLSEnabled || oldTLSProfileID != newTLSProfileID {
+			s.onAccountFingerprintRebuild(ctx, updated)
+		}
+	}
+
 	return updated, nil
 }
 
