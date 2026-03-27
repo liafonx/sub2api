@@ -68,6 +68,7 @@ type AccountTestService struct {
 	httpUpstream              HTTPUpstream
 	cfg                       *config.Config
 	identityService           *IdentityService
+	ccProbeService            *CCProbeService
 	soraTestGuardMu           sync.Mutex
 	soraTestLastRun           map[int64]time.Time
 	soraTestCooldown          time.Duration
@@ -97,6 +98,11 @@ func NewAccountTestService(
 // SetIdentityService injects the identity service for per-account fingerprint lookup.
 func (s *AccountTestService) SetIdentityService(svc *IdentityService) {
 	s.identityService = svc
+}
+
+// SetCCProbeService injects the CC probe service for live version header overlay.
+func (s *AccountTestService) SetCCProbeService(svc *CCProbeService) {
+	s.ccProbeService = svc
 }
 
 func (s *AccountTestService) validateUpstreamBaseURL(raw string) (string, error) {
@@ -263,11 +269,12 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 	c.Writer.Flush()
 
-	// Create Claude Code style payload (same for all account types).
-	// Use cached fingerprint for identity fields when available.
+	// Fetch fingerprint once — used for both payload identity and header overlay.
+	var fingerprint *Fingerprint
 	var fpClientID, fpAccountUUID, fpUAVersion string
 	if s.identityService != nil {
 		if fp, _ := s.identityService.GetFingerprint(ctx, account.ID); fp != nil {
+			fingerprint = fp
 			fpClientID = fp.ClientID
 			fpUAVersion = ExtractCLIVersion(fp.UserAgent)
 		}
@@ -276,7 +283,6 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	payload := createTestPayload(testModelID, fpClientID, fpAccountUUID, fpUAVersion)
 	payloadBytes, _ := json.Marshal(payload)
 
-	// Send test_start event
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
 
 	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(payloadBytes))
@@ -284,18 +290,19 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		return s.sendErrorAndEnd(c, "Failed to create request")
 	}
 
-	// Set common headers
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	// Apply Claude Code client headers
-	for key, value := range claude.DefaultHeaders {
-		req.Header.Set(key, value)
+	// Full mimic pipeline — must match gateway_service.buildUpstreamRequest for trait consistency.
+	applyClaudeCodeMimicHeaders(req, true)
+	applyProfileAndProbeHeaders(req, account.GetTLSFingerprintProfile(), s.ccProbeService)
+	if fingerprint != nil {
+		s.identityService.ApplyFingerprint(req, fingerprint)
 	}
+	applyDynamicStainlessHeaders(req, nil, claude.DefaultStainlessTimeout)
 
-	// Set authentication header
 	if useBearer {
-		req.Header.Set("anthropic-beta", claude.DefaultBetaHeader)
+		req.Header.Set("anthropic-beta", claude.HaikuBetaHeader)
 		req.Header.Set("Authorization", "Bearer "+authToken)
 	} else {
 		req.Header.Set("anthropic-beta", claude.APIKeyBetaHeader)

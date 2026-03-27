@@ -174,8 +174,8 @@ This is the `liafonx/sub2api` fork. Full patch details, verification commands, a
 | 7 | Claude Code Version Detection | `service/claude_code_version_detect_service.go` | Active |
 | 8 | CC Probe Service | `service/cc_probe_service.go`, `repository/cc_probe_cache.go` | Active (2026-03-25) |
 | 9 | Provider Routing | `service/provider_routing.go` | Active (2026-03-25) |
-| 10 | CC Trait Registry & Claude Code Validator | `service/cc_trait_registry.go`, `service/claude_code_validator.go` | Active (2026-03-26) |
+| 10 | CC Trait Registry & Validator Enhancements | `service/cc_trait_registry.go`, `service/claude_code_validator.go` | Active (2026-03-26) |
 | 11 | Surgical Thinking Block Signature Fix | `service/gateway_request.go` | Active (2026-03-26) |
-| 12 | Fingerprint-Sourced Identity Consistency | `service/identity_service.go` | Active (2026-03-26) |
+| 12 | Probe-Aware Identity Defaults | `service/identity_service.go` | Active (2026-03-26) |
 
 See `FORK_CHANGELOG.md` for verification commands to run after each upstream merge.

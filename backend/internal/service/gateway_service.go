@@ -5884,7 +5884,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 			// - 保留 incoming beta 的同时，确保 OAuth 所需 beta 存在
 			applyClaudeCodeMimicHeaders(req, reqStream)
 			// Overlay profile-derived platform headers and probe-captured version headers.
-			s.applyProfileAndProbeHeaders(req, account)
+			applyProfileAndProbeHeaders(req, account.GetTLSFingerprintProfile(), s.ccProbeService)
 
 			incomingBeta := req.Header.Get("anthropic-beta")
 			// Match real Claude CLI traffic (per mitmproxy reports):
@@ -6343,12 +6343,10 @@ func applyDynamicStainlessHeaders(req *http.Request, clientHeaders http.Header, 
 	req.Header.Set("X-Stainless-Timeout", timeout)
 }
 
-// applyProfileAndProbeHeaders overlays TLS-profile-derived platform headers and
-// probe-captured version headers on top of the base mimic headers.
-// This is the "double-trail guard": profile for platform identity, probe for CC version.
-func (s *GatewayService) applyProfileAndProbeHeaders(req *http.Request, account *Account) {
-	// 1. Profile identity: overrides platform headers (OS, Arch, Runtime, RuntimeVersion, Lang).
-	profileKey := account.GetTLSFingerprintProfile()
+// applyProfileIdentityHeaders overlays TLS-profile-derived platform headers
+// (OS, Arch, Runtime, RuntimeVersion, Lang) on top of the base mimic headers.
+// This is a package-level function so both GatewayService and AccountTestService can use it.
+func applyProfileIdentityHeaders(req *http.Request, profileKey string) {
 	if identity, ok := tlsfingerprint.CachedParseProfileIdentity(profileKey); ok {
 		req.Header.Set("X-Stainless-OS", identity.OS)
 		req.Header.Set("X-Stainless-Arch", identity.Arch)
@@ -6356,10 +6354,15 @@ func (s *GatewayService) applyProfileAndProbeHeaders(req *http.Request, account 
 		req.Header.Set("X-Stainless-Runtime-Version", identity.RuntimeVersion)
 		req.Header.Set("X-Stainless-Lang", identity.Lang)
 	}
+}
 
-	// 2. Probe version headers: overrides User-Agent and X-Stainless-Package-Version.
-	if s.ccProbeService != nil {
-		s.ccProbeService.ApplyVersionHeaders(req)
+// applyProfileAndProbeHeaders overlays TLS-profile-derived platform headers and
+// probe-captured version headers on top of the base mimic headers.
+// Package-level so both GatewayService and AccountTestService can call it.
+func applyProfileAndProbeHeaders(req *http.Request, profileKey string, probe *CCProbeService) {
+	applyProfileIdentityHeaders(req, profileKey)
+	if probe != nil {
+		probe.ApplyVersionHeaders(req)
 	}
 }
 
@@ -8687,7 +8690,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	if tokenType == "oauth" {
 		if mimicClaudeCode {
 			applyClaudeCodeMimicHeaders(req, false)
-			s.applyProfileAndProbeHeaders(req, account)
+			applyProfileAndProbeHeaders(req, account.GetTLSFingerprintProfile(), s.ccProbeService)
 
 			incomingBeta := req.Header.Get("anthropic-beta")
 			requiredBetas := []string{claude.BetaClaudeCode, claude.BetaOAuth, claude.BetaInterleavedThinking, claude.BetaTokenCounting}

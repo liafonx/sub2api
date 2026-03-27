@@ -429,7 +429,7 @@ def request(flow: http.HTTPFlow):
 	}()
 
 	// Wait for mitmdump to be ready (TCP readiness poll)
-	if err := waitForTCPReady(probeCtx, "127.0.0.1:"+mitmPort, 100*time.Millisecond, 10*time.Second); err != nil {
+	if err := waitForTCPReady(probeCtx, "127.0.0.1:"+mitmPort, 100*time.Millisecond, 30*time.Second); err != nil {
 		return fmt.Errorf("cc_probe: mitmdump not ready: %w", err)
 	}
 	slog.Debug("cc_probe.mitmdump_ready")

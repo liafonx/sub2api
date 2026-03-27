@@ -227,22 +227,23 @@ ls backend/internal/service/provider_routing.go
 
 ---
 
-### Patch 10: CC Trait Registry & Claude Code Validator (added 2026-03-26)
+### Patch 10: CC Trait Registry & Claude Code Validator Enhancements (added 2026-03-26)
 
-**Purpose**: Multi-signal validation that incoming requests are from a genuine Claude Code client, plus a self-updating trait registry that learns expected headers, beta flags, and system prompt prefixes from probe captures and the tweakcc prompt archive.
+**Context**: Upstream already provides `ClaudeCodeValidator` (321 lines) with basic validation: UA pattern matching, system prompt prefix similarity scoring, and non-empty header checks. This patch adds a self-updating trait registry and enhances the validator with dynamic, registry-backed validation.
 
-**CCTraitRegistry**: Single source of truth for expected CC client traits. Loads from Redis (primary) or local file (fallback) on startup. Updated when:
+**CCTraitRegistry** (pure fork): Single source of truth for expected CC client traits. Loads from Redis (primary) or local file (fallback) on startup. Updated when:
 - CC Probe Service captures a new version's headers/body traits (`UpdateFromProbe`)
 - Prompt archive is downloaded from tweakcc GitHub repo (`EnrichFromPromptArchive`)
 
 Snapshot contains: `ExpectedHeaderKeys`, `BetaFlags` (+ pre-computed `BetaFlagSet`), `XAppValue`, `SystemPromptPrefixes`, `Version`, `UpdatedAt`. Persists to Redis and local JSON file. Snapshots are immutable after creation — new snapshots are swapped atomically.
 
-**ClaudeCodeValidator**: Multi-step validation:
-1. User-Agent must match `claude-cli/x.x.x` pattern
-2. For `/messages` path: system prompt must match known CC prefixes (similarity scoring with 0.5 threshold)
-3. With fresh registry (<7 days): exact `X-App` header match, beta flags must be known subset
-4. With stale registry: relaxed checks (non-empty only)
-5. Probe requests bypass strict validation when UA matches
+**ClaudeCodeValidator enhancements** (on top of upstream):
+- `*CCTraitRegistry` field for dynamic trait validation
+- `freshSnapshot()` method to check registry staleness (<7 days)
+- Exact `X-App` header match against `snap.XAppValue` when registry is fresh
+- `anthropic-beta` flag-set validation against `snap.BetaFlagSet`
+- `logHeaderCoverage()` debug logging for header coverage metrics
+- Relaxed fallback when registry is stale (non-empty checks only)
 
 **Files**:
 
@@ -251,7 +252,7 @@ Snapshot contains: `ExpectedHeaderKeys`, `BetaFlags` (+ pre-computed `BetaFlagSe
 | `backend/internal/service/cc_trait_registry.go` | **NEW** — `CCTraitRegistry`, `CCTraitSnapshot`, prompt archive download, Redis+file persistence |
 | `backend/internal/service/cc_trait_registry_test.go` | **NEW** — Unit tests |
 | `backend/internal/repository/cc_trait_registry_cache.go` | **NEW** — Redis implementation of `CCTraitRegistryCache` |
-| `backend/internal/service/claude_code_validator.go` | **NEW** — `ClaudeCodeValidator` multi-signal validation |
+| `backend/internal/service/claude_code_validator.go` | MODIFIED — enhanced with `CCTraitRegistry` integration (+89 lines vs upstream) |
 | `backend/internal/service/claude_code_validator_test.go` | **NEW** — Unit tests |
 | `backend/internal/handler/gateway_helper.go` | MODIFIED — `SetClaudeCodeValidator` global wiring |
 | `backend/cmd/server/wire_gen.go` | MODIFIED — `NewCCTraitRegistryCache` → `NewCCTraitRegistry` → `NewClaudeCodeValidator` → `SetClaudeCodeValidator` |
@@ -262,36 +263,38 @@ Snapshot contains: `ExpectedHeaderKeys`, `BetaFlags` (+ pre-computed `BetaFlagSe
 
 ### Patch 11: Surgical Thinking Block Signature Fix (added 2026-03-26)
 
-**Problem**: When Claude conversations contain thinking/reasoning blocks from previous turns, Anthropic's API can reject the request with a 400 error like `"invalid signature in thinking block at messages.105.content.0"`. The old behavior was a blunt retry that downgraded the entire conversation — stripping all thinking content, degrading model quality and adding ~3 seconds latency.
+**Context**: Upstream already provides `gateway_request.go` (1054 lines) with `ParsedRequest`, `ParseGatewayRequest`, `FilterThinkingBlocks`, `FilterThinkingBlocksForRetry`, `FilterSignatureSensitiveBlocksForRetry`, and `RectifyThinkingBudget`. The upstream retry strategy is blunt — it strips all thinking content on signature errors.
 
-**Fix**: Three-stage retry cascade:
+**Problem**: When sub2api rotates which Anthropic account handles a multi-turn conversation, historical thinking blocks carry signatures bound to the previous account. Anthropic rejects with `"invalid signature in thinking block at messages.105.content.0"`. The upstream retry strips ALL thinking content, degrading model quality.
 
-1. **Stage 0 — Surgical removal** (new): Parses the exact `messages.X.content.Y` path from the error message and removes only that one invalid thinking block, preserving all others.
-2. **Stage 1 — Full thinking downgrade** (existing, refined): Converts `thinking` blocks to `text`, drops `redacted_thinking`, strips `clear_thinking_20251015` context management strategies.
-3. **Stage 2 — Tool block downgrade** (existing): Additionally converts `tool_use`/`tool_result` blocks to text when Stage 1 still fails.
+**Fork addition**: Surgical single-block removal as Stage 0, before the existing blunt strategies:
 
-A `badThinkingPathCache` (30-minute in-process cache keyed by conversation fingerprint via xxhash) remembers surgically removed block paths so subsequent requests in the same conversation pre-strip them before the upstream call.
+1. **Stage 0 — Surgical removal** (fork-only): `SurgicallyRemoveInvalidThinkingBlock` parses the exact `messages.X.content.Y` path from the error message and removes only that one invalid block, preserving all others. `parseThinkingBlockPath` supports both dot and bracket notation. `isExactSignatureError` gates entry to the surgical path.
+2. **Stage 1 — Full thinking downgrade** (upstream): Converts `thinking` blocks to `text`, drops `redacted_thinking`, strips `clear_thinking_20251015` context management strategies.
+3. **Stage 2 — Tool block downgrade** (upstream): Additionally converts `tool_use`/`tool_result` blocks to text when Stage 1 still fails.
+
+A `badThinkingPathCache` (30-minute in-process gocache keyed by conversation fingerprint via xxhash) remembers surgically removed block paths so subsequent requests in the same conversation pre-strip them before the upstream call.
 
 **Files**:
 
 | File | Change |
 |------|--------|
-| `backend/internal/service/gateway_request.go` | **NEW** — `ParsedRequest`, `SurgicallyRemoveInvalidThinkingBlock`, `FilterThinkingBlocksForRetry`, `FilterSignatureSensitiveBlocksForRetry` |
-| `backend/internal/service/gateway_request_test.go` | **NEW** — Unit tests |
+| `backend/internal/service/gateway_request.go` | MODIFIED — added `SurgicallyRemoveInvalidThinkingBlock`, `parseThinkingBlockPath`, `isExactSignatureError` |
+| `backend/internal/service/gateway_request_test.go` | MODIFIED — added tests for surgical removal |
 | `backend/internal/service/gateway_service.go` | MODIFIED — `badThinkingPathCache` field, surgical retry loop, cache helpers |
 
 ---
 
-### Patch 12: Fingerprint-Sourced Identity Consistency (added 2026-03-26)
+### Patch 12: Probe-Aware Identity Defaults (added 2026-03-26)
 
-**Problem**: OAuth account requests could present different fingerprints (User-Agent, X-Stainless-* headers, client_id) across requests, making each request look like a different client to Anthropic — risking account suspension or rate limiting. Additionally, OpenAI OAuth token refresh ignored the per-account `client_id`, breaking authorization consistency.
+**Context**: Upstream already provides `IdentityService` with per-account fingerprint caching, `RewriteUserID` (SHA256 session derivation), `RewriteUserIDWithMasking` (15-min rotating UUID), and `ApplyFingerprint` (header injection). This patch extends it with probe-aware defaults and minor fixes.
 
-**Fix**: `IdentityService` manages per-account fingerprints cached in Redis (7-day TTL, auto-renewed every 24h):
-- Captures User-Agent and X-Stainless-* headers from the first real request
-- Generates and persists a random 64-hex ClientID per account
-- Merges headers on version upgrades (only present fields overwrite cached values)
-- Session ID masking: replaces session UUID portion with a fixed rotating UUID (15-minute TTL) to prevent session correlation
-- Rewrites `metadata.user_id` via `SHA256(accountID::sessionTail)` → UUID format to prevent cross-account session ID collision
+**Fork changes on top of upstream `identity_service.go`**:
+- `SetCCProbeService` + `resolveDefaults()`: uses CC Probe Service to source UA/version defaults from real captured headers instead of hardcoded static values
+- `GetFingerprint` read-only accessor (used by account test service)
+- ClientID repair: auto-generates ClientID for legacy entries that were cached before ClientID was introduced
+- Mac Mini deployment defaults: `StainlessOS: "MacOS"`, `RuntimeVersion: "v24.3.0"`
+- Header casing: `req.Header.Set()` instead of `setHeaderRaw()` (simpler, HTTP/2 normalizes case anyway)
 
 Also fixes OpenAI OAuth token refresh to pass `client_id` from stored credentials.
 
@@ -299,8 +302,7 @@ Also fixes OpenAI OAuth token refresh to pass `client_id` from stored credential
 
 | File | Change |
 |------|--------|
-| `backend/internal/service/identity_service.go` | **NEW** — `IdentityService`, `Fingerprint`, `IdentityCache` interface |
-| `backend/internal/service/gateway_service.go` | MODIFIED — calls `GetOrCreateFingerprint`, `ApplyFingerprint`, `RewriteUserIDWithMasking` for OAuth accounts |
+| `backend/internal/service/identity_service.go` | MODIFIED — probe-aware defaults, ClientID repair, Mac Mini defaults |
 | `backend/internal/service/account_test_service.go` | MODIFIED — `SetIdentityService` injector for per-account fingerprint lookup during probes |
 | `backend/internal/service/oauth_service.go` | MODIFIED — `OpenAIOAuthClient` interface gains `RefreshTokenWithClientID` |
 | `backend/internal/service/token_refresher.go` | MODIFIED — reads `client_id` from credentials and passes to refresh |
