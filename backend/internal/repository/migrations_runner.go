@@ -73,6 +73,13 @@ var migrationChecksumCompatibilityRules = map[string]migrationChecksumCompatibil
 			"222b4a09c797c22e5922b6b172327c824f5463aaa8760e4f621bc5c22e2be0f3": {},
 		},
 	},
+	// v0.1.105 upstream removed the DOWN section from 074; fork DB had the version with DOWN.
+	"074_add_group_scheduled_rate_config.sql": {
+		fileChecksum: "bc82421aeb793e02e5991b9d870091e3f084035036a36185cc2f42b05291c1b5",
+		acceptedDBChecksum: map[string]struct{}{
+			"8bd6665648909b9b0bcf99d094e780e8eb866f0c7654a70047a8f8e95ae4630b": {},
+		},
+	},
 }
 
 // ApplyMigrations 将嵌入的 SQL 迁移文件应用到指定的数据库。
