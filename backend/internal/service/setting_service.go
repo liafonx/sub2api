@@ -16,6 +16,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -2151,11 +2152,15 @@ func (s *SettingService) SetProbePrompt(ctx context.Context, prompt string) erro
 }
 
 // GetScheduledTestPrompt returns the configured scheduled test prompt, falling back to DefaultScheduledTestPrompt.
-// Always returns a usable string; callers do not need to handle errors.
-// Errors are intentionally swallowed — running tests with the default "hi" is always safe.
 func (s *SettingService) GetScheduledTestPrompt(ctx context.Context) string {
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyScheduledTestPrompt)
-	if err != nil || value == "" {
+	if err != nil {
+		if !errors.Is(err, ErrSettingNotFound) {
+			logger.LegacyPrintf("service.setting", "GetScheduledTestPrompt: %v", err)
+		}
+		return DefaultScheduledTestPrompt
+	}
+	if value == "" {
 		return DefaultScheduledTestPrompt
 	}
 	return value

@@ -129,6 +129,13 @@ func generateSessionString(clientID, accountUUID, uaVersion string) string {
 	return FormatMetadataUserID(clientID, accountUUID, sessionUUID, uaVersion)
 }
 
+func resolveTestPrompt(prompt string) string {
+	if prompt == "" {
+		return DefaultScheduledTestPrompt
+	}
+	return prompt
+}
+
 // createTestPayload creates a Claude Code style test request payload.
 // clientID, accountUUID, uaVersion come from the account's cached fingerprint when available;
 // fallback to generated/default values when empty.
@@ -141,11 +148,6 @@ func createTestPayload(modelID, clientID, accountUUID, uaVersion, prompt string)
 	}
 	sessionID := generateSessionString(clientID, accountUUID, uaVersion)
 
-	userMsg := prompt
-	if userMsg == "" {
-		userMsg = DefaultScheduledTestPrompt
-	}
-
 	return map[string]any{
 		"model": modelID,
 		"messages": []map[string]any{
@@ -154,7 +156,7 @@ func createTestPayload(modelID, clientID, accountUUID, uaVersion, prompt string)
 				"content": []map[string]any{
 					{
 						"type": "text",
-						"text": userMsg,
+						"text": resolveTestPrompt(prompt),
 						"cache_control": map[string]string{
 							"type": "ephemeral",
 						},
@@ -206,8 +208,6 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	if account.Platform == PlatformSora {
-		// Sora is an independent platform; its test uses a platform-specific payload
-		// and does not use the configurable scheduled test prompt.
 		return s.testSoraAccountConnection(c, account)
 	}
 
@@ -360,10 +360,6 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 	c.Writer.Flush()
 
 	// Create a minimal Bedrock-compatible payload (no stream, no cache_control)
-	bedrockMsg := prompt
-	if bedrockMsg == "" {
-		bedrockMsg = DefaultScheduledTestPrompt
-	}
 	bedrockPayload := map[string]any{
 		"anthropic_version": "bedrock-2023-05-31",
 		"messages": []map[string]any{
@@ -372,7 +368,7 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 				"content": []map[string]any{
 					{
 						"type": "text",
-						"text": bedrockMsg,
+						"text": resolveTestPrompt(prompt),
 					},
 				},
 			},
@@ -1350,8 +1346,6 @@ func (s *AccountTestService) routeAntigravityTest(c *gin.Context, account *Accou
 		}
 		return s.testClaudeAccountConnection(c, account, modelID, prompt)
 	}
-	// OAuth/Upstream Antigravity tests route through CRS and use a minimal "." payload;
-	// the configurable prompt does not apply to this path.
 	return s.testAntigravityAccountConnection(c, account, modelID)
 }
 
@@ -1525,17 +1519,12 @@ func createGeminiTestPayload(modelID string, prompt string) []byte {
 		return bytes
 	}
 
-	textPrompt := strings.TrimSpace(prompt)
-	if textPrompt == "" {
-		textPrompt = DefaultScheduledTestPrompt
-	}
-
 	payload := map[string]any{
 		"contents": []map[string]any{
 			{
 				"role": "user",
 				"parts": []map[string]any{
-					{"text": textPrompt},
+					{"text": resolveTestPrompt(strings.TrimSpace(prompt))},
 				},
 			},
 		},
@@ -1632,10 +1621,6 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 
 // createOpenAITestPayload creates a test payload for OpenAI Responses API
 func createOpenAITestPayload(modelID string, isOAuth bool, prompt string) map[string]any {
-	openaiMsg := prompt
-	if openaiMsg == "" {
-		openaiMsg = DefaultScheduledTestPrompt
-	}
 	payload := map[string]any{
 		"model": modelID,
 		"input": []map[string]any{
@@ -1644,7 +1629,7 @@ func createOpenAITestPayload(modelID string, isOAuth bool, prompt string) map[st
 				"content": []map[string]any{
 					{
 						"type": "input_text",
-						"text": openaiMsg,
+						"text": resolveTestPrompt(prompt),
 					},
 				},
 			},

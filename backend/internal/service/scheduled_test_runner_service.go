@@ -104,6 +104,8 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 		return
 	}
 
+	prompt := s.settingService.GetScheduledTestPrompt(ctx)
+
 	logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] found %d due plans", len(plans))
 
 	sem := make(chan struct{}, scheduledTestDefaultMaxWorkers)
@@ -115,19 +117,14 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 		go func(p *ScheduledTestPlan) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			s.runOnePlan(ctx, p)
+			s.runOnePlan(ctx, p, prompt)
 		}(plan)
 	}
 
 	wg.Wait()
 }
 
-func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *ScheduledTestPlan) {
-	// If settingService is nil, payload constructors fall back to DefaultScheduledTestPrompt.
-	prompt := ""
-	if s.settingService != nil {
-		prompt = s.settingService.GetScheduledTestPrompt(ctx)
-	}
+func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *ScheduledTestPlan, prompt string) {
 	result, err := s.accountTestSvc.RunTestBackground(ctx, plan.AccountID, plan.ModelID, prompt)
 	if err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d RunTestBackground error: %v", plan.ID, err)
