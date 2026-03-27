@@ -133,7 +133,7 @@ func generateSessionString(clientID, accountUUID, uaVersion string) string {
 // createTestPayload creates a Claude Code style test request payload.
 // clientID, accountUUID, uaVersion come from the account's cached fingerprint when available;
 // fallback to generated/default values when empty.
-func createTestPayload(modelID, clientID, accountUUID, uaVersion string) map[string]any {
+func createTestPayload(modelID, clientID, accountUUID, uaVersion, prompt string) map[string]any {
 	if clientID == "" {
 		clientID = generateClientID()
 	}
@@ -141,6 +141,11 @@ func createTestPayload(modelID, clientID, accountUUID, uaVersion string) map[str
 		uaVersion = ExtractCLIVersion(claude.DefaultHeaders["User-Agent"])
 	}
 	sessionID := generateSessionString(clientID, accountUUID, uaVersion)
+
+	userMsg := prompt
+	if userMsg == "" {
+		userMsg = DefaultScheduledTestPrompt
+	}
 
 	return map[string]any{
 		"model": modelID,
@@ -150,7 +155,7 @@ func createTestPayload(modelID, clientID, accountUUID, uaVersion string) map[str
 				"content": []map[string]any{
 					{
 						"type": "text",
-						"text": "hi",
+						"text": userMsg,
 						"cache_control": map[string]string{
 							"type": "ephemeral",
 						},
@@ -190,7 +195,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 
 	// Route to platform-specific test method
 	if account.IsOpenAI() {
-		return s.testOpenAIAccountConnection(c, account, modelID)
+		return s.testOpenAIAccountConnection(c, account, modelID, prompt)
 	}
 
 	if account.IsGemini() {
@@ -205,11 +210,11 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.testSoraAccountConnection(c, account)
 	}
 
-	return s.testClaudeAccountConnection(c, account, modelID)
+	return s.testClaudeAccountConnection(c, account, modelID, prompt)
 }
 
 // testClaudeAccountConnection tests an Anthropic Claude account's connection
-func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account *Account, modelID string) error {
+func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
 	ctx := c.Request.Context()
 
 	// Determine the model to use
@@ -225,7 +230,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 
 	// Bedrock accounts use a separate test path
 	if account.IsBedrock() {
-		return s.testBedrockAccountConnection(c, ctx, account, testModelID)
+		return s.testBedrockAccountConnection(c, ctx, account, testModelID, prompt)
 	}
 
 	// Determine authentication method and API URL
@@ -280,7 +285,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		}
 	}
 	fpAccountUUID = strings.TrimSpace(account.GetExtraString("account_uuid"))
-	payload := createTestPayload(testModelID, fpClientID, fpAccountUUID, fpUAVersion)
+	payload := createTestPayload(testModelID, fpClientID, fpAccountUUID, fpUAVersion, prompt)
 	payloadBytes, _ := json.Marshal(payload)
 
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
@@ -338,7 +343,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 }
 
 // testBedrockAccountConnection tests a Bedrock (SigV4 or API Key) account using non-streaming invoke
-func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx context.Context, account *Account, testModelID string) error {
+func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx context.Context, account *Account, testModelID string, prompt string) error {
 	region := bedrockRuntimeRegion(account)
 	resolvedModelID, ok := ResolveBedrockModelID(account, testModelID)
 	if !ok {
@@ -354,6 +359,10 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 	c.Writer.Flush()
 
 	// Create a minimal Bedrock-compatible payload (no stream, no cache_control)
+	bedrockMsg := prompt
+	if bedrockMsg == "" {
+		bedrockMsg = DefaultScheduledTestPrompt
+	}
 	bedrockPayload := map[string]any{
 		"anthropic_version": "bedrock-2023-05-31",
 		"messages": []map[string]any{
@@ -362,7 +371,7 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 				"content": []map[string]any{
 					{
 						"type": "text",
-						"text": "hi",
+						"text": bedrockMsg,
 					},
 				},
 			},
@@ -441,7 +450,7 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 }
 
 // testOpenAIAccountConnection tests an OpenAI account's connection
-func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account *Account, modelID string) error {
+func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
 	ctx := c.Request.Context()
 
 	// Default to openai.DefaultTestModel for OpenAI testing
@@ -505,7 +514,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	c.Writer.Flush()
 
 	// Create OpenAI Responses API payload
-	payload := createOpenAITestPayload(testModelID, isOAuth)
+	payload := createOpenAITestPayload(testModelID, isOAuth, prompt)
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event
@@ -1338,7 +1347,7 @@ func (s *AccountTestService) routeAntigravityTest(c *gin.Context, account *Accou
 		if strings.HasPrefix(modelID, "gemini-") {
 			return s.testGeminiAccountConnection(c, account, modelID, prompt)
 		}
-		return s.testClaudeAccountConnection(c, account, modelID)
+		return s.testClaudeAccountConnection(c, account, modelID, prompt)
 	}
 	return s.testAntigravityAccountConnection(c, account, modelID)
 }
@@ -1619,7 +1628,11 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 }
 
 // createOpenAITestPayload creates a test payload for OpenAI Responses API
-func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
+func createOpenAITestPayload(modelID string, isOAuth bool, prompt string) map[string]any {
+	openaiMsg := prompt
+	if openaiMsg == "" {
+		openaiMsg = DefaultScheduledTestPrompt
+	}
 	payload := map[string]any{
 		"model": modelID,
 		"input": []map[string]any{
@@ -1628,7 +1641,7 @@ func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
 				"content": []map[string]any{
 					{
 						"type": "input_text",
-						"text": "hi",
+						"text": openaiMsg,
 					},
 				},
 			},
@@ -1773,14 +1786,14 @@ func (s *AccountTestService) sendErrorAndEnd(c *gin.Context, errorMsg string) er
 
 // RunTestBackground executes an account test in-memory (no real HTTP client),
 // capturing SSE output via httptest.NewRecorder, then parses the result.
-func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID int64, modelID string) (*ScheduledTestResult, error) {
+func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID int64, modelID string, prompt string) (*ScheduledTestResult, error) {
 	startedAt := time.Now()
 
 	w := httptest.NewRecorder()
 	ginCtx, _ := gin.CreateTestContext(w)
 	ginCtx.Request = (&http.Request{}).WithContext(ctx)
 
-	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, "")
+	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, prompt)
 
 	finishedAt := time.Now()
 	body := w.Body.String()
