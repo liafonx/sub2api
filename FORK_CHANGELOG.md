@@ -291,6 +291,51 @@ Also fixes OpenAI OAuth token refresh to pass `client_id` from stored credential
 
 ---
 
+### Patch 13: InfoPopup Tooltip Component (added 2026-03-28)
+
+**Purpose**: Reusable floating-ui tooltip component replacing manual Teleport-based tooltips in usage views. Uses `@floating-ui/vue` for smart positioning with arrow, supports hover and click interaction, and implements singleton pattern (only one popup open at a time).
+
+**Files**:
+
+| File | Change |
+|------|--------|
+| `frontend/src/components/common/InfoPopup.vue` | **NEW** — Reusable floating tooltip component |
+| `frontend/src/components/common/InfoPopup.spec.ts` | **NEW** — Component tests |
+| `frontend/src/components/admin/usage/UsageTable.vue` | MODIFIED — replaced manual Teleport tooltips with InfoPopup |
+| `frontend/src/views/user/UsageView.vue` | MODIFIED — replaced manual Teleport tooltips with InfoPopup |
+
+**Upstream conflict risk**: HIGH — upstream may rewrite tooltip implementations in usage views.
+
+---
+
+### Patch 14: Scheduled Rate Multiplier (added 2026-03-28)
+
+**Purpose**: Time-of-day/day-of-week/date-range rate override rules per group. Allows different billing multipliers during peak/off-peak hours, weekends, or specific date ranges. First matching rule wins; falls back to group's default `rate_multiplier`.
+
+**Files**:
+
+| File | Change |
+|------|--------|
+| `backend/internal/service/group_scheduled_rate.go` | **NEW** — `GetEffectiveRateMultiplier`, `ValidateScheduledRateConfig`, rule matching logic |
+| `backend/internal/service/group_scheduled_rate_test.go` | **NEW** — Unit tests for rule matching |
+| `backend/internal/service/group_scheduled_rate_validation_test.go` | **NEW** — Validation tests |
+| `backend/internal/service/auth_cache_scheduled_rate_test.go` | **NEW** — Auth cache round-trip tests |
+| `backend/ent/schema/group.go` | MODIFIED — added `scheduled_rate_config` JSONB field |
+| `backend/internal/repository/group_repo.go` | MODIFIED — Create/Update JSON marshal for ScheduledRateConfig |
+| `backend/internal/repository/api_key_repo.go` | MODIFIED — GetByKeyForAuth select + groupEntityToService round-trip |
+| `backend/internal/service/admin_service.go` | MODIFIED — CreateGroupInput/UpdateGroupInput + pass-through |
+| `backend/internal/handler/admin/group_handler.go` | MODIFIED — request structs + ValidateScheduledRateConfig call |
+| `backend/internal/service/gateway_service.go` | MODIFIED — `GetEffectiveRateMultiplier(timezone.Now())` in billing |
+| `backend/internal/service/openai_gateway_service.go` | MODIFIED — same billing change |
+| `frontend/src/components/group/ScheduledRateRulesEditor.vue` | **NEW** — Vue component for rule editing |
+| `frontend/src/views/admin/GroupsView.vue` | MODIFIED — ScheduledRateRulesEditor in create/edit modals |
+| `frontend/src/i18n/locales/en.ts` | MODIFIED — `scheduledRate` i18n keys |
+| `frontend/src/i18n/locales/zh.ts` | MODIFIED — `scheduledRate` i18n keys |
+
+**Upstream conflict risk**: HIGH — touches group schema, handler, gateway billing, GroupsView.
+
+---
+
 ## Verification
 
 Run after every upstream merge to confirm patches survived:
@@ -338,6 +383,17 @@ grep badThinkingPathCache backend/internal/service/gateway_service.go
 # Patch 12: Fingerprint-sourced identity consistency
 ls backend/internal/service/identity_service.go
 grep SetIdentityService backend/cmd/server/wire_gen.go
+
+# Patch 13: InfoPopup tooltips
+grep InfoPopup frontend/src/components/admin/usage/UsageTable.vue
+grep InfoPopup frontend/src/views/user/UsageView.vue
+
+# Patch 14: Scheduled Rate Multiplier
+grep scheduled_rate_config backend/ent/schema/group.go
+grep GetEffectiveRateMultiplier backend/internal/service/gateway_service.go
+grep GetEffectiveRateMultiplier backend/internal/service/openai_gateway_service.go
+grep ScheduledRateRulesEditor frontend/src/views/admin/GroupsView.vue
+grep scheduledRate frontend/src/i18n/locales/en.ts | head -3
 
 # utls version
 grep refraction-networking/utls backend/go.mod

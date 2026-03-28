@@ -177,5 +177,7 @@ This is the `liafonx/sub2api` fork. Full patch details, verification commands, a
 | 10 | CC Trait Registry & Validator Enhancements | `service/cc_trait_registry.go`, `service/claude_code_validator.go` | Active (2026-03-26) |
 | 11 | Surgical Thinking Block Signature Fix | `service/gateway_request.go` | Active (2026-03-26) |
 | 12 | Probe-Aware Identity Defaults | `service/identity_service.go` | Active (2026-03-26) |
+| 13 | InfoPopup Tooltip Component | `InfoPopup.vue`, `UsageTable.vue`, `UsageView.vue` | Active (2026-03-28) |
+| 14 | Scheduled Rate Multiplier | `group_scheduled_rate.go`, ent schema, `group_repo.go`, `gateway_service.go`, `GroupsView.vue` | Active (2026-03-28) |
 
 See `FORK_CHANGELOG.md` for verification commands to run after each upstream merge.
