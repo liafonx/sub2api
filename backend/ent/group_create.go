@@ -452,6 +452,12 @@ func (_c *GroupCreate) SetNillableDefaultMappedModel(v *string) *GroupCreate {
 	return _c
 }
 
+// SetScheduledRateConfig sets the "scheduled_rate_config" field.
+func (_c *GroupCreate) SetScheduledRateConfig(v map[string]interface{}) *GroupCreate {
+	_c.mutation.SetScheduledRateConfig(v)
+	return _c
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
 func (_c *GroupCreate) AddAPIKeyIDs(ids ...int64) *GroupCreate {
 	_c.mutation.AddAPIKeyIDs(ids...)
@@ -884,6 +890,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.DefaultMappedModel(); ok {
 		_spec.SetField(group.FieldDefaultMappedModel, field.TypeString, value)
 		_node.DefaultMappedModel = value
+	}
+	if value, ok := _c.mutation.ScheduledRateConfig(); ok {
+		_spec.SetField(group.FieldScheduledRateConfig, field.TypeJSON, value)
+		_node.ScheduledRateConfig = value
 	}
 	if nodes := _c.mutation.APIKeysIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -1599,6 +1609,24 @@ func (u *GroupUpsert) UpdateDefaultMappedModel() *GroupUpsert {
 	return u
 }
 
+// SetScheduledRateConfig sets the "scheduled_rate_config" field.
+func (u *GroupUpsert) SetScheduledRateConfig(v map[string]interface{}) *GroupUpsert {
+	u.Set(group.FieldScheduledRateConfig, v)
+	return u
+}
+
+// UpdateScheduledRateConfig sets the "scheduled_rate_config" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateScheduledRateConfig() *GroupUpsert {
+	u.SetExcluded(group.FieldScheduledRateConfig)
+	return u
+}
+
+// ClearScheduledRateConfig clears the value of the "scheduled_rate_config" field.
+func (u *GroupUpsert) ClearScheduledRateConfig() *GroupUpsert {
+	u.SetNull(group.FieldScheduledRateConfig)
+	return u
+}
+
 // UpdateNewValues updates the mutable fields using the new values that were set on create.
 // Using this option is equivalent to using:
 //
@@ -2292,6 +2320,27 @@ func (u *GroupUpsertOne) SetDefaultMappedModel(v string) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateDefaultMappedModel() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateDefaultMappedModel()
+	})
+}
+
+// SetScheduledRateConfig sets the "scheduled_rate_config" field.
+func (u *GroupUpsertOne) SetScheduledRateConfig(v map[string]interface{}) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetScheduledRateConfig(v)
+	})
+}
+
+// UpdateScheduledRateConfig sets the "scheduled_rate_config" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateScheduledRateConfig() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateScheduledRateConfig()
+	})
+}
+
+// ClearScheduledRateConfig clears the value of the "scheduled_rate_config" field.
+func (u *GroupUpsertOne) ClearScheduledRateConfig() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearScheduledRateConfig()
 	})
 }
 
@@ -3154,6 +3203,27 @@ func (u *GroupUpsertBulk) SetDefaultMappedModel(v string) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateDefaultMappedModel() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateDefaultMappedModel()
+	})
+}
+
+// SetScheduledRateConfig sets the "scheduled_rate_config" field.
+func (u *GroupUpsertBulk) SetScheduledRateConfig(v map[string]interface{}) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetScheduledRateConfig(v)
+	})
+}
+
+// UpdateScheduledRateConfig sets the "scheduled_rate_config" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateScheduledRateConfig() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateScheduledRateConfig()
+	})
+}
+
+// ClearScheduledRateConfig clears the value of the "scheduled_rate_config" field.
+func (u *GroupUpsertBulk) ClearScheduledRateConfig() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearScheduledRateConfig()
 	})
 }
 
