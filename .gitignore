@@ -144,3 +144,4 @@ deploy/CRS-README.md
 skills-lock.json
 .agent/
 .agents/
+deploy/config-vps-merged.yaml
