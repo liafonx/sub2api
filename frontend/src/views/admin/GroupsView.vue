@@ -653,6 +653,14 @@
           <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.groups.supportedScopes.hint') }}</p>
         </div>
 
+        <!-- 定时费率配置 -->
+        <div class="border-t pt-4">
+          <ScheduledRateRulesEditor
+            v-model="createForm.scheduled_rate_config"
+            server-timezone="Asia/Shanghai"
+          />
+        </div>
+
         <!-- MCP XML 协议注入（仅 antigravity 平台） -->
         <div v-if="createForm.platform === 'antigravity'" class="border-t pt-4">
           <div class="mb-1.5 flex items-center gap-1">
@@ -1388,6 +1396,14 @@
           <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.groups.supportedScopes.hint') }}</p>
         </div>
 
+        <!-- 定时费率配置 -->
+        <div class="border-t pt-4">
+          <ScheduledRateRulesEditor
+            v-model="editForm.scheduled_rate_config"
+            server-timezone="Asia/Shanghai"
+          />
+        </div>
+
         <!-- MCP XML 协议注入（仅 antigravity 平台） -->
         <div v-if="editForm.platform === 'antigravity'" class="border-t pt-4">
           <div class="mb-1.5 flex items-center gap-1">
@@ -1838,7 +1854,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useOnboardingStore } from '@/stores/onboarding'
 import { adminAPI } from '@/api/admin'
-import type { AdminGroup, GroupPlatform, SubscriptionType } from '@/types'
+import type { AdminGroup, GroupPlatform, SubscriptionType, ScheduledRateConfig } from '@/types'
 import type { Column } from '@/components/common/types'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
@@ -1851,6 +1867,7 @@ import Select from '@/components/common/Select.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
 import GroupRateMultipliersModal from '@/components/admin/group/GroupRateMultipliersModal.vue'
+import ScheduledRateRulesEditor from '@/components/group/ScheduledRateRulesEditor.vue'
 import GroupCapacityBadge from '@/components/common/GroupCapacityBadge.vue'
 import { VueDraggable } from 'vue-draggable-plus'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
@@ -2069,6 +2086,8 @@ const createForm = reactive({
   supported_model_scopes: ['claude', 'gemini_text', 'gemini_image'] as string[],
   // MCP XML 协议注入开关（仅 antigravity 平台）
   mcp_xml_inject: true,
+  // 定时费率配置
+  scheduled_rate_config: null as ScheduledRateConfig | null,
   // 从分组复制账号
   copy_accounts_from_group_ids: [] as number[]
 })
@@ -2313,6 +2332,8 @@ const editForm = reactive({
   supported_model_scopes: ['claude', 'gemini_text', 'gemini_image'] as string[],
   // MCP XML 协议注入开关（仅 antigravity 平台）
   mcp_xml_inject: true,
+  // 定时费率配置
+  scheduled_rate_config: null as ScheduledRateConfig | null,
   // 从分组复制账号
   copy_accounts_from_group_ids: [] as number[]
 })
@@ -2455,6 +2476,7 @@ const closeCreateModal = () => {
   createForm.default_mapped_model = 'gpt-5.4'
   createForm.supported_model_scopes = ['claude', 'gemini_text', 'gemini_image']
   createForm.mcp_xml_inject = true
+  createForm.scheduled_rate_config = null
   createForm.copy_accounts_from_group_ids = []
   createModelRoutingRules.value = []
 }
@@ -2543,6 +2565,7 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.model_routing_enabled = group.model_routing_enabled || false
   editForm.supported_model_scopes = group.supported_model_scopes || ['claude', 'gemini_text', 'gemini_image']
   editForm.mcp_xml_inject = group.mcp_xml_inject ?? true
+  editForm.scheduled_rate_config = group.scheduled_rate_config ?? null
   editForm.copy_accounts_from_group_ids = [] // 复制账号字段每次编辑时重置为空
   // 加载模型路由规则（异步加载账号名称）
   editModelRoutingRules.value = await convertApiFormatToRoutingRules(group.model_routing)
