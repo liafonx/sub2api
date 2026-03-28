@@ -8256,7 +8256,7 @@ type GroupMutation struct {
 	addsort_order                           *int
 	allow_messages_dispatch                 *bool
 	default_mapped_model                    *string
-	scheduled_rate_config                   *map[string]interface{}
+	scheduled_rate_config                   **domain.ScheduledRateConfig
 	clearedFields                           map[string]struct{}
 	api_keys                                map[int64]struct{}
 	removedapi_keys                         map[int64]struct{}
@@ -10074,12 +10074,12 @@ func (m *GroupMutation) ResetDefaultMappedModel() {
 }
 
 // SetScheduledRateConfig sets the "scheduled_rate_config" field.
-func (m *GroupMutation) SetScheduledRateConfig(value map[string]interface{}) {
-	m.scheduled_rate_config = &value
+func (m *GroupMutation) SetScheduledRateConfig(drc *domain.ScheduledRateConfig) {
+	m.scheduled_rate_config = &drc
 }
 
 // ScheduledRateConfig returns the value of the "scheduled_rate_config" field in the mutation.
-func (m *GroupMutation) ScheduledRateConfig() (r map[string]interface{}, exists bool) {
+func (m *GroupMutation) ScheduledRateConfig() (r *domain.ScheduledRateConfig, exists bool) {
 	v := m.scheduled_rate_config
 	if v == nil {
 		return
@@ -10090,7 +10090,7 @@ func (m *GroupMutation) ScheduledRateConfig() (r map[string]interface{}, exists 
 // OldScheduledRateConfig returns the old "scheduled_rate_config" field's value of the Group entity.
 // If the Group object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *GroupMutation) OldScheduledRateConfig(ctx context.Context) (v map[string]interface{}, err error) {
+func (m *GroupMutation) OldScheduledRateConfig(ctx context.Context) (v *domain.ScheduledRateConfig, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldScheduledRateConfig is only allowed on UpdateOne operations")
 	}
@@ -10963,7 +10963,7 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 		m.SetDefaultMappedModel(v)
 		return nil
 	case group.FieldScheduledRateConfig:
-		v, ok := value.(map[string]interface{})
+		v, ok := value.(*domain.ScheduledRateConfig)
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}

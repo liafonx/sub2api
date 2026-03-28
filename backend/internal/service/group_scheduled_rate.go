@@ -4,29 +4,16 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 // maxScheduledRateRules caps the number of rules evaluated to prevent abuse.
 const maxScheduledRateRules = 10
 
-// ScheduledRateConfig holds time-based rate multiplier rules for a group.
-type ScheduledRateConfig struct {
-	Enabled bool                `json:"enabled"`
-	Rules   []ScheduledRateRule `json:"rules"`
-}
-
-// ScheduledRateRule defines a single time-based rate multiplier rule.
-// All filters are optional; omitted filters match everything.
-// First matching rule wins; evaluation stops at maxScheduledRateRules.
-type ScheduledRateRule struct {
-	RateMultiplier float64 `json:"rate_multiplier"`
-	TimeStart      string  `json:"time_start,omitempty"` // "HH:MM"
-	TimeEnd        string  `json:"time_end,omitempty"`   // "HH:MM" (exclusive for include mode)
-	TimeMode       string  `json:"time_mode,omitempty"`  // "include" (default) or "exclude"
-	Days           []int   `json:"days,omitempty"`       // 0=Sunday..6=Saturday; empty=all
-	DateStart      string  `json:"date_start,omitempty"` // "YYYY-MM-DD" (inclusive)
-	DateEnd        string  `json:"date_end,omitempty"`   // "YYYY-MM-DD" (inclusive)
-}
+// Type aliases so existing code in this package continues to compile.
+type ScheduledRateConfig = domain.ScheduledRateConfig
+type ScheduledRateRule = domain.ScheduledRateRule
 
 // GetEffectiveRateMultiplier returns the rate multiplier for the group at
 // the given time. If no scheduled rule matches, it returns g.RateMultiplier.
@@ -40,37 +27,24 @@ func (g *Group) GetEffectiveRateMultiplier(now time.Time) float64 {
 		limit = maxScheduledRateRules
 	}
 
+	nowDate := now.Format("2006-01-02")
 	for i := 0; i < limit; i++ {
 		rule := &g.ScheduledRateConfig.Rules[i]
-		if ruleMatches(rule, now) {
+		if ruleMatches(rule, nowDate, now) {
 			return rule.RateMultiplier
 		}
 	}
 	return g.RateMultiplier
 }
 
-func ruleMatches(r *ScheduledRateRule, now time.Time) bool {
+func ruleMatches(r *ScheduledRateRule, nowDate string, now time.Time) bool {
 	// Date range check (inclusive on both ends).
-	// If a date field is present but unparseable, the rule is skipped (no match).
-	if r.DateStart != "" {
-		ds, err := time.Parse("2006-01-02", r.DateStart)
-		if err != nil {
-			return false // invalid format: skip rule
-		}
-		if now.Before(ds) {
-			return false
-		}
+	// ISO 8601 date strings are lexicographically orderable — no time.Parse needed.
+	if r.DateStart != "" && nowDate < r.DateStart {
+		return false
 	}
-	if r.DateEnd != "" {
-		de, err := time.Parse("2006-01-02", r.DateEnd)
-		if err != nil {
-			return false // invalid format: skip rule
-		}
-		// End of that day (inclusive): now's date must be <= de.
-		endOfDay := de.AddDate(0, 0, 1)
-		if !now.Before(endOfDay) {
-			return false
-		}
+	if r.DateEnd != "" && nowDate > r.DateEnd {
+		return false
 	}
 
 	// Day-of-week check.

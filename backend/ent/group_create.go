@@ -18,6 +18,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 // GroupCreate is the builder for creating a Group entity.
@@ -453,7 +454,7 @@ func (_c *GroupCreate) SetNillableDefaultMappedModel(v *string) *GroupCreate {
 }
 
 // SetScheduledRateConfig sets the "scheduled_rate_config" field.
-func (_c *GroupCreate) SetScheduledRateConfig(v map[string]interface{}) *GroupCreate {
+func (_c *GroupCreate) SetScheduledRateConfig(v *domain.ScheduledRateConfig) *GroupCreate {
 	_c.mutation.SetScheduledRateConfig(v)
 	return _c
 }
@@ -1610,7 +1611,7 @@ func (u *GroupUpsert) UpdateDefaultMappedModel() *GroupUpsert {
 }
 
 // SetScheduledRateConfig sets the "scheduled_rate_config" field.
-func (u *GroupUpsert) SetScheduledRateConfig(v map[string]interface{}) *GroupUpsert {
+func (u *GroupUpsert) SetScheduledRateConfig(v *domain.ScheduledRateConfig) *GroupUpsert {
 	u.Set(group.FieldScheduledRateConfig, v)
 	return u
 }
@@ -2324,7 +2325,7 @@ func (u *GroupUpsertOne) UpdateDefaultMappedModel() *GroupUpsertOne {
 }
 
 // SetScheduledRateConfig sets the "scheduled_rate_config" field.
-func (u *GroupUpsertOne) SetScheduledRateConfig(v map[string]interface{}) *GroupUpsertOne {
+func (u *GroupUpsertOne) SetScheduledRateConfig(v *domain.ScheduledRateConfig) *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.SetScheduledRateConfig(v)
 	})
@@ -3207,7 +3208,7 @@ func (u *GroupUpsertBulk) UpdateDefaultMappedModel() *GroupUpsertBulk {
 }
 
 // SetScheduledRateConfig sets the "scheduled_rate_config" field.
-func (u *GroupUpsertBulk) SetScheduledRateConfig(v map[string]interface{}) *GroupUpsertBulk {
+func (u *GroupUpsertBulk) SetScheduledRateConfig(v *domain.ScheduledRateConfig) *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.SetScheduledRateConfig(v)
 	})

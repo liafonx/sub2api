@@ -20,6 +20,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 // GroupUpdate is the builder for updating Group entities.
@@ -654,7 +655,7 @@ func (_u *GroupUpdate) SetNillableDefaultMappedModel(v *string) *GroupUpdate {
 }
 
 // SetScheduledRateConfig sets the "scheduled_rate_config" field.
-func (_u *GroupUpdate) SetScheduledRateConfig(v map[string]interface{}) *GroupUpdate {
+func (_u *GroupUpdate) SetScheduledRateConfig(v *domain.ScheduledRateConfig) *GroupUpdate {
 	_u.mutation.SetScheduledRateConfig(v)
 	return _u
 }
@@ -2100,7 +2101,7 @@ func (_u *GroupUpdateOne) SetNillableDefaultMappedModel(v *string) *GroupUpdateO
 }
 
 // SetScheduledRateConfig sets the "scheduled_rate_config" field.
-func (_u *GroupUpdateOne) SetScheduledRateConfig(v map[string]interface{}) *GroupUpdateOne {
+func (_u *GroupUpdateOne) SetScheduledRateConfig(v *domain.ScheduledRateConfig) *GroupUpdateOne {
 	_u.mutation.SetScheduledRateConfig(v)
 	return _u
 }

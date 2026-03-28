@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -664,15 +663,7 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		CreatedAt:                       g.CreatedAt,
 		UpdatedAt:                       g.UpdatedAt,
 	}
-	if g.ScheduledRateConfig != nil {
-		raw, err := json.Marshal(g.ScheduledRateConfig)
-		if err == nil {
-			var cfg service.ScheduledRateConfig
-			if json.Unmarshal(raw, &cfg) == nil {
-				grp.ScheduledRateConfig = &cfg
-			}
-		}
-	}
+	grp.ScheduledRateConfig = g.ScheduledRateConfig
 	return grp
 }
 

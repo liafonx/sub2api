@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 // Group is the model entity for the Group schema.
@@ -83,7 +84,7 @@ type Group struct {
 	// 默认映射模型 ID，当账号级映射找不到时使用此值
 	DefaultMappedModel string `json:"default_mapped_model,omitempty"`
 	// 定时费率倍数配置：规则数组，支持按星期/时间段/日期范围覆盖默认倍率
-	ScheduledRateConfig map[string]interface{} `json:"scheduled_rate_config,omitempty"`
+	ScheduledRateConfig *domain.ScheduledRateConfig `json:"scheduled_rate_config,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the GroupQuery when eager-loading is set.
 	Edges        GroupEdges `json:"edges"`

@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -72,15 +71,8 @@ func (r *groupRepository) Create(ctx context.Context, groupIn *service.Group) er
 	// 设置支持的模型系列（始终设置，空数组表示不限制）
 	builder = builder.SetSupportedModelScopes(groupIn.SupportedModelScopes)
 
-	// 设置定时费率配置
 	if groupIn.ScheduledRateConfig != nil {
-		raw, err := json.Marshal(groupIn.ScheduledRateConfig)
-		if err == nil {
-			var m map[string]any
-			if json.Unmarshal(raw, &m) == nil {
-				builder = builder.SetScheduledRateConfig(m)
-			}
-		}
+		builder = builder.SetScheduledRateConfig(groupIn.ScheduledRateConfig)
 	}
 
 	created, err := builder.Save(ctx)
@@ -199,15 +191,8 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 	// 处理 SupportedModelScopes（始终设置，空数组表示不限制）
 	builder = builder.SetSupportedModelScopes(groupIn.SupportedModelScopes)
 
-	// 处理 ScheduledRateConfig：nil 时清除，否则序列化设置
 	if groupIn.ScheduledRateConfig != nil {
-		raw, err := json.Marshal(groupIn.ScheduledRateConfig)
-		if err == nil {
-			var m map[string]any
-			if json.Unmarshal(raw, &m) == nil {
-				builder = builder.SetScheduledRateConfig(m)
-			}
-		}
+		builder = builder.SetScheduledRateConfig(groupIn.ScheduledRateConfig)
 	} else {
 		builder = builder.ClearScheduledRateConfig()
 	}

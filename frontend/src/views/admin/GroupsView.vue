@@ -657,7 +657,7 @@
         <div class="border-t pt-4">
           <ScheduledRateRulesEditor
             v-model="createForm.scheduled_rate_config"
-            server-timezone="Asia/Shanghai"
+            :server-timezone="serverTimezone"
           />
         </div>
 
@@ -1400,7 +1400,7 @@
         <div class="border-t pt-4">
           <ScheduledRateRulesEditor
             v-model="editForm.scheduled_rate_config"
-            server-timezone="Asia/Shanghai"
+            :server-timezone="editingGroup?.server_timezone ?? 'UTC'"
           />
         </div>
 
@@ -2048,6 +2048,7 @@ const showSortModal = ref(false)
 const submitting = ref(false)
 const sortSubmitting = ref(false)
 const editingGroup = ref<AdminGroup | null>(null)
+const serverTimezone = computed(() => groups.value[0]?.server_timezone ?? 'UTC')
 const deletingGroup = ref<AdminGroup | null>(null)
 const showRateMultipliersModal = ref(false)
 const rateMultipliersGroup = ref<AdminGroup | null>(null)
