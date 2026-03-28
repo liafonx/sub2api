@@ -43,7 +43,7 @@ type CCProbeService struct {
 	stopCh               chan struct{}
 	wg                   sync.WaitGroup
 	probeInProgress      atomic.Bool // prevents overlapping probes
-	probePrompt          string      // custom probe prompt (guarded by mu)
+	settingService       *SettingService
 	traitRegistry        *CCTraitRegistry
 	onFingerprintRebuild func() // callback fired after successful probe capture
 }
@@ -71,7 +71,7 @@ type CCProbeConfigPublic struct {
 	AutoUpdateCC       bool   `json:"auto_update_cc"`
 	UpdateCommand      string `json:"update_command"`
 	CheckIntervalHours int    `json:"check_interval_hours"`
-	ProbePrompt        string `json:"probe_prompt"`
+	AccountTestPrompt  string `json:"account_test_prompt"`
 }
 
 // PublicConfig returns a JSON-safe view of the current cc_probe configuration.
@@ -89,26 +89,26 @@ func (s *CCProbeService) PublicConfig() CCProbeConfigPublic {
 		AutoUpdateCC:       s.cfg.AutoUpdateCC,
 		UpdateCommand:      s.updateCommand(),
 		CheckIntervalHours: interval,
-		ProbePrompt:        s.GetProbePrompt(),
+		AccountTestPrompt:  s.getPrompt(context.Background()),
 	}
 }
 
-// GetProbePrompt returns the current probe prompt, falling back to DefaultProbePrompt.
-func (s *CCProbeService) GetProbePrompt() string {
-	s.mu.RLock()
-	p := s.probePrompt
-	s.mu.RUnlock()
-	if p == "" {
-		return DefaultProbePrompt
-	}
-	return p
-}
-
-// SetProbePrompt updates the in-memory probe prompt.
-func (s *CCProbeService) SetProbePrompt(prompt string) {
+// SetSettingService wires the SettingService for reading the account test prompt.
+func (s *CCProbeService) SetSettingService(svc *SettingService) {
 	s.mu.Lock()
-	s.probePrompt = prompt
+	s.settingService = svc
 	s.mu.Unlock()
+}
+
+// getPrompt returns the unified account test prompt via SettingService, with default fallback.
+func (s *CCProbeService) getPrompt(ctx context.Context) string {
+	s.mu.RLock()
+	svc := s.settingService
+	s.mu.RUnlock()
+	if svc != nil {
+		return svc.GetAccountTestPrompt(ctx)
+	}
+	return DefaultAccountTestPrompt
 }
 
 // CCProbeCache defines the cache interface for CC probe traits.
@@ -444,7 +444,7 @@ def request(flow: http.HTTPFlow):
 
 	// Run Claude Code with proxy
 	claudeCmd := exec.CommandContext(probeCtx, ccBinary,
-		"-p", s.GetProbePrompt(),
+		"-p", s.getPrompt(probeCtx),
 		"--output-format", "json",
 	)
 	claudeCmd.Env = append(os.Environ(),

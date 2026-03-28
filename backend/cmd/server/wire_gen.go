@@ -211,9 +211,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	// Fork: CC probe service
 	ccProbeCache := repository.NewCCProbeCache(redisClient)
 	ccProbeService := service.ProvideCCProbeService(configConfig, ccProbeCache)
-	if prompt, err := settingService.GetProbePrompt(context.Background()); err == nil {
-		ccProbeService.SetProbePrompt(prompt)
-	}
+	ccProbeService.SetSettingService(settingService)
 	identityService.SetCCProbeService(ccProbeService)
 	identityService.SetTLSFPProfileService(tlsFingerprintProfileService)
 	identityService.SetAccountRepo(accountRepository)

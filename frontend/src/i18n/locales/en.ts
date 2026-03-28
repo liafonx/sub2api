@@ -4209,12 +4209,10 @@ export default {
         updateCommand: 'Update Command',
         checkInterval: 'Check Interval',
         hoursUnit: 'hours',
-        probePromptLabel: 'Probe Prompt',
-        probePromptHint:
-          'The question sent to Claude Code during header capture. Use a realistic developer question.',
-        probePromptPlaceholder: 'What does fmt.Println do in Go?',
-        probePromptSaved: 'Probe prompt saved',
-        probePromptSaveFailed: 'Failed to save probe prompt',
+        accountTestPromptLabel: 'Account Test Prompt',
+        accountTestPromptHint:
+          'Prompt sent during CC probe captures and scheduled account tests. Leave empty to use default.',
+        accountTestPromptPlaceholder: 'What does fmt.Println do in Go?',
         triggerButton: 'Probe Now',
         triggering: 'Probing...',
         triggerSuccess: 'Probe completed successfully',
@@ -4226,9 +4224,6 @@ export default {
         description: 'Control API Key scheduling behavior',
         allowUngroupedKey: 'Allow Ungrouped Key Scheduling',
         allowUngroupedKeyHint: 'When disabled, API Keys not assigned to any group cannot make requests (403 Forbidden). Keep disabled to ensure all Keys belong to a specific group.',
-        scheduledTestPrompt: 'Scheduled Test Prompt',
-        scheduledTestPromptHint: 'Custom user message sent during scheduled account tests. Leave empty to use default ("hi").',
-        scheduledTestPromptPlaceholder: 'hi',
       },
       gatewayForwarding: {
         title: 'Request Forwarding',

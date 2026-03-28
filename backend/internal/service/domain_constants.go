@@ -200,14 +200,14 @@ const (
 	SettingKeyBetaPolicySettings = "beta_policy_settings"
 
 	// =========================
-	// Scheduled Test Prompt
+	// Account Test Prompt (unified: probe + scheduled test)
 	// =========================
 
-	// SettingKeyScheduledTestPrompt stores the custom user message sent during scheduled account health checks.
-	SettingKeyScheduledTestPrompt = "scheduled_test_prompt"
+	// SettingKeyAccountTestPrompt stores the unified prompt for CC probe captures and scheduled account tests.
+	SettingKeyAccountTestPrompt = "account_test_prompt"
 
-	// DefaultScheduledTestPrompt is the fallback prompt when none is configured.
-	DefaultScheduledTestPrompt = "hi"
+	// DefaultAccountTestPrompt is the fallback prompt when none is configured.
+	DefaultAccountTestPrompt = "What does fmt.Println do in Go?"
 
 	// =========================
 	// Sora S3 存储配置
@@ -246,11 +246,9 @@ const (
 	// SettingKeyCCVersionDetectedAt 上次成功从 npm 检测版本的时间（RFC3339 格式，由检测服务写入）
 	SettingKeyCCVersionDetectedAt = "cc_version_detected_at"
 
-	// SettingKeyProbePrompt stores the custom prompt used by CC Probe captures.
-	SettingKeyProbePrompt = "probe_prompt"
-
-	// DefaultProbePrompt is the fallback prompt when none is configured.
-	DefaultProbePrompt = "What does fmt.Println do in Go?"
+	// Legacy keys kept for read-time migration fallback (parseSettings).
+	legacyKeyProbePrompt         = "probe_prompt"
+	legacyKeyScheduledTestPrompt = "scheduled_test_prompt"
 
 	// SettingKeyAllowUngroupedKeyScheduling 允许未分组 API Key 调度（默认 false：未分组 Key 返回 403）
 	SettingKeyAllowUngroupedKeyScheduling = "allow_ungrouped_key_scheduling"

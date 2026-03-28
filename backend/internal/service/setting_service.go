@@ -16,7 +16,6 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -537,8 +536,8 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)
 
-	// Scheduled test prompt
-	updates[SettingKeyScheduledTestPrompt] = settings.ScheduledTestPrompt
+	// Unified account test prompt
+	updates[SettingKeyAccountTestPrompt] = settings.AccountTestPrompt
 
 	// Read the previous auto-detect value before overwriting, so we can detect false->true transitions.
 	prevAutoDetect, _ := s.settingRepo.GetValue(ctx, SettingKeyAutoDetectMinClaudeCodeVersion)
@@ -919,7 +918,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		CustomMenuItems:                  settings[SettingKeyCustomMenuItems],
 		CustomEndpoints:                  settings[SettingKeyCustomEndpoints],
 		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
-		ScheduledTestPrompt:              settings[SettingKeyScheduledTestPrompt],
+		AccountTestPrompt:                resolveAccountTestPromptFromMap(settings),
 	}
 
 	// 解析整数类型
@@ -2230,42 +2229,25 @@ func maxInt64(value int64, min int64) int64 {
 	return value
 }
 
-// ─── Fork: CC Probe ──────────────────────────────────────────────────────────
+// ─── Fork: Unified Account Test Prompt ──────────────────────────────────────
 
-// GetProbePrompt returns the configured CC Probe prompt, falling back to DefaultProbePrompt.
-func (s *SettingService) GetProbePrompt(ctx context.Context) (string, error) {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyProbePrompt)
-	if err != nil {
-		if errors.Is(err, ErrSettingNotFound) {
-			return DefaultProbePrompt, nil
+// resolveAccountTestPromptFromMap returns the first non-empty value from the
+// unified key or legacy keys, falling back to DefaultAccountTestPrompt.
+func resolveAccountTestPromptFromMap(m map[string]string) string {
+	for _, key := range []string{SettingKeyAccountTestPrompt, legacyKeyProbePrompt, legacyKeyScheduledTestPrompt} {
+		if v := m[key]; v != "" {
+			return v
 		}
-		return "", fmt.Errorf("get probe prompt: %w", err)
 	}
-	if value == "" {
-		return DefaultProbePrompt, nil
-	}
-	return value, nil
+	return DefaultAccountTestPrompt
 }
 
-// SetProbePrompt persists the CC Probe prompt. Empty string resets to default.
-func (s *SettingService) SetProbePrompt(ctx context.Context, prompt string) error {
-	if prompt == "" {
-		prompt = DefaultProbePrompt
-	}
-	return s.settingRepo.Set(ctx, SettingKeyProbePrompt, prompt)
-}
-
-// GetScheduledTestPrompt returns the configured scheduled test prompt, falling back to DefaultScheduledTestPrompt.
-func (s *SettingService) GetScheduledTestPrompt(ctx context.Context) string {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyScheduledTestPrompt)
+// GetAccountTestPrompt returns the configured account test prompt with legacy fallback chain.
+func (s *SettingService) GetAccountTestPrompt(ctx context.Context) string {
+	keys := []string{SettingKeyAccountTestPrompt, legacyKeyProbePrompt, legacyKeyScheduledTestPrompt}
+	m, err := s.settingRepo.GetMultiple(ctx, keys)
 	if err != nil {
-		if !errors.Is(err, ErrSettingNotFound) {
-			logger.LegacyPrintf("service.setting", "GetScheduledTestPrompt: %v", err)
-		}
-		return DefaultScheduledTestPrompt
+		return DefaultAccountTestPrompt
 	}
-	if value == "" {
-		return DefaultScheduledTestPrompt
-	}
-	return value
+	return resolveAccountTestPromptFromMap(m)
 }

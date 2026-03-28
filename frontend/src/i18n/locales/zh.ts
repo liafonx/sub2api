@@ -4371,12 +4371,10 @@ export default {
         updateCommand: '更新命令',
         checkInterval: '检查间隔',
         hoursUnit: '小时',
-        probePromptLabel: '探测提示词',
-        probePromptHint:
-          '在捕获请求头时发送给 Claude Code 的问题，建议使用真实的开发者问题。',
-        probePromptPlaceholder: 'What does fmt.Println do in Go?',
-        probePromptSaved: '探测提示词已保存',
-        probePromptSaveFailed: '保存探测提示词失败',
+        accountTestPromptLabel: '账户测试提示词',
+        accountTestPromptHint:
+          'CC 探测捕获和定时账户测试时发送的提示词。留空则使用默认值。',
+        accountTestPromptPlaceholder: 'What does fmt.Println do in Go?',
         triggerButton: '立即探测',
         triggering: '探测中...',
         triggerSuccess: '探测成功',
@@ -4388,9 +4386,6 @@ export default {
         description: '控制 API Key 的调度行为',
         allowUngroupedKey: '允许未分组 Key 调度',
         allowUngroupedKeyHint: '关闭后，未分配到任何分组的 API Key 将无法发起请求（返回 403）。建议保持关闭以确保所有 Key 都归属明确的分组。',
-        scheduledTestPrompt: '定时测试提示词',
-        scheduledTestPromptHint: '定时账户测试时发送的自定义用户消息。留空则使用默认值 ("hi")。',
-        scheduledTestPromptPlaceholder: 'hi',
       },
       gatewayForwarding: {
         title: '请求转发行为',

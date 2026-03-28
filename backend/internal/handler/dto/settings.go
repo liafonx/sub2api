@@ -101,8 +101,8 @@ type SystemSettings struct {
 	EnableFingerprintUnification bool `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough    bool `json:"enable_metadata_passthrough"`
 
-	// Scheduled test prompt
-	ScheduledTestPrompt string `json:"scheduled_test_prompt"`
+	// Unified account test prompt (probe + scheduled test)
+	AccountTestPrompt string `json:"account_test_prompt"`
 }
 
 type DefaultSubscriptionSetting struct {

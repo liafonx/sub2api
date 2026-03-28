@@ -135,7 +135,7 @@ func generateSessionString(clientID, accountUUID, uaVersion string) string {
 
 func resolveTestPrompt(prompt string) string {
 	if prompt == "" {
-		return DefaultScheduledTestPrompt
+		return DefaultAccountTestPrompt
 	}
 	return prompt
 }

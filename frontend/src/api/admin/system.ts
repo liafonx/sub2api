@@ -90,7 +90,7 @@ export interface CCProbeConfig {
   auto_update_cc: boolean
   update_command: string
   check_interval_hours: number
-  probe_prompt: string
+  account_test_prompt: string
 }
 
 /**
@@ -117,20 +117,6 @@ export async function triggerCCProbe(): Promise<CCProbeTraits> {
   return data
 }
 
-export interface ProbePromptResponse {
-  probe_prompt: string
-}
-
-export async function getProbePrompt(): Promise<ProbePromptResponse> {
-  const { data } = await apiClient.get<ProbePromptResponse>('/admin/system/cc-probe/prompt')
-  return data
-}
-
-export async function updateProbePrompt(prompt: string): Promise<ProbePromptResponse> {
-  const { data } = await apiClient.put<ProbePromptResponse>('/admin/system/cc-probe/prompt', { probe_prompt: prompt })
-  return data
-}
-
 export const systemAPI = {
   getVersion,
   checkUpdates,
@@ -140,9 +126,7 @@ export const systemAPI = {
   getTLSProfiles,
   getCCProbeStatus,
   getCCProbeConfig,
-  triggerCCProbe,
-  getProbePrompt,
-  updateProbePrompt
+  triggerCCProbe
 }
 
 export default systemAPI

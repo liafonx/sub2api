@@ -104,7 +104,7 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 		return
 	}
 
-	prompt := s.settingService.GetScheduledTestPrompt(ctx)
+	prompt := s.settingService.GetAccountTestPrompt(ctx)
 
 	logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] found %d due plans", len(plans))
 
