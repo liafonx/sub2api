@@ -1,6 +1,16 @@
 # Fork Changelog (liafonx/sub2api)
 
-Patches not in upstream (`Wei-Shaw/sub2api`).
+Surviving fork-only patches relative to upstream release `v0.1.105` (`Wei-Shaw/sub2api`).
+
+## Inventory Method
+
+- **Authoritative baseline**: full tree diff of `v0.1.105..main`
+- **Classification rule**: track surviving fork-only behavior and maintenance-relevant compat changes, not raw commit history
+- **Reapply source of truth**: file paths, symbols, config keys, routes, migrations, and verification commands
+- **Non-authoritative metadata**: commit SHAs may be mentioned for context, but they are not required to reapply a patch later
+- **Excluded noise**: local workspace artifacts such as `.cursor/`, `.playwright-cli/`, `.superpowers/`, and similar scratch files are intentionally not cataloged here
+
+The goal of this document is to let the fork reset onto upstream and later reintroduce individual patches without relying on mutable branch ancestry.
 
 ---
 
@@ -301,6 +311,8 @@ Also fixes OpenAI OAuth token refresh to pass `client_id` from stored credential
 |------|--------|
 | `frontend/src/components/common/InfoPopup.vue` | **NEW** — Reusable floating tooltip component |
 | `frontend/src/components/common/InfoPopup.spec.ts` | **NEW** — Component tests |
+| `frontend/src/components/common/UsageCostPopup.vue` | **NEW** — Cost-detail popup built on top of InfoPopup |
+| `frontend/src/components/common/UsageTokenPopup.vue` | **NEW** — Token-detail popup built on top of InfoPopup |
 | `frontend/src/components/admin/usage/UsageTable.vue` | MODIFIED — replaced manual Teleport tooltips with InfoPopup |
 | `frontend/src/views/user/UsageView.vue` | MODIFIED — replaced manual Teleport tooltips with InfoPopup |
 
@@ -333,6 +345,112 @@ Also fixes OpenAI OAuth token refresh to pass `client_id` from stored credential
 | `frontend/src/i18n/locales/zh.ts` | MODIFIED — `scheduledRate` i18n keys |
 
 **Upstream conflict risk**: HIGH — touches group schema, handler, gateway billing, GroupsView.
+
+---
+
+### Patch 15: Unified Account Test Prompt (added 2026-03-27)
+
+**Purpose**: Replaces separate probe and scheduled-test prompt knobs with a single `account_test_prompt` setting, while preserving read-time fallback from legacy keys (`probe_prompt`, `scheduled_test_prompt`).
+
+**Files**:
+
+| File | Change |
+|------|--------|
+| `backend/internal/service/domain_constants.go` | Added unified setting key and legacy fallback keys |
+| `backend/internal/service/setting_service.go` | Reads/writes unified prompt; migrates from legacy fallback chain |
+| `backend/internal/service/settings_view.go` | Exposes unified prompt in admin settings view model |
+| `backend/internal/handler/dto/settings.go` | Adds `account_test_prompt` API field |
+| `backend/internal/handler/admin/setting_handler.go` | Reads/writes unified prompt through admin settings API |
+| `backend/internal/service/cc_probe_service.go` | Reads unified prompt for probe execution |
+| `backend/internal/service/scheduled_test_runner_service.go` | Reads unified prompt for scheduled account tests |
+| `backend/internal/service/account_test_service.go` | Threads prompt through background/manual test paths |
+| `backend/internal/service/account_usage_service.go` | Preserves safe default on usage-side probe calls |
+| `frontend/src/views/admin/SettingsView.vue` | Admin UI for unified account test prompt |
+| `frontend/src/api/admin/settings.ts` | Settings API contract |
+| `frontend/src/api/admin/system.ts` | CC probe config view exposes unified prompt |
+
+**Why it exists**: The fork has both CC Probe and scheduled account tests. Keeping separate prompt settings duplicates configuration and makes probe/test behavior diverge for no functional gain.
+
+**Reapply markers**:
+- `SettingKeyAccountTestPrompt`
+- `legacyKeyProbePrompt`
+- `legacyKeyScheduledTestPrompt`
+- `GetAccountTestPrompt`
+- `account_test_prompt`
+
+**Verification**:
+
+```bash
+rg -n "SettingKeyAccountTestPrompt|legacyKeyProbePrompt|legacyKeyScheduledTestPrompt|GetAccountTestPrompt|account_test_prompt" backend frontend
+```
+
+---
+
+### Patch 16: Local Overload Admission Cooldown (added 2026-03-28)
+
+**Purpose**: Adds instant in-process overload suppression after a 529 response so concurrent goroutines stop selecting the same overloaded account before Redis/runtime state propagates.
+
+**Files**:
+
+| File | Change |
+|------|--------|
+| `backend/internal/handler/admission.go` | **NEW** — `LocalOverloadTracker` implementation |
+| `backend/internal/handler/admission_test.go` | **NEW** — concurrency and cooldown tests |
+| `backend/internal/handler/failover_loop.go` | Skips locally overloaded accounts during failover |
+| `backend/internal/handler/failover_loop_test.go` | Test coverage for local overload skipping |
+| `backend/internal/handler/gateway_handler.go` | Installs tracker on gateway handler |
+| `backend/internal/handler/gateway_handler_chat_completions.go` | Uses tracker in chat completion path |
+| `backend/internal/handler/gateway_handler_responses.go` | Uses tracker in responses path |
+| `backend/internal/handler/gemini_v1beta_handler.go` | Uses tracker in Gemini path |
+| `backend/internal/service/setting_service.go` | Persists overload cooldown settings |
+| `backend/internal/service/settings_view.go` | Exposes overload cooldown settings to admin UI |
+| `backend/internal/handler/dto/settings.go` | Adds overload cooldown DTO |
+| `backend/internal/handler/admin/setting_handler.go` | Admin API for overload cooldown settings |
+| `frontend/src/views/admin/SettingsView.vue` | Admin UI for overload cooldown |
+| `frontend/src/api/admin/settings.ts` | Settings API contract for overload cooldown |
+
+**Why it exists**: The fork runs concurrent request selection. After one request receives a 529, waiting for shared runtime state to propagate still allows more requests to hit the same bad account. A short local cooldown closes that race window.
+
+**Dependencies**: Complements, but does not replace, the existing runtime/Redis overload marking.
+
+**Reapply markers**:
+- `LocalOverloadTracker`
+- `SkipIfOverloaded`
+- `SettingKeyOverloadCooldownSettings`
+- `overload_cooldown_settings`
+
+**Verification**:
+
+```bash
+rg -n "LocalOverloadTracker|SkipIfOverloaded|SettingKeyOverloadCooldownSettings|overload_cooldown_settings" backend frontend
+```
+
+---
+
+### Patch 17: CSP Nonce Hardening for Embedded Frontend (added 2026-03-28)
+
+**Purpose**: Ensures all embedded frontend `<script>` tags, including Vite-generated module scripts, receive the per-request CSP nonce instead of only the injected settings script.
+
+**Files**:
+
+| File | Change |
+|------|--------|
+| `backend/internal/web/embed_on.go` | Adds `addNonceToScriptTags` and applies nonce injection to bare script tags |
+| `backend/internal/web/embed_test.go` | Adds tests for bare and module script nonce injection |
+| `frontend/vite.config.ts` | Keeps generated HTML compatible with runtime nonce injection |
+
+**Why it exists**: Placeholder replacement alone only protects the injected config script. The compiled frontend still emits module script tags that must carry the same nonce to satisfy strict CSP.
+
+**Reapply markers**:
+- `NonceHTMLPlaceholder`
+- `replaceNoncePlaceholder`
+- `addNonceToScriptTags`
+
+**Verification**:
+
+```bash
+rg -n "NonceHTMLPlaceholder|replaceNoncePlaceholder|addNonceToScriptTags" backend/internal/web frontend/vite.config.ts
+```
 
 ---
 
@@ -395,6 +513,15 @@ grep GetEffectiveRateMultiplier backend/internal/service/openai_gateway_service.
 grep ScheduledRateRulesEditor frontend/src/views/admin/GroupsView.vue
 grep scheduledRate frontend/src/i18n/locales/en.ts | head -3
 
+# Patch 15: Unified account test prompt
+rg -n "SettingKeyAccountTestPrompt|legacyKeyProbePrompt|legacyKeyScheduledTestPrompt|GetAccountTestPrompt|account_test_prompt" backend frontend
+
+# Patch 16: Local overload admission cooldown
+rg -n "LocalOverloadTracker|SkipIfOverloaded|SettingKeyOverloadCooldownSettings|overload_cooldown_settings" backend frontend
+
+# Patch 17: CSP nonce hardening
+rg -n "NonceHTMLPlaceholder|replaceNoncePlaceholder|addNonceToScriptTags" backend/internal/web frontend/vite.config.ts
+
 # utls version
 grep refraction-networking/utls backend/go.mod
 ```
@@ -408,5 +535,6 @@ curl -s https://api.github.com/repos/refraction-networking/utls/releases/latest 
 ## Notes
 
 - **utls v1.8.2 pinned**: v1.8.2 has full X25519MLKEM768 support. Upgrade to a newer tagged release when available.
+- **Baseline is content, not ancestry**: When reintroducing patches later, compare current upstream release content against this file. Do not rely on whether a historical fork commit still exists or whether upstream rewrote SHAs.
 - **wire_gen.go is manually maintained**: Not generated by Wire. New dependencies are added by hand in `InitializeApp`. When resolving merge conflicts, keep upstream's `NewGatewayService` signature and fork's `userQuotaCache`/`userQuotaService` wiring.
 - **Migration 074 checksum compatibility rule**: `migrations_runner.go` has a fork-specific compat entry for `074_add_group_scheduled_rate_config.sql`. Upstream v0.1.105 removed the DOWN section from this migration after the fork DB had already applied the original version. The rule accepts both the old and new checksums so the fork doesn't fail on startup. See `migrationChecksumCompatibilityRules` in `backend/internal/repository/migrations_runner.go`.
