@@ -178,6 +178,10 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		account := selection.Account
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
+		if fs.SkipIfOverloaded(h.localOverloadTracker, account.ID, selection, reqLog) {
+			continue
+		}
+
 		// 4. Acquire account concurrency slot
 		accountReleaseFunc := selection.ReleaseFunc
 		if !selection.Acquired {
@@ -216,7 +220,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 					h.handleCCFailoverExhausted(c, failoverErr, true)
 					return
 				}
-				action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, failoverErr)
+				action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, h.localOverloadTracker, account.ID, account.Platform, failoverErr)
 				switch action {
 				case FailoverContinue:
 					continue

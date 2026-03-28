@@ -59,10 +59,12 @@ type IdentityCache interface {
 	// GetMaskedSessionID 获取固定的会话ID（用于会话ID伪装功能）
 	// 返回的 sessionID 是一个 UUID 格式的字符串
 	// 如果不存在或已过期（15分钟无请求），返回空字符串
-	GetMaskedSessionID(ctx context.Context, accountID int64) (string, error)
+	// userHash 用于区分不同真实用户，使每个用户获得独立的伪装会话ID
+	GetMaskedSessionID(ctx context.Context, accountID int64, userHash string) (string, error)
 	// SetMaskedSessionID 设置固定的会话ID，TTL 为 15 分钟
 	// 每次调用都会刷新 TTL
-	SetMaskedSessionID(ctx context.Context, accountID int64, sessionID string) error
+	// userHash 用于区分不同真实用户
+	SetMaskedSessionID(ctx context.Context, accountID int64, userHash string, sessionID string) error
 }
 
 // IdentityService 管理OAuth账号的请求身份指纹
@@ -335,6 +337,16 @@ func (s *IdentityService) RewriteUserID(body []byte, accountID int64, accountUUI
 // 重要：此函数使用 json.RawMessage 保留其他字段的原始字节，
 // 避免重新序列化导致 thinking 块等内容被修改。
 func (s *IdentityService) RewriteUserIDWithMasking(ctx context.Context, body []byte, account *Account, accountUUID, cachedClientID, fingerprintUA string) ([]byte, error) {
+	// 提取原始 session UUID 用于 per-user masking scope（必须在 RewriteUserID 之前）
+	var originalSessionID string
+	if account.IsSessionIDMaskingEnabled() {
+		if origMeta := gjson.GetBytes(body, "metadata.user_id"); origMeta.Exists() && origMeta.Type == gjson.String {
+			if parsed := ParseMetadataUserID(origMeta.String()); parsed != nil {
+				originalSessionID = parsed.SessionID
+			}
+		}
+	}
+
 	// 先执行常规的 RewriteUserID 逻辑
 	newBody, err := s.RewriteUserID(body, account.ID, accountUUID, cachedClientID, fingerprintUA)
 	if err != nil {
@@ -345,6 +357,10 @@ func (s *IdentityService) RewriteUserIDWithMasking(ctx context.Context, body []b
 	if !account.IsSessionIDMaskingEnabled() {
 		return newBody, nil
 	}
+
+	// 生成 per-user hash 用于 Redis key 区分不同真实用户
+	// 使用原始 session UUID 的 SHA256 前16字符作为 user scope
+	userHash := deriveUserHash(account.ID, originalSessionID)
 
 	metadata := gjson.GetBytes(newBody, "metadata")
 	if !metadata.Exists() || metadata.Type == gjson.Null {
@@ -369,8 +385,8 @@ func (s *IdentityService) RewriteUserIDWithMasking(ctx context.Context, body []b
 		return newBody, nil
 	}
 
-	// 获取或生成固定的伪装 session ID
-	maskedSessionID, err := s.cache.GetMaskedSessionID(ctx, account.ID)
+	// 获取或生成固定的伪装 session ID（per-user scoped）
+	maskedSessionID, err := s.cache.GetMaskedSessionID(ctx, account.ID, userHash)
 	if err != nil {
 		logger.LegacyPrintf("service.identity", "Warning: failed to get masked session ID for account %d: %v", account.ID, err)
 		return newBody, nil
@@ -383,7 +399,7 @@ func (s *IdentityService) RewriteUserIDWithMasking(ctx context.Context, body []b
 	}
 
 	// 刷新 TTL（每次请求都刷新，保持 15 分钟有效期）
-	if err := s.cache.SetMaskedSessionID(ctx, account.ID, maskedSessionID); err != nil {
+	if err := s.cache.SetMaskedSessionID(ctx, account.ID, userHash, maskedSessionID); err != nil {
 		logger.LegacyPrintf("service.identity", "Warning: failed to set masked session ID for account %d: %v", account.ID, err)
 	}
 
@@ -436,6 +452,17 @@ func generateClientID() string {
 		return hex.EncodeToString(h[:])
 	}
 	return hex.EncodeToString(b)
+}
+
+// deriveUserHash 从 accountID 和原始 session UUID 派生用户哈希，
+// 用于在 Redis 中区分不同真实用户的 masked session ID。
+func deriveUserHash(accountID int64, originalSessionID string) string {
+	if originalSessionID == "" {
+		return "default"
+	}
+	seed := fmt.Sprintf("user_scope:%d:%s", accountID, originalSessionID)
+	h := sha256.Sum256([]byte(seed))
+	return hex.EncodeToString(h[:8])
 }
 
 // generateUUIDFromSeed 从种子生成确定性UUID v4格式字符串

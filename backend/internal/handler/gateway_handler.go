@@ -49,6 +49,7 @@ type GatewayHandler struct {
 	userMsgQueueHelper        *UserMsgQueueHelper
 	maxAccountSwitches        int
 	maxAccountSwitchesGemini  int
+	localOverloadTracker      *LocalOverloadTracker
 	cfg                       *config.Config
 	settingService            *service.SettingService
 }
@@ -70,7 +71,7 @@ func NewGatewayHandler(
 	settingService *service.SettingService,
 ) *GatewayHandler {
 	pingInterval := time.Duration(0)
-	maxAccountSwitches := 10
+	maxAccountSwitches := 2
 	maxAccountSwitchesGemini := 3
 	if cfg != nil {
 		pingInterval = time.Duration(cfg.Concurrency.PingInterval) * time.Second
@@ -102,6 +103,7 @@ func NewGatewayHandler(
 		userMsgQueueHelper:        umqHelper,
 		maxAccountSwitches:        maxAccountSwitches,
 		maxAccountSwitchesGemini:  maxAccountSwitchesGemini,
+		localOverloadTracker:      NewLocalOverloadTracker(),
 		cfg:                       cfg,
 		settingService:            settingService,
 	}
@@ -318,6 +320,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			account := selection.Account
 			setOpsSelectedAccount(c, account.ID, account.Platform)
 
+			if fs.SkipIfOverloaded(h.localOverloadTracker, account.ID, selection, reqLog) {
+				continue
+			}
+
 			// 检查请求拦截（预热请求、SUGGESTION MODE等）
 			if account.IsInterceptWarmupEnabled() {
 				interceptType := detectInterceptType(body, reqModel, parsedReq.MaxTokens, reqStream, isClaudeCodeClient)
@@ -410,7 +416,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						h.handleFailoverExhausted(c, failoverErr, service.PlatformGemini, true)
 						return
 					}
-					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, failoverErr)
+					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, h.localOverloadTracker, account.ID, account.Platform, failoverErr)
 					switch action {
 					case FailoverContinue:
 						continue
@@ -545,6 +551,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			account := selection.Account
 			setOpsSelectedAccount(c, account.ID, account.Platform)
+
+			if fs.SkipIfOverloaded(h.localOverloadTracker, account.ID, selection, reqLog) {
+				continue
+			}
 
 			// 检查请求拦截（预热请求、SUGGESTION MODE等）
 			if account.IsInterceptWarmupEnabled() {
@@ -759,7 +769,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						h.handleFailoverExhausted(c, failoverErr, account.Platform, true)
 						return
 					}
-					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, failoverErr)
+					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, h.localOverloadTracker, account.ID, account.Platform, failoverErr)
 					switch action {
 					case FailoverContinue:
 						continue

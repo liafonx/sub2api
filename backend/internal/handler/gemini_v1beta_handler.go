@@ -375,6 +375,10 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		account := selection.Account
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
+		if fs.SkipIfOverloaded(h.localOverloadTracker, account.ID, selection, reqLog) {
+			continue
+		}
+
 		// 检测账号切换：如果粘性会话绑定的账号与当前选择的账号不同，清除 thoughtSignature
 		// 注意：Gemini 原生 API 的 thoughtSignature 与具体上游账号强相关；跨账号透传会导致 400。
 		if sessionBoundAccountID > 0 && sessionBoundAccountID != account.ID {
@@ -468,7 +472,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
-				failoverAction := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, failoverErr)
+				failoverAction := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, h.localOverloadTracker, account.ID, account.Platform, failoverErr)
 				switch failoverAction {
 				case FailoverContinue:
 					continue

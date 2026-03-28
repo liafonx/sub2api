@@ -23,8 +23,12 @@ func fingerprintKey(accountID int64) string {
 }
 
 // maskedSessionKey generates the Redis key for masked session ID cache.
-func maskedSessionKey(accountID int64) string {
-	return fmt.Sprintf("%s%d", maskedSessionKeyPrefix, accountID)
+// userHash scopes the key per real user to avoid all users sharing one session ID.
+func maskedSessionKey(accountID int64, userHash string) string {
+	if userHash == "" {
+		userHash = "default"
+	}
+	return fmt.Sprintf("%s%d:%s", maskedSessionKeyPrefix, accountID, userHash)
 }
 
 type identityCache struct {
@@ -57,8 +61,8 @@ func (c *identityCache) SetFingerprint(ctx context.Context, accountID int64, fp 
 	return c.rdb.Set(ctx, key, val, fingerprintTTL).Err()
 }
 
-func (c *identityCache) GetMaskedSessionID(ctx context.Context, accountID int64) (string, error) {
-	key := maskedSessionKey(accountID)
+func (c *identityCache) GetMaskedSessionID(ctx context.Context, accountID int64, userHash string) (string, error) {
+	key := maskedSessionKey(accountID, userHash)
 	val, err := c.rdb.Get(ctx, key).Result()
 	if err != nil {
 		if err == redis.Nil {
@@ -69,7 +73,7 @@ func (c *identityCache) GetMaskedSessionID(ctx context.Context, accountID int64)
 	return val, nil
 }
 
-func (c *identityCache) SetMaskedSessionID(ctx context.Context, accountID int64, sessionID string) error {
-	key := maskedSessionKey(accountID)
+func (c *identityCache) SetMaskedSessionID(ctx context.Context, accountID int64, userHash string, sessionID string) error {
+	key := maskedSessionKey(accountID, userHash)
 	return c.rdb.Set(ctx, key, sessionID, maskedSessionTTL).Err()
 }

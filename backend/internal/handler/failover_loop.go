@@ -10,6 +10,11 @@ import (
 	"go.uber.org/zap"
 )
 
+// localOverloadCooldown is how long an account stays locally marked as overloaded
+// after receiving a 529. Short enough to recover quickly, long enough to shed
+// the concurrent request burst that caused the 529 storm.
+const localOverloadCooldown = 5 * time.Second
+
 // TempUnscheduler 用于 HandleFailoverError 中同账号重试耗尽后的临时封禁。
 // GatewayService 隐式实现此接口。
 type TempUnscheduler interface {
@@ -60,15 +65,35 @@ func NewFailoverState(maxSwitches int, hasBoundSession bool) *FailoverState {
 	}
 }
 
+// SkipIfOverloaded checks if the account is locally overloaded and, if so,
+// releases the selection slot and marks the account as failed. Returns true
+// when the caller should continue to the next iteration.
+func (s *FailoverState) SkipIfOverloaded(tracker *LocalOverloadTracker, accountID int64, selection *service.AccountSelectionResult, logger *zap.Logger) bool {
+	if tracker == nil || !tracker.IsOverloaded(accountID) {
+		return false
+	}
+	if selection.Acquired && selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+	logger.Info("gateway.local_overload_skip", zap.Int64("account_id", accountID))
+	s.FailedAccountIDs[accountID] = struct{}{}
+	return true
+}
+
 // HandleFailoverError 处理 UpstreamFailoverError，返回下一步动作。
-// 包含：缓存计费判断、同账号重试、临时封禁、切换计数、Antigravity 延时。
+// 包含：本地过载标记、缓存计费判断、同账号重试、临时封禁、切换计数、Antigravity 延时。
 func (s *FailoverState) HandleFailoverError(
 	ctx context.Context,
 	gatewayService TempUnscheduler,
+	overloadTracker *LocalOverloadTracker,
 	accountID int64,
 	platform string,
 	failoverErr *service.UpstreamFailoverError,
 ) FailoverAction {
+	// 529 过载：立即标记本地过载，阻止其他并发请求继续发送
+	if failoverErr.StatusCode == 529 && overloadTracker != nil {
+		overloadTracker.MarkOverloaded(accountID, localOverloadCooldown)
+	}
 	s.LastFailoverErr = failoverErr
 
 	// 缓存计费判断
