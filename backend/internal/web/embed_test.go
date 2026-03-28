@@ -122,13 +122,31 @@ func TestReplaceNoncePlaceholder(t *testing.T) {
 		assert.Equal(t, `<script nonce="">test</script>`, string(result))
 	})
 
-	t.Run("no_placeholder_returns_unchanged", func(t *testing.T) {
+	t.Run("adds_nonce_to_bare_script_tags", func(t *testing.T) {
 		html := []byte(`<script>console.log('test');</script>`)
 		nonce := "abc123"
 
 		result := replaceNoncePlaceholder(html, nonce)
 
-		assert.Equal(t, string(html), string(result))
+		assert.Equal(t, `<script nonce="abc123">console.log('test');</script>`, string(result))
+	})
+
+	t.Run("adds_nonce_to_module_script_tags", func(t *testing.T) {
+		html := []byte(`<script type="module" crossorigin src="/assets/index.js"></script>`)
+		nonce := "xyz789"
+
+		result := replaceNoncePlaceholder(html, nonce)
+
+		assert.Equal(t, `<script nonce="xyz789" type="module" crossorigin src="/assets/index.js"></script>`, string(result))
+	})
+
+	t.Run("skips_script_tags_that_already_have_nonce", func(t *testing.T) {
+		html := []byte(`<script nonce="existing">test</script>`)
+		nonce := "abc123"
+
+		result := replaceNoncePlaceholder(html, nonce)
+
+		assert.Equal(t, `<script nonce="existing">test</script>`, string(result))
 	})
 
 	t.Run("handles_empty_html", func(t *testing.T) {

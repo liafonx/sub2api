@@ -213,9 +213,60 @@ func injectSiteTitle(html, settingsJSON []byte) []byte {
 	return buf.Bytes()
 }
 
-// replaceNoncePlaceholder replaces the nonce placeholder with actual nonce value
+// replaceNoncePlaceholder replaces nonce placeholders AND adds nonce to all
+// script tags that don't already have one (e.g. Vite-generated module scripts).
 func replaceNoncePlaceholder(html []byte, nonce string) []byte {
-	return bytes.ReplaceAll(html, []byte(NonceHTMLPlaceholder), []byte(nonce))
+	// 1. Replace explicit placeholders (injected config script)
+	result := bytes.ReplaceAll(html, []byte(NonceHTMLPlaceholder), []byte(nonce))
+
+	// 2. Add nonce to bare <script tags that lack one
+	if nonce != "" {
+		nonceAttr := []byte(` nonce="` + nonce + `"`)
+		result = addNonceToScriptTags(result, nonceAttr)
+	}
+	return result
+}
+
+// addNonceToScriptTags injects the nonce attribute into <script ...> tags
+// that don't already contain a nonce attribute.
+func addNonceToScriptTags(html, nonceAttr []byte) []byte {
+	var buf bytes.Buffer
+	remaining := html
+	scriptOpen := []byte("<script")
+	nonceKey := []byte("nonce=")
+
+	for {
+		idx := bytes.Index(remaining, scriptOpen)
+		if idx == -1 {
+			buf.Write(remaining)
+			break
+		}
+
+		// Find the closing '>' of this tag
+		tagStart := idx
+		afterTag := remaining[idx+len(scriptOpen):]
+		closeIdx := bytes.IndexByte(afterTag, '>')
+		if closeIdx == -1 {
+			buf.Write(remaining)
+			break
+		}
+
+		tagAttrs := afterTag[:closeIdx]
+
+		// Write everything up to and including "<script"
+		buf.Write(remaining[:tagStart+len(scriptOpen)])
+
+		// Only inject nonce if this tag doesn't already have one
+		if !bytes.Contains(tagAttrs, nonceKey) {
+			buf.Write(nonceAttr)
+		}
+
+		// Write the rest of the tag (attributes + '>' + everything after)
+		buf.Write(afterTag[:closeIdx+1])
+		remaining = afterTag[closeIdx+1:]
+		continue
+	}
+	return buf.Bytes()
 }
 
 // ServeEmbeddedFrontend returns a middleware for serving embedded frontend

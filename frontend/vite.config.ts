@@ -72,12 +72,14 @@ export default defineConfig(({ mode }) => {
          */
         manualChunks(id: string) {
           if (id.includes('node_modules')) {
-            // Vue 核心库
+            // Vue 核心库 + 紧密依赖 Vue 的小型组件库
+            // vue-draggable-plus 调用 defineComponent，放入 vendor-misc 会导致循环 chunk 依赖
             if (
               id.includes('/vue/') ||
               id.includes('/vue-router/') ||
               id.includes('/pinia/') ||
-              id.includes('/@vue/')
+              id.includes('/@vue/') ||
+              id.includes('/vue-draggable-plus/')
             ) {
               return 'vendor-vue'
             }
