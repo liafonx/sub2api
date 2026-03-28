@@ -133,3 +133,15 @@ frontend/coverage/
 aicodex
 output/
 
+# ===================
+# Local agent / deploy artifacts
+# ===================
+.agent/
+.agents/
+Usage_Endpoint.md
+skills-lock.json
+deploy/AGENTS.md
+deploy/CRS-README.md
+deploy/caddy/
+deploy/nginx/
+deploy/config-vps-merged.yaml
