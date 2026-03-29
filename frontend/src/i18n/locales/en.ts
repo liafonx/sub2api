@@ -2015,6 +2015,10 @@ export default {
           exceeded: 'Quota exceeded, account paused',
           normal: 'Quota normal'
         },
+        userQuota: {
+          active: 'Per-user quota: {count} active users, ${limit}/user',
+          inactive: 'Per-user quota enabled, no active users'
+        },
       },
       tempUnschedulable: {
         title: 'Temp Unschedulable',

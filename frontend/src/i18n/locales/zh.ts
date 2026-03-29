@@ -2053,6 +2053,10 @@ export default {
           exceeded: '配额已用完，账号暂停调度',
           normal: '配额正常'
         },
+        userQuota: {
+          active: '每用户配额：{count} 活跃用户，${limit}/用户',
+          inactive: '每用户配额已启用，无活跃用户'
+        },
       },
       clearRateLimit: '清除速率限制',
       resetQuota: '重置配额',

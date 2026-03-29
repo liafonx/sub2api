@@ -762,6 +762,10 @@ export interface Account {
   quota_daily_reset_at?: string | null
   quota_weekly_reset_at?: string | null
 
+  // 每用户配额展示数据（仅当 user_quota_enabled 且有 window_cost_limit 时返回）
+  per_user_limit?: number | null
+  active_user_count?: number | null
+
   // 运行时状态（仅当启用对应限制时返回）
   current_window_cost?: number | null // 当前窗口费用
   active_sessions?: number | null // 当前活跃会话数
