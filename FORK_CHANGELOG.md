@@ -75,7 +75,12 @@ grep "malformed HTTP\|transport: received unexpected" /usr/local/var/log/sub2api
 | `backend/internal/handler/dto/mappers.go` | MODIFIED — `AccountToDTO` emits quota fields for Anthropic OAuth/SetupToken accounts |
 | `backend/internal/service/gateway_service.go` | MODIFIED — `SetUserQuotaChecker`, `RegisterUserActivity`, `CheckUserQuotaForAccount`, `IncrementUserCost` calls in `RecordUsage` |
 | `backend/internal/handler/gateway_handler.go` | MODIFIED — quota check after account selection (returns 429 when blocked) |
-| `backend/cmd/server/wire_gen.go` | MODIFIED — `NewUserQuotaCache` → `NewUserQuotaService` → `SetUserQuotaChecker` + 15s cleanup ticker |
+| `backend/internal/handler/admin/account_handler.go` | MODIFIED — `SetUserQuotaChecker` setter; `PerUserLimit`/`ActiveUserCount` fields on `AccountWithConcurrency`; `GetDisplayMetaBatch` calls in `List` (batch) and `buildAccountResponseWithRuntime` (single); `NotifyAccountUpdated` on admin Update |
+| `backend/cmd/server/wire_gen.go` | MODIFIED — `NewUserQuotaCache` → `NewUserQuotaService` → `SetUserQuotaChecker` (gateway + account handler) + 15s cleanup ticker |
+| `frontend/src/types/index.ts` | MODIFIED — `per_user_limit`, `active_user_count` optional fields on `Account` |
+| `frontend/src/components/account/AccountCapacityCell.vue` | MODIFIED — per-user quota badge (blue active / gray idle) between windowCost and sessions badges |
+| `frontend/src/i18n/locales/en.ts` | MODIFIED — `capacity.userQuota.active` / `capacity.userQuota.inactive` i18n strings |
+| `frontend/src/i18n/locales/zh.ts` | MODIFIED — same i18n strings in Chinese |
 
 **Redis key schema**:
 
@@ -135,9 +140,12 @@ user_quota:meta:{accountID}               → Hash (epoch, per_user_limit, per_u
 **Integration points**:
 - `gateway_handler.go`: `RegisterUserActivity` called after account selection; `CheckUserQuotaForAccount` called before forwarding (returns HTTP 429 when blocked)
 - `gateway_service.go` `RecordUsage` + `RecordUsageWithLongContext`: `IncrementUserCost` called after cost is computed
-- `wire_gen.go`: `NewUserQuotaCache` → `NewUserQuotaService` → `SetUserQuotaChecker` + 15s cleanup ticker
+- `account_handler.go`: `SetUserQuotaChecker` wired via setter; `GetDisplayMetaBatch` enriches List (batch) and single-account endpoints; `NotifyAccountUpdated` called after admin Update to immediately recalculate quota on settings change
+- `wire_gen.go`: `NewUserQuotaCache` → `NewUserQuotaService` → `SetUserQuotaChecker` (gateway + account handler) + 15s cleanup ticker
 
-**Frontend**: Toggle in Create/Edit Account modals under "Quota Control" section (Anthropic OAuth/SetupToken accounts only, disabled when Window Cost Limit is off).
+**Frontend**:
+- Toggle in Create/Edit Account modals under "Quota Control" section (Anthropic OAuth/SetupToken accounts only, disabled when Window Cost Limit is off)
+- Per-user quota badge in `AccountCapacityCell.vue`: blue badge when active (`{activeCount} · ${perUserLimit}`), gray badge when idle (`Q`), hidden when quota disabled
 
 **Reapply markers**:
 - `UserQuotaChecker`
@@ -150,6 +158,9 @@ user_quota:meta:{accountID}               → Hash (epoch, per_user_limit, per_u
 - `IsUserQuotaEnabled`
 - `GetUserQuotaIdleTimeout`
 - `user_quota_enabled`
+- `GetDisplayMetaBatch`
+- `NotifyAccountUpdated`
+- `showUserQuotaActive`
 
 **Verification**:
 
@@ -162,6 +173,9 @@ grep bumpEpochAndSetMetaScript backend/internal/repository/user_quota_cache.go
 grep IsUserQuotaEnabled backend/internal/service/account.go
 grep UserQuotaEnabled backend/internal/handler/dto/types.go
 grep SetUserQuotaChecker backend/cmd/server/wire_gen.go
+grep GetDisplayMetaBatch backend/internal/handler/admin/account_handler.go
+grep NotifyAccountUpdated backend/internal/handler/admin/account_handler.go
+grep showUserQuotaActive frontend/src/components/account/AccountCapacityCell.vue
 ```
 
 ---
@@ -687,6 +701,9 @@ grep bumpEpochAndSetMetaScript backend/internal/repository/user_quota_cache.go
 grep IsUserQuotaEnabled backend/internal/service/account.go
 grep UserQuotaEnabled backend/internal/handler/dto/types.go
 grep SetUserQuotaChecker backend/cmd/server/wire_gen.go
+grep GetDisplayMetaBatch backend/internal/handler/admin/account_handler.go
+grep NotifyAccountUpdated backend/internal/handler/admin/account_handler.go
+grep showUserQuotaActive frontend/src/components/account/AccountCapacityCell.vue
 
 # Patch 4: X25519MLKEM768 key shares
 grep X25519MLKEM768 backend/internal/pkg/tlsfingerprint/dialer.go
