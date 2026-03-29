@@ -49,6 +49,17 @@ sub2api/
 
 ---
 
+## Branch State
+
+- `main` is intentionally synced to upstream release `v0.1.105`, with only fork-maintenance docs kept on top (`AGENTS.md`, `FORK_CHANGELOG.md`, local ignore rules).
+- `upstream-v0.1.105-clean` is the explicit clean release baseline branch and should match the upstream release content.
+- The old fork `main` state, including fork-only code, is preserved on:
+  - branch: `archive/fork-main-pre-clean-migration-2026-03-28`
+  - tag: `archive-fork-main-pre-clean-migration-2026-03-28`
+- If you need to reintroduce a fork patch later, use `FORK_CHANGELOG.md` plus the archived branch/tag as the source of truth. Do not assume current `main` still contains those fork-only runtime changes.
+
+---
+
 ## Key Patterns
 
 ### Account `Extra` field
@@ -161,23 +172,28 @@ ssh liafonx@Liafonxs-Mac-mini.local 'launchctl bootout gui/$(id -u)/com.sub2api;
 
 ## Fork-Only Patches
 
-This is the `liafonx/sub2api` fork. Full patch details, verification commands, and merge notes are in **[`FORK_CHANGELOG.md`](FORK_CHANGELOG.md)**.
+This repository is still the `liafonx/sub2api` fork, but current `main` has been reset onto upstream `v0.1.105`. The fork-only runtime patches listed below are preserved in the archived fork snapshot, not guaranteed to exist on current `main`.
+
+Authoritative references:
+- Current patch catalog: **[`FORK_CHANGELOG.md`](FORK_CHANGELOG.md)**
+- Archived fork code snapshot: `archive/fork-main-pre-clean-migration-2026-03-28`
+- Archived fork tag: `archive-fork-main-pre-clean-migration-2026-03-28`
 
 | # | Patch | Key Files | Status |
 |---|-------|-----------|--------|
 | 1 | TLS Fingerprint Registry Fix | ~~`repository/http_upstream.go`~~ | SUPERSEDED (v0.1.105) |
-| 2 | HTTP/2 Upstream | `pkg/tlsfingerprint/h2_roundtripper.go` | Active (2026-03-02) |
-| 3 | Per-User Quota Allocation | `service/user_quota_service.go`, `repository/user_quota_cache.go` | Active (2026-03-08) |
-| 4 | Full X25519MLKEM768 Support | `pkg/tlsfingerprint/dialer.go` | Active (2026-03-13) |
-| 5 | TLS Profile Cache Key Fix | `pkg/tlsfingerprint/profile_identity.go`, `repository/http_upstream.go` | Active (2026-03-13) |
-| 6 | Peak Usage Log | `service/peak_usage_service.go`, `handler/admin/peak_usage_handler.go` | Active (2026-03-25) |
-| 7 | Claude Code Version Detection | `service/claude_code_version_detect_service.go` | Active |
-| 8 | CC Probe Service | `service/cc_probe_service.go`, `repository/cc_probe_cache.go` | Active (2026-03-25) |
-| 9 | Provider Routing | `service/provider_routing.go` | Active (2026-03-25) |
-| 10 | CC Trait Registry & Validator Enhancements | `service/cc_trait_registry.go`, `service/claude_code_validator.go` | Active (2026-03-26) |
-| 11 | Surgical Thinking Block Signature Fix | `service/gateway_request.go` | Active (2026-03-26) |
-| 12 | Probe-Aware Identity Defaults | `service/identity_service.go` | Active (2026-03-26) |
-| 13 | InfoPopup Tooltip Component | `InfoPopup.vue`, `UsageTable.vue`, `UsageView.vue` | Active (2026-03-28) |
-| 14 | Scheduled Rate Multiplier | `group_scheduled_rate.go`, ent schema, `group_repo.go`, `gateway_service.go`, `GroupsView.vue` | Active (2026-03-28) |
+| 2 | HTTP/2 Upstream | `pkg/tlsfingerprint/h2_roundtripper.go` | Archived on old fork main |
+| 3 | Per-User Quota Allocation | `service/user_quota_service.go`, `repository/user_quota_cache.go` | Archived on old fork main |
+| 4 | Full X25519MLKEM768 Support | `pkg/tlsfingerprint/dialer.go` | Archived on old fork main |
+| 5 | TLS Profile Cache Key Fix | `pkg/tlsfingerprint/profile_identity.go`, `repository/http_upstream.go` | Archived on old fork main |
+| 6 | Peak Usage Log | `service/peak_usage_service.go`, `handler/admin/peak_usage_handler.go` | Archived on old fork main |
+| 7 | Claude Code Version Detection | `service/claude_code_version_detect_service.go` | Archived on old fork main |
+| 8 | CC Probe Service | `service/cc_probe_service.go`, `repository/cc_probe_cache.go` | Archived on old fork main |
+| 9 | Provider Routing | `service/provider_routing.go` | Archived on old fork main |
+| 10 | CC Trait Registry & Validator Enhancements | `service/cc_trait_registry.go`, `service/claude_code_validator.go` | Archived on old fork main |
+| 11 | Surgical Thinking Block Signature Fix | `service/gateway_request.go` | Archived on old fork main |
+| 12 | Probe-Aware Identity Defaults | `service/identity_service.go` | Archived on old fork main |
+| 13 | InfoPopup Tooltip Component | `InfoPopup.vue`, `UsageTable.vue`, `UsageView.vue` | Archived on old fork main |
+| 14 | Scheduled Rate Multiplier | `group_scheduled_rate.go`, ent schema, `group_repo.go`, `gateway_service.go`, `GroupsView.vue` | Archived on old fork main |
 
 See `FORK_CHANGELOG.md` for verification commands to run after each upstream merge.
