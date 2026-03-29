@@ -567,6 +567,7 @@ type GatewayService struct {
 	debugClaudeMimic      atomic.Bool
 	debugGatewayBodyFile  atomic.Pointer[os.File] // non-nil when SUB2API_DEBUG_GATEWAY_BODY is set
 	tlsFPProfileService   *TLSFingerprintProfileService
+	pricingService        *PricingService
 }
 
 // NewGatewayService creates a new GatewayService
@@ -640,6 +641,11 @@ func NewGatewayService(
 		svc.initDebugGatewayBodyFile(path)
 	}
 	return svc
+}
+
+// SetPricingService injects PricingService after construction (avoids circular init).
+func (s *GatewayService) SetPricingService(ps *PricingService) {
+	s.pricingService = ps
 }
 
 // GenerateSessionHash 从预解析请求计算粘性会话 hash
@@ -3482,6 +3488,14 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 	// OAuth/SetupToken 账号使用 Anthropic 标准映射（短ID → 长ID）
 	if account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {
 		requestedModel = claude.NormalizeModelID(requestedModel)
+	}
+	// Provider-based routing: reject mismatched model→platform combinations
+	if s.cfg.Pricing.EnforceProviderRouting && s.pricingService != nil {
+		if provider := s.pricingService.GetModelProvider(requestedModel); provider != "" {
+			if !isProviderAllowedForPlatform(provider, account.Platform) {
+				return false
+			}
+		}
 	}
 	// 其他平台使用账户的模型支持检查
 	return account.IsModelSupported(requestedModel)

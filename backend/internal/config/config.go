@@ -214,6 +214,9 @@ type PricingConfig struct {
 	UpdateIntervalHours int `mapstructure:"update_interval_hours"`
 	// 哈希校验间隔（分钟）
 	HashCheckIntervalMinutes int `mapstructure:"hash_check_interval_minutes"`
+	// EnforceProviderRouting rejects requests where the model's litellm_provider
+	// does not match the account's platform. Default: false (fail-open).
+	EnforceProviderRouting bool `mapstructure:"enforce_provider_routing"`
 }
 
 type ServerConfig struct {
