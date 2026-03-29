@@ -681,6 +681,85 @@ go test -tags unit -run "TestInferProvider|TestApplyCacheRead|TestGetModelPricin
 
 ---
 
+### Patch 19: Dynamic Cost Tracking (added 2026-03-30)
+
+**Status**: Active on main
+
+**Purpose**: Auto-derives 5h and 7d dollar limits from Anthropic utilization headers instead of relying on manually configured thresholds. Uses a graduated-trust algorithm: high utilization (≥5%) → `cost/utilization`; low utilization (1–5%) → capped by fallback; very low (<1%) → fallback only. Manual limits become the bootstrap fallback.
+
+**Files**:
+
+| File | Change |
+|------|--------|
+| `backend/internal/service/account.go` | MODIFIED — `WindowType` type + `Window5h`/`Window7d` constants; `IsDynamicCostEnabled`, `GetWindowCost7dLimit`, `GetWindowCost7dStickyReserve`, `GetDerived5hLimit`, `GetDerived7dLimit`, `Get7dWindowStartTime`, `HasWindowCostControl`, `GetCappedStickyReserve`, `GetSessionWindowUtilization`, `GetPassiveUsage7dUtilization` accessors |
+| `backend/internal/service/gateway_service.go` | MODIFIED — `GetEffectiveWindowCostLimit`, `computeEffectiveWindowCostLimit` (pure-compute), `getWindowCostForAccount` (5h+7d), `checkWindowZone` (single cost fetch), `isAccountSchedulableForWindowCost` (dual-window check), 7d prefetch in batch scheduling |
+| `backend/internal/service/ratelimit_service.go` | MODIFIED — `persistDerivedLimitsAndMilestones`, `validateMilestone` (10% boundary + recalc trigger), unified `getWindowCostForAccount`, consolidated `UpdateSessionWindow` (single UpdateExtra call), 7d window reset detection |
+| `backend/internal/service/dynamic_cost_test.go` | **NEW** — Tests for accessors, `GetEffectiveWindowCostLimit`, `checkWindowZone`, manual-limit regression |
+| `backend/internal/handler/admin/account_handler.go` | MODIFIED — `Effective5hLimit`, `Effective7dLimit`, `Utilization5h`, `Utilization7d` runtime fields; `enrichDynamicCostRuntime` |
+| `backend/internal/handler/dto/types.go` | MODIFIED — `DynamicCostEnabled`, `WindowCost7dLimit`, `WindowCost7dStickyReserve` DTO fields |
+| `backend/internal/handler/dto/mappers.go` | MODIFIED — conditional serialization of dynamic cost fields; 7d sticky reserve gated on enablement |
+| `backend/internal/repository/session_limit_cache.go` | MODIFIED — 7d window cost cache (`GetWindowCost7d`, `SetWindowCost7d`, `GetWindowCost7dBatch`, `DeleteWindowCost7d`); `batchGetWindowCosts` shared helper |
+| `backend/internal/service/session_limit_cache.go` | MODIFIED — 7d cache interface methods |
+| `backend/cmd/server/wire_gen.go` | MODIFIED — 7d cache wiring |
+| `frontend/src/types/index.ts` | MODIFIED — `dynamic_cost_enabled`, `window_cost_7d_limit`, `window_cost_7d_sticky_reserve`, `effective_5h_limit`, `effective_7d_limit`, `utilization_5h`, `utilization_7d` fields |
+| `frontend/src/components/account/CreateAccountModal.vue` | MODIFIED — Dynamic Cost Tracking toggle section |
+| `frontend/src/components/account/EditAccountModal.vue` | MODIFIED — Dynamic Cost Tracking toggle section |
+| `frontend/src/i18n/locales/en.ts` | MODIFIED — `dynamicCost` i18n keys |
+| `frontend/src/i18n/locales/zh.ts` | MODIFIED — `dynamicCost` i18n keys |
+
+**Account Extra keys**:
+
+| Key | Type | Purpose |
+|-----|------|---------|
+| `dynamic_cost_enabled` | bool | Feature toggle |
+| `window_cost_7d_limit` | float64 | Manual 7d threshold (optional) |
+| `window_cost_7d_sticky_reserve` | float64 | 7d sticky reserve (default 10) |
+| `derived_5h_limit` | float64 | Auto-derived 5h limit |
+| `derived_7d_limit` | float64 | Auto-derived 7d limit |
+| `passive_usage_7d_utilization` | float64 | Sampled 7d utilization (0–1) |
+| `passive_usage_7d_reset` | int64 | 7d window reset unix timestamp |
+| `last_validated_5h_milestone` | int | Last 10%-boundary milestone (5h) |
+| `last_validated_7d_milestone` | int | Last 10%-boundary milestone (7d) |
+
+**Graduated-trust algorithm** (`computeEffectiveWindowCostLimit`):
+- `utilization ≥ 5%`: `cost / utilization` (full trust)
+- `utilization 1–5%`: `min(cost / utilization, fallback)` (capped)
+- `utilization < 1%`: `fallback` (derived stored > manual > 0 fail-open)
+
+**Milestone validation**: At each 10% utilization boundary, logs derived limit and triggers per-user quota recalculation if derived limit drifted >15% from previous checkpoint.
+
+**Upstream conflict risk**: MEDIUM — touches `gateway_service.go`, `ratelimit_service.go`, `account_handler.go`, `wire_gen.go`.
+
+**Reapply markers**:
+- `WindowType`
+- `Window5h`
+- `Window7d`
+- `IsDynamicCostEnabled`
+- `computeEffectiveWindowCostLimit`
+- `GetEffectiveWindowCostLimit`
+- `persistDerivedLimitsAndMilestones`
+- `validateMilestone`
+- `derived_5h_limit`
+- `derived_7d_limit`
+- `dynamic_cost_enabled`
+- `enrichDynamicCostRuntime`
+- `batchGetWindowCosts`
+
+**Verification**:
+
+```bash
+grep WindowType backend/internal/service/account.go
+grep computeEffectiveWindowCostLimit backend/internal/service/gateway_service.go
+grep persistDerivedLimitsAndMilestones backend/internal/service/ratelimit_service.go
+grep IsDynamicCostEnabled backend/internal/service/account.go
+grep enrichDynamicCostRuntime backend/internal/handler/admin/account_handler.go
+grep batchGetWindowCosts backend/internal/repository/session_limit_cache.go
+grep dynamic_cost_enabled frontend/src/types/index.ts
+go test -run "TestGetEffectiveWindowCostLimit|TestCheckWindowZone|TestManualLimitAccountsUnchanged" ./internal/service/
+```
+
+---
+
 ## Verification
 
 Run after every upstream merge to confirm patches survived:
@@ -770,6 +849,13 @@ rg -n "NonceHTMLPlaceholder|replaceNoncePlaceholder|addNonceToScriptTags" backen
 # Patch 18: Zero cache read pricing
 grep ZeroCacheReadProviders backend/internal/config/config.go
 grep applyCacheReadOverride backend/internal/service/billing_service.go
+
+# Patch 19: Dynamic cost tracking
+grep WindowType backend/internal/service/account.go
+grep computeEffectiveWindowCostLimit backend/internal/service/gateway_service.go
+grep persistDerivedLimitsAndMilestones backend/internal/service/ratelimit_service.go
+grep batchGetWindowCosts backend/internal/repository/session_limit_cache.go
+grep dynamic_cost_enabled frontend/src/types/index.ts
 
 # utls version
 grep refraction-networking/utls backend/go.mod
