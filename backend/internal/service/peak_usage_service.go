@@ -2,13 +2,21 @@ package service
 
 import (
 	"context"
-	"log"
 	"time"
 
 	entsql "entgo.io/ent/dialect/sql"
 	"github.com/Wei-Shaw/sub2api/ent"
 	entpeakusage "github.com/Wei-Shaw/sub2api/ent/peakusage"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"go.uber.org/zap"
 )
+
+// peakLog returns the structured logger for peak usage operations.
+// Must be a function (not a package-level var) because logger.L() is not
+// configured at init time.
+func peakLog() *zap.Logger {
+	return logger.L().With(zap.String("component", "peak_usage"))
+}
 
 // PeakDTO is the response DTO for entity peak usage (account or user).
 type PeakDTO struct {
@@ -40,6 +48,24 @@ var peakUpdatedAtExpr = entsql.ExprFunc(func(b *entsql.Builder) {
 	)
 })
 
+// peakGreatestColumns are the columns that use GREATEST in the ON CONFLICT clause.
+var peakGreatestColumns = []string{
+	entpeakusage.FieldPeakConcurrency,
+	entpeakusage.FieldPeakSessions,
+	entpeakusage.FieldPeakRpm,
+}
+
+// applyPeakGreatestFields sets the GREATEST expressions and updated_at on an UpdateSet.
+func applyPeakGreatestFields(u *entsql.UpdateSet) {
+	for _, col := range peakGreatestColumns {
+		c := col // capture for closure
+		u.Set(c, entsql.ExprFunc(func(b *entsql.Builder) {
+			b.WriteString("GREATEST(peak_usages." + c + ", EXCLUDED." + c + ")")
+		}))
+	}
+	u.Set(entpeakusage.FieldUpdatedAt, peakUpdatedAtExpr)
+}
+
 // PeakUsageService manages peak usage persistence and retrieval.
 type PeakUsageService struct {
 	entClient   *ent.Client
@@ -69,14 +95,14 @@ func NewPeakUsageService(
 // Start schedules periodic Redis-to-DB flush every 5 minutes.
 func (s *PeakUsageService) Start() {
 	s.timingWheel.ScheduleRecurring("peak_usage:flush", 5*time.Minute, s.FlushPeaksFromRedis)
-	log.Printf("[PeakUsageService] Started (flush interval: 5m)")
+	peakLog().Info("started", zap.Duration("flush_interval", 5*time.Minute))
 }
 
 // Stop cancels the flush schedule and performs a final flush before shutdown.
 func (s *PeakUsageService) Stop() {
 	s.timingWheel.Cancel("peak_usage:flush")
 	s.FlushPeaksFromRedis()
-	log.Printf("[PeakUsageService] Stopped")
+	peakLog().Info("stopped")
 }
 
 // FlushPeaksFromRedis reads current peaks from Redis and upserts them into the DB.
@@ -87,11 +113,11 @@ func (s *PeakUsageService) FlushPeaksFromRedis() {
 	// Use all account IDs (including disabled/paused) so peaks are never lost.
 	accountIDs, err := s.entClient.Account.Query().IDs(ctx)
 	if err != nil {
-		log.Printf("[PeakUsageService] FlushPeaksFromRedis: list account IDs failed: %v", err)
+		peakLog().Warn("flush: list account IDs failed", zap.Error(err))
 	} else if len(accountIDs) > 0 {
 		peaks, err := s.peakCache.GetAllPeaks(ctx, EntityTypeAccount, accountIDs)
 		if err != nil {
-			log.Printf("[PeakUsageService] FlushPeaksFromRedis: get account peaks failed: %v", err)
+			peakLog().Warn("flush: get account peaks failed", zap.Error(err))
 		} else {
 			s.upsertPeaks(ctx, EntityTypeAccount, peaks)
 		}
@@ -99,13 +125,13 @@ func (s *PeakUsageService) FlushPeaksFromRedis() {
 
 	userIDs, err := s.userRepo.ListAllIDs(ctx)
 	if err != nil {
-		log.Printf("[PeakUsageService] FlushPeaksFromRedis: list users failed: %v", err)
+		peakLog().Warn("flush: list users failed", zap.Error(err))
 	}
 
 	if len(userIDs) > 0 {
 		peaks, err := s.peakCache.GetAllPeaks(ctx, EntityTypeUser, userIDs)
 		if err != nil {
-			log.Printf("[PeakUsageService] FlushPeaksFromRedis: get user peaks failed: %v", err)
+			peakLog().Warn("flush: get user peaks failed", zap.Error(err))
 		} else {
 			s.upsertPeaks(ctx, EntityTypeUser, peaks)
 		}
@@ -149,21 +175,12 @@ func (s *PeakUsageService) upsertPeaks(ctx context.Context, entityType string, p
 			OnConflict(
 				entsql.ConflictColumns(conflictCols...),
 				entsql.ResolveWith(func(u *entsql.UpdateSet) {
-					u.Set(entpeakusage.FieldPeakConcurrency, entsql.ExprFunc(func(b *entsql.Builder) {
-						b.WriteString("GREATEST(peak_usages.peak_concurrency, EXCLUDED.peak_concurrency)")
-					}))
-					u.Set(entpeakusage.FieldPeakSessions, entsql.ExprFunc(func(b *entsql.Builder) {
-						b.WriteString("GREATEST(peak_usages.peak_sessions, EXCLUDED.peak_sessions)")
-					}))
-					u.Set(entpeakusage.FieldPeakRpm, entsql.ExprFunc(func(b *entsql.Builder) {
-						b.WriteString("GREATEST(peak_usages.peak_rpm, EXCLUDED.peak_rpm)")
-					}))
+					applyPeakGreatestFields(u)
 					u.SetNull(entpeakusage.FieldResetAt)
-					u.Set(entpeakusage.FieldUpdatedAt, peakUpdatedAtExpr)
 				}),
 			).
 			Exec(ctx); err != nil {
-			log.Printf("[PeakUsageService] upsertPeaks: bulk upsert failed for %s: %v", entityType, err)
+			peakLog().Error("upsert failed", zap.String("entity_type", entityType), zap.Error(err))
 		}
 	}
 
@@ -172,21 +189,12 @@ func (s *PeakUsageService) upsertPeaks(ctx context.Context, entityType string, p
 			OnConflict(
 				entsql.ConflictColumns(conflictCols...),
 				entsql.ResolveWith(func(u *entsql.UpdateSet) {
-					u.Set(entpeakusage.FieldPeakConcurrency, entsql.ExprFunc(func(b *entsql.Builder) {
-						b.WriteString("GREATEST(peak_usages.peak_concurrency, EXCLUDED.peak_concurrency)")
-					}))
-					u.Set(entpeakusage.FieldPeakSessions, entsql.ExprFunc(func(b *entsql.Builder) {
-						b.WriteString("GREATEST(peak_usages.peak_sessions, EXCLUDED.peak_sessions)")
-					}))
-					u.Set(entpeakusage.FieldPeakRpm, entsql.ExprFunc(func(b *entsql.Builder) {
-						b.WriteString("GREATEST(peak_usages.peak_rpm, EXCLUDED.peak_rpm)")
-					}))
+					applyPeakGreatestFields(u)
 					u.SetExcluded(entpeakusage.FieldResetAt)
-					u.Set(entpeakusage.FieldUpdatedAt, peakUpdatedAtExpr)
 				}),
 			).
 			Exec(ctx); err != nil {
-			log.Printf("[PeakUsageService] upsertPeaks: bulk upsert (with-reset) failed for %s: %v", entityType, err)
+			peakLog().Error("upsert (with-reset) failed", zap.String("entity_type", entityType), zap.Error(err))
 		}
 	}
 }
@@ -235,7 +243,7 @@ func (s *PeakUsageService) GetAccountPeaks(ctx context.Context) ([]PeakDTO, erro
 		}
 		accounts, err := s.accountRepo.GetByIDs(ctx, ids)
 		if err != nil {
-			log.Printf("[PeakUsageService] GetAccountPeaks: load accounts failed: %v", err)
+			peakLog().Warn("load accounts failed", zap.Error(err))
 			return
 		}
 		accountMap := make(map[int64]*Account, len(accounts))
@@ -263,7 +271,7 @@ func (s *PeakUsageService) GetUserPeaks(ctx context.Context) ([]PeakDTO, error) 
 		}
 		users, err := s.userRepo.GetByIDs(ctx, ids)
 		if err != nil {
-			log.Printf("[PeakUsageService] GetUserPeaks: load users failed: %v", err)
+			peakLog().Warn("load users failed", zap.Error(err))
 			return
 		}
 		userMap := make(map[int64]*User, len(users))
@@ -297,7 +305,7 @@ func (s *PeakUsageService) ResetAllPeaks(ctx context.Context, entityType string)
 
 	if len(ids) > 0 {
 		if err := s.peakCache.ResetPeaks(ctx, entityType, ids); err != nil {
-			log.Printf("[PeakUsageService] ResetAllPeaks: redis reset failed for %s: %v", entityType, err)
+			peakLog().Warn("redis reset failed", zap.String("entity_type", entityType), zap.Error(err))
 		}
 	}
 

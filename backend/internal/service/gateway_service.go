@@ -662,16 +662,9 @@ func (s *GatewayService) SetPeakUsageCache(cache PeakUsageCache) {
 	s.peakCache = cache
 }
 
-// updatePeakAsync fires a goroutine to update a peak value if count > current stored value.
+// updatePeakAsync updates a peak value if count > current stored value (best-effort, non-blocking).
 func (s *GatewayService) updatePeakAsync(entityType string, entityID int64, field string, count int) {
-	if s.peakCache == nil || count <= 0 {
-		return
-	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		_ = s.peakCache.UpdatePeakIfGreater(ctx, entityType, entityID, field, count)
-	}()
+	updatePeakIfGreaterAsync(s.peakCache, entityType, entityID, field, count)
 }
 
 // IncrementUserRPM increments the RPM counter for the given user.
@@ -681,47 +674,46 @@ func (s *GatewayService) IncrementUserRPM(ctx context.Context, userID int64) err
 	}
 	count, err := s.rpmCache.IncrementUserRPM(ctx, userID)
 	if err == nil {
-		s.updatePeakAsync(EntityTypeUser, userID, "rpm", count)
+		s.updatePeakAsync(EntityTypeUser, userID, PeakFieldRPM, count)
 	}
 	return err
 }
 
-// TrackAccountSessionPeak registers an account session (no limit enforced) and updates the peak session counter.
-func (s *GatewayService) TrackAccountSessionPeak(accountID int64, sessionID string) {
-	if s.sessionLimitCache == nil || s.peakCache == nil || accountID <= 0 || sessionID == "" {
+// trackSessionPeakAsync registers a session and updates the peak session counter (best-effort, non-blocking).
+// registerAndCount registers the session and returns the current active count.
+func (s *GatewayService) trackSessionPeakAsync(entityType string, entityID int64, sessionID string,
+	registerAndCount func(ctx context.Context) (int, error)) {
+	if s.sessionLimitCache == nil || s.peakCache == nil || entityID <= 0 || sessionID == "" {
 		return
 	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		_, err := s.sessionLimitCache.RegisterSession(ctx, accountID, sessionID, 999999, 30*time.Minute)
-		if err != nil {
-			return
-		}
-		count, err := s.sessionLimitCache.GetActiveSessionCount(ctx, accountID)
+		count, err := registerAndCount(ctx)
 		if err == nil && count > 0 {
-			_ = s.peakCache.UpdatePeakIfGreater(ctx, EntityTypeAccount, accountID, "sessions", count)
+			_ = s.peakCache.UpdatePeakIfGreater(ctx, entityType, entityID, PeakFieldSessions, count)
 		}
 	}()
 }
 
+// TrackAccountSessionPeak registers an account session (no limit enforced) and updates the peak session counter.
+func (s *GatewayService) TrackAccountSessionPeak(accountID int64, sessionID string) {
+	s.trackSessionPeakAsync(EntityTypeAccount, accountID, sessionID, func(ctx context.Context) (int, error) {
+		if _, err := s.sessionLimitCache.RegisterSession(ctx, accountID, sessionID, 999999, 30*time.Minute); err != nil {
+			return 0, err
+		}
+		return s.sessionLimitCache.GetActiveSessionCount(ctx, accountID)
+	})
+}
+
 // TrackUserSessionPeak registers a user session (no limit enforced) and updates the peak session counter.
 func (s *GatewayService) TrackUserSessionPeak(userID int64, sessionID string) {
-	if s.sessionLimitCache == nil || s.peakCache == nil || userID <= 0 || sessionID == "" {
-		return
-	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		_, err := s.sessionLimitCache.RegisterUserSession(ctx, userID, sessionID, 999999, 30*time.Minute)
-		if err != nil {
-			return
+	s.trackSessionPeakAsync(EntityTypeUser, userID, sessionID, func(ctx context.Context) (int, error) {
+		if _, err := s.sessionLimitCache.RegisterUserSession(ctx, userID, sessionID, 999999, 30*time.Minute); err != nil {
+			return 0, err
 		}
-		count, err := s.sessionLimitCache.GetUserActiveSessionCount(ctx, userID)
-		if err == nil && count > 0 {
-			_ = s.peakCache.UpdatePeakIfGreater(ctx, EntityTypeUser, userID, "sessions", count)
-		}
-	}()
+		return s.sessionLimitCache.GetUserActiveSessionCount(ctx, userID)
+	})
 }
 
 // RegisterUserActivity marks a user as active on an account for quota tracking.
@@ -2529,7 +2521,7 @@ func (s *GatewayService) IncrementAccountRPM(ctx context.Context, accountID int6
 	}
 	count, err := s.rpmCache.IncrementRPM(ctx, accountID)
 	if err == nil {
-		s.updatePeakAsync(EntityTypeAccount, accountID, "rpm", count)
+		s.updatePeakAsync(EntityTypeAccount, accountID, PeakFieldRPM, count)
 	}
 	return err
 }
@@ -2560,14 +2552,14 @@ func (s *GatewayService) checkAndRegisterSession(ctx context.Context, account *A
 		// 失败开放：缓存错误时允许通过
 		return true
 	}
-	if allowed && s.peakCache != nil {
+	if allowed {
 		accountID := account.ID
 		go func() {
 			peakCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
 			count, err := s.sessionLimitCache.GetActiveSessionCount(peakCtx, accountID)
-			if err == nil && count > 0 {
-				_ = s.peakCache.UpdatePeakIfGreater(peakCtx, EntityTypeAccount, accountID, "sessions", count)
+			if err == nil {
+				updatePeakIfGreaterAsync(s.peakCache, EntityTypeAccount, accountID, PeakFieldSessions, count)
 			}
 		}()
 	}

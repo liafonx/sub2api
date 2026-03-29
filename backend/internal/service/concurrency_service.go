@@ -97,14 +97,9 @@ func NewConcurrencyService(cache ConcurrencyCache, peakCache PeakUsageCache) *Co
 	return &ConcurrencyService{cache: cache, peakCache: peakCache}
 }
 
-// updatePeakConcurrencyAsync fires a goroutine to update the peak concurrency
-// for the given entity. count is the concurrency count returned by the acquire script.
+// updatePeakConcurrencyAsync updates the peak concurrency for the given entity (best-effort, non-blocking).
 func (s *ConcurrencyService) updatePeakConcurrencyAsync(entityType string, entityID int64, count int) {
-	go func() {
-		bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		_ = s.peakCache.UpdatePeakIfGreater(bgCtx, entityType, entityID, "concurrency", count)
-	}()
+	updatePeakIfGreaterAsync(s.peakCache, entityType, entityID, PeakFieldConcurrency, count)
 }
 
 // AcquireResult represents the result of acquiring a concurrency slot

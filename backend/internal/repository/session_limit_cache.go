@@ -162,6 +162,7 @@ func NewSessionLimitCache(rdb *redis.Client, defaultIdleTimeoutMinutes int) serv
 		refreshSessionScript,
 		getActiveSessionCountScript,
 		isSessionActiveScript,
+		registerUserSessionScript,
 	}
 	for _, script := range scripts {
 		if err := script.Load(ctx, rdb).Err(); err != nil {
@@ -343,39 +344,58 @@ func (c *sessionLimitCache) GetWindowCostBatch(ctx context.Context, accountIDs [
 	return results, nil
 }
 
+// registerUserSessionScript mirrors registerSessionScript for user-level sessions.
+// Atomic: prune expired → check existence → register or reject.
+// KEYS[1] = session_limit:user:{userID}
+// ARGV[1] = maxSessions, ARGV[2] = idleTimeout (seconds), ARGV[3] = sessionUUID
+// Returns: 1 = allowed, 0 = rejected
+var registerUserSessionScript = redis.NewScript(`
+	local key = KEYS[1]
+	local maxSessions = tonumber(ARGV[1])
+	local idleTimeout = tonumber(ARGV[2])
+	local sessionUUID = ARGV[3]
+
+	local timeResult = redis.call('TIME')
+	local now = tonumber(timeResult[1])
+	local expireBefore = now - idleTimeout
+
+	redis.call('ZREMRANGEBYSCORE', key, '-inf', expireBefore)
+
+	local exists = redis.call('ZSCORE', key, sessionUUID)
+	if exists ~= false then
+		redis.call('ZADD', key, now, sessionUUID)
+		redis.call('EXPIRE', key, idleTimeout + 60)
+		return 1
+	end
+
+	local count = redis.call('ZCARD', key)
+	if count < maxSessions then
+		redis.call('ZADD', key, now, sessionUUID)
+		redis.call('EXPIRE', key, idleTimeout + 60)
+		return 1
+	end
+
+	return 0
+`)
+
 func userSessionLimitKey(userID int64) string {
 	return fmt.Sprintf("session_limit:user:%d", userID)
 }
 
 func (c *sessionLimitCache) RegisterUserSession(ctx context.Context, userID int64, sessionUUID string, maxSessions int, idleTimeout time.Duration) (bool, error) {
-	key := userSessionLimitKey(userID)
-	now := float64(time.Now().UnixMilli())
-	cutoff := now - float64(idleTimeout.Milliseconds())
-
-	// Remove expired sessions first
-	c.rdb.ZRemRangeByScore(ctx, key, "-inf", fmt.Sprintf("%f", cutoff))
-
-	// Check if session exists
-	_, err := c.rdb.ZScore(ctx, key, sessionUUID).Result()
-	if err == nil {
-		// Session exists, refresh
-		c.rdb.ZAdd(ctx, key, redis.Z{Score: now, Member: sessionUUID})
-		c.rdb.Expire(ctx, key, idleTimeout+time.Minute)
+	if sessionUUID == "" || maxSessions <= 0 {
 		return true, nil
 	}
-
-	// Check count
-	count, err := c.rdb.ZCard(ctx, key).Result()
+	key := userSessionLimitKey(userID)
+	idleTimeoutSeconds := int(idleTimeout.Seconds())
+	if idleTimeoutSeconds <= 0 {
+		idleTimeoutSeconds = int(c.defaultIdleTimeout.Seconds())
+	}
+	result, err := registerUserSessionScript.Run(ctx, c.rdb, []string{key}, maxSessions, idleTimeoutSeconds, sessionUUID).Int()
 	if err != nil {
-		return true, nil // fail open
+		return true, err // fail open
 	}
-	if int(count) >= maxSessions {
-		return false, nil
-	}
-
-	c.rdb.ZAdd(ctx, key, redis.Z{Score: now, Member: sessionUUID})
-	c.rdb.Expire(ctx, key, idleTimeout+time.Minute)
-	return true, nil
+	return result == 1, nil
 }
 
 func (c *sessionLimitCache) GetUserActiveSessionCount(ctx context.Context, userID int64) (int, error) {
