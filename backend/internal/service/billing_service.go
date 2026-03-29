@@ -343,7 +343,7 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 			price5m := litellmPricing.CacheCreationInputTokenCost
 			price1h := litellmPricing.CacheCreationInputTokenCostAbove1hr
 			enableBreakdown := price1h > 0 && price1h > price5m
-			return s.applyModelSpecificPricingPolicy(model, &ModelPricing{
+			mp := s.applyModelSpecificPricingPolicy(model, &ModelPricing{
 				InputPricePerToken:             litellmPricing.InputCostPerToken,
 				InputPricePerTokenPriority:     litellmPricing.InputCostPerTokenPriority,
 				OutputPricePerToken:            litellmPricing.OutputCostPerToken,
@@ -357,7 +357,8 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 				LongContextInputThreshold:      litellmPricing.LongContextInputTokenThreshold,
 				LongContextInputMultiplier:     litellmPricing.LongContextInputCostMultiplier,
 				LongContextOutputMultiplier:    litellmPricing.LongContextOutputCostMultiplier,
-			}), nil
+			})
+			return s.applyCacheReadOverride(litellmPricing.LiteLLMProvider, mp), nil
 		}
 	}
 
@@ -365,7 +366,8 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 	fallback := s.getFallbackPricing(model)
 	if fallback != nil {
 		log.Printf("[Billing] Using fallback pricing for model: %s", model)
-		return s.applyModelSpecificPricingPolicy(model, fallback), nil
+		mp := s.applyModelSpecificPricingPolicy(model, fallback)
+		return s.applyCacheReadOverride(inferProviderFromModelName(model), mp), nil
 	}
 
 	return nil, fmt.Errorf("pricing not found for model: %s", model)
@@ -621,6 +623,37 @@ func (s *BillingService) ForceUpdatePricing() error {
 		return s.pricingService.ForceUpdate()
 	}
 	return fmt.Errorf("pricing service not initialized")
+}
+
+// inferProviderFromModelName is a fallback heuristic used only when
+// LiteLLM metadata is unavailable.
+func inferProviderFromModelName(model string) string {
+	m := strings.ToLower(model)
+	switch {
+	case strings.Contains(m, "claude"):
+		return PlatformAnthropic
+	case strings.Contains(m, "gpt") || strings.Contains(m, "codex"):
+		return PlatformOpenAI
+	case strings.Contains(m, "gemini"):
+		return PlatformGemini
+	default:
+		return ""
+	}
+}
+
+func (s *BillingService) applyCacheReadOverride(provider string, pricing *ModelPricing) *ModelPricing {
+	if pricing == nil || provider == "" || len(s.cfg.Pricing.ZeroCacheReadProviders) == 0 {
+		return pricing
+	}
+	for _, p := range s.cfg.Pricing.ZeroCacheReadProviders {
+		if strings.EqualFold(p, provider) {
+			cloned := *pricing
+			cloned.CacheReadPricePerToken = 0
+			cloned.CacheReadPricePerTokenPriority = 0
+			return &cloned
+		}
+	}
+	return pricing
 }
 
 // ImagePriceConfig 图片计费配置

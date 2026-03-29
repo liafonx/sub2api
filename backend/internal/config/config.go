@@ -217,6 +217,8 @@ type PricingConfig struct {
 	// EnforceProviderRouting rejects requests where the model's litellm_provider
 	// does not match the account's platform. Default: false (fail-open).
 	EnforceProviderRouting bool `mapstructure:"enforce_provider_routing"`
+	// Providers whose cache-read token cost should be zeroed (e.g. ["anthropic"])
+	ZeroCacheReadProviders []string `mapstructure:"zero_cache_read_providers"`
 }
 
 type ServerConfig struct {

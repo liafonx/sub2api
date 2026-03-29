@@ -454,6 +454,49 @@ rg -n "NonceHTMLPlaceholder|replaceNoncePlaceholder|addNonceToScriptTags" backen
 
 ---
 
+### Patch 18: Zero Cache Read Pricing for Configurable Providers (added 2026-03-29)
+
+**Purpose**: Anthropic doesn't charge for cache read tokens, but LiteLLM's pricing database lists a non-zero rate. This inflates reported costs. A YAML config setting zeroes out cache read pricing for specified providers.
+
+**Files**:
+
+| File | Change |
+|------|--------|
+| `backend/internal/config/config.go` | Added `ZeroCacheReadProviders []string` to `PricingConfig` |
+| `backend/internal/service/billing_service.go` | Added `applyCacheReadOverride` (method), `inferProviderFromModelName` (package-level); modified `GetModelPricing` return paths |
+| `backend/internal/service/billing_service_test.go` | 16 new tests (unit + integration) |
+
+**Config**:
+
+```yaml
+pricing:
+  zero_cache_read_providers:
+    - anthropic
+```
+
+**How it works**:
+- Dynamic path (LiteLLM data available): uses `litellmPricing.LiteLLMProvider` directly
+- Fallback path (no LiteLLM): `inferProviderFromModelName` heuristic (matches "claude" → anthropic, "gpt"/"codex" → openai, "gemini" → gemini)
+- Composition: build pricing → `applyModelSpecificPricingPolicy` → `applyCacheReadOverride`
+- Zeros both `CacheReadPricePerToken` and `CacheReadPricePerTokenPriority`; clones struct to avoid mutation
+
+**Upstream conflict risk**: LOW — two new functions + minor change to `GetModelPricing` return statements.
+
+**Reapply markers**:
+- `ZeroCacheReadProviders`
+- `applyCacheReadOverride`
+- `inferProviderFromModelName`
+
+**Verification**:
+
+```bash
+grep ZeroCacheReadProviders backend/internal/config/config.go
+grep applyCacheReadOverride backend/internal/service/billing_service.go
+go test -tags unit -run "TestInferProvider|TestApplyCacheRead|TestGetModelPricing_ZeroCacheRead|TestCalculateCost_ZeroCacheRead" ./internal/service/
+```
+
+---
+
 ## Verification
 
 Run after every upstream merge to confirm patches survived:
@@ -521,6 +564,10 @@ rg -n "LocalOverloadTracker|SkipIfOverloaded|SettingKeyOverloadCooldownSettings|
 
 # Patch 17: CSP nonce hardening
 rg -n "NonceHTMLPlaceholder|replaceNoncePlaceholder|addNonceToScriptTags" backend/internal/web frontend/vite.config.ts
+
+# Patch 18: Zero cache read pricing
+grep ZeroCacheReadProviders backend/internal/config/config.go
+grep applyCacheReadOverride backend/internal/service/billing_service.go
 
 # utls version
 grep refraction-networking/utls backend/go.mod
