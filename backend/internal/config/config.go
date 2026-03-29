@@ -214,6 +214,8 @@ type PricingConfig struct {
 	UpdateIntervalHours int `mapstructure:"update_interval_hours"`
 	// 哈希校验间隔（分钟）
 	HashCheckIntervalMinutes int `mapstructure:"hash_check_interval_minutes"`
+	// Providers whose cache-read token cost should be zeroed (e.g. ["anthropic"])
+	ZeroCacheReadProviders []string `mapstructure:"zero_cache_read_providers"`
 }
 
 type ServerConfig struct {

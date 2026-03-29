@@ -768,3 +768,255 @@ func TestGetModelPricing_MapsDynamicPriorityFieldsIntoBillingPricing(t *testing.
 	require.InDelta(t, 1.5, pricing.LongContextInputMultiplier, 1e-12)
 	require.InDelta(t, 1.25, pricing.LongContextOutputMultiplier, 1e-12)
 }
+
+// --- inferProviderFromModelName tests ---
+
+func TestInferProviderFromModelName(t *testing.T) {
+	tests := []struct {
+		model    string
+		expected string
+	}{
+		// Anthropic models
+		{"claude-sonnet-4", PlatformAnthropic},
+		{"claude-opus-4.5", PlatformAnthropic},
+		{"claude-3-haiku-20240307", PlatformAnthropic},
+		{"Claude-Sonnet-4", PlatformAnthropic}, // case-insensitive
+		// OpenAI models
+		{"gpt-5.4", PlatformOpenAI},
+		{"gpt-5.1-codex", PlatformOpenAI},
+		{"codex-mini-latest", PlatformOpenAI},
+		{"GPT-5.4", PlatformOpenAI},
+		// Gemini models
+		{"gemini-3-1-pro", PlatformGemini},
+		{"Gemini-2.0-Flash", PlatformGemini},
+		// Unknown
+		{"qwen-max", ""},
+		{"llama-3-70b", ""},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			require.Equal(t, tt.expected, inferProviderFromModelName(tt.model))
+		})
+	}
+}
+
+// --- applyCacheReadOverride tests ---
+
+func TestApplyCacheReadOverride_ZerosAnthropicCacheRead(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Pricing.ZeroCacheReadProviders = []string{"anthropic"}
+	svc := NewBillingService(cfg, nil)
+
+	original := &ModelPricing{
+		InputPricePerToken:             3e-6,
+		OutputPricePerToken:            15e-6,
+		CacheReadPricePerToken:         0.3e-6,
+		CacheReadPricePerTokenPriority: 0.6e-6,
+		CacheCreationPricePerToken:     3.75e-6,
+	}
+
+	result := svc.applyCacheReadOverride(PlatformAnthropic, original)
+
+	require.Equal(t, 0.0, result.CacheReadPricePerToken)
+	require.Equal(t, 0.0, result.CacheReadPricePerTokenPriority)
+	// Other fields unchanged
+	require.InDelta(t, 3e-6, result.InputPricePerToken, 1e-12)
+	require.InDelta(t, 15e-6, result.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 3.75e-6, result.CacheCreationPricePerToken, 1e-12)
+}
+
+func TestApplyCacheReadOverride_DoesNotMutateOriginal(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Pricing.ZeroCacheReadProviders = []string{"anthropic"}
+	svc := NewBillingService(cfg, nil)
+
+	original := &ModelPricing{
+		CacheReadPricePerToken:         0.3e-6,
+		CacheReadPricePerTokenPriority: 0.6e-6,
+	}
+
+	result := svc.applyCacheReadOverride(PlatformAnthropic, original)
+
+	// Result is zeroed
+	require.Equal(t, 0.0, result.CacheReadPricePerToken)
+	// Original is untouched
+	require.InDelta(t, 0.3e-6, original.CacheReadPricePerToken, 1e-12)
+	require.InDelta(t, 0.6e-6, original.CacheReadPricePerTokenPriority, 1e-12)
+}
+
+func TestApplyCacheReadOverride_CaseInsensitiveMatch(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Pricing.ZeroCacheReadProviders = []string{"Anthropic"}
+	svc := NewBillingService(cfg, nil)
+
+	pricing := &ModelPricing{CacheReadPricePerToken: 0.3e-6}
+	result := svc.applyCacheReadOverride("anthropic", pricing)
+
+	require.Equal(t, 0.0, result.CacheReadPricePerToken)
+}
+
+func TestApplyCacheReadOverride_NonMatchingProviderUnchanged(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Pricing.ZeroCacheReadProviders = []string{"anthropic"}
+	svc := NewBillingService(cfg, nil)
+
+	pricing := &ModelPricing{CacheReadPricePerToken: 0.25e-6}
+	result := svc.applyCacheReadOverride(PlatformOpenAI, pricing)
+
+	// Same pointer returned, price unchanged
+	require.Equal(t, pricing, result)
+	require.InDelta(t, 0.25e-6, result.CacheReadPricePerToken, 1e-12)
+}
+
+func TestApplyCacheReadOverride_EmptyConfigNoOp(t *testing.T) {
+	svc := newTestBillingService() // no ZeroCacheReadProviders configured
+
+	pricing := &ModelPricing{CacheReadPricePerToken: 0.3e-6}
+	result := svc.applyCacheReadOverride(PlatformAnthropic, pricing)
+
+	require.Equal(t, pricing, result)
+	require.InDelta(t, 0.3e-6, result.CacheReadPricePerToken, 1e-12)
+}
+
+func TestApplyCacheReadOverride_NilPricing(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Pricing.ZeroCacheReadProviders = []string{"anthropic"}
+	svc := NewBillingService(cfg, nil)
+
+	require.Nil(t, svc.applyCacheReadOverride(PlatformAnthropic, nil))
+}
+
+func TestApplyCacheReadOverride_EmptyProvider(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Pricing.ZeroCacheReadProviders = []string{"anthropic"}
+	svc := NewBillingService(cfg, nil)
+
+	pricing := &ModelPricing{CacheReadPricePerToken: 0.3e-6}
+	result := svc.applyCacheReadOverride("", pricing)
+
+	require.Equal(t, pricing, result)
+}
+
+// --- Integration: GetModelPricing with ZeroCacheReadProviders ---
+
+func TestGetModelPricing_ZeroCacheRead_FallbackPath(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Pricing.ZeroCacheReadProviders = []string{"anthropic"}
+	svc := NewBillingService(cfg, nil)
+
+	// Anthropic model via fallback — cache read should be zeroed
+	pricing, err := svc.GetModelPricing("claude-sonnet-4")
+	require.NoError(t, err)
+	require.Equal(t, 0.0, pricing.CacheReadPricePerToken)
+	require.Equal(t, 0.0, pricing.CacheReadPricePerTokenPriority)
+	// Input/output unchanged
+	require.InDelta(t, 3e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 15e-6, pricing.OutputPricePerToken, 1e-12)
+}
+
+func TestGetModelPricing_ZeroCacheRead_OpenAIUnaffected(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Pricing.ZeroCacheReadProviders = []string{"anthropic"}
+	svc := NewBillingService(cfg, nil)
+
+	pricing, err := svc.GetModelPricing("gpt-5.4")
+	require.NoError(t, err)
+	require.InDelta(t, 0.25e-6, pricing.CacheReadPricePerToken, 1e-12)
+}
+
+func TestGetModelPricing_ZeroCacheRead_DynamicPath(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Pricing.ZeroCacheReadProviders = []string{"anthropic"}
+	svc := NewBillingService(cfg, &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"claude-sonnet-4": {
+				LiteLLMProvider:                 "anthropic",
+				InputCostPerToken:               3e-6,
+				OutputCostPerToken:              15e-6,
+				CacheReadInputTokenCost:         0.3e-6,
+				CacheReadInputTokenCostPriority: 0.6e-6,
+				CacheCreationInputTokenCost:     3.75e-6,
+			},
+		},
+	})
+
+	pricing, err := svc.GetModelPricing("claude-sonnet-4")
+	require.NoError(t, err)
+	require.Equal(t, 0.0, pricing.CacheReadPricePerToken)
+	require.Equal(t, 0.0, pricing.CacheReadPricePerTokenPriority)
+	require.InDelta(t, 3e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 3.75e-6, pricing.CacheCreationPricePerToken, 1e-12)
+}
+
+func TestGetModelPricing_ZeroCacheRead_DynamicPath_OpenAIUnaffected(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Pricing.ZeroCacheReadProviders = []string{"anthropic"}
+	svc := NewBillingService(cfg, &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"gpt-5.4": {
+				LiteLLMProvider:         "openai",
+				InputCostPerToken:       2.5e-6,
+				OutputCostPerToken:      15e-6,
+				CacheReadInputTokenCost: 0.25e-6,
+			},
+		},
+	})
+
+	pricing, err := svc.GetModelPricing("gpt-5.4")
+	require.NoError(t, err)
+	require.InDelta(t, 0.25e-6, pricing.CacheReadPricePerToken, 1e-12)
+}
+
+// --- Integration: CalculateCost with ZeroCacheReadProviders ---
+
+func TestCalculateCost_ZeroCacheRead_AnthropicCacheReadCostIsZero(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Pricing.ZeroCacheReadProviders = []string{"anthropic"}
+	svc := NewBillingService(cfg, nil)
+
+	tokens := UsageTokens{
+		InputTokens:     1000,
+		OutputTokens:    500,
+		CacheReadTokens: 50000,
+	}
+	cost, err := svc.CalculateCost("claude-sonnet-4", tokens, 1.0)
+	require.NoError(t, err)
+
+	require.Equal(t, 0.0, cost.CacheReadCost)
+	require.InDelta(t, 1000*3e-6, cost.InputCost, 1e-10)
+	require.InDelta(t, 500*15e-6, cost.OutputCost, 1e-10)
+	require.InDelta(t, cost.InputCost+cost.OutputCost, cost.TotalCost, 1e-10)
+}
+
+func TestCalculateCost_ZeroCacheRead_PriorityTierStillZero(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Pricing.ZeroCacheReadProviders = []string{"anthropic"}
+	svc := NewBillingService(cfg, nil)
+
+	tokens := UsageTokens{
+		InputTokens:     100,
+		OutputTokens:    50,
+		CacheReadTokens: 10000,
+	}
+	cost, err := svc.CalculateCostWithServiceTier("claude-sonnet-4", tokens, 1.0, "priority")
+	require.NoError(t, err)
+
+	// Cache read is zero even with priority tier multiplier (0 * 2 = 0)
+	require.Equal(t, 0.0, cost.CacheReadCost)
+}
+
+func TestCalculateCost_ZeroCacheRead_MultipleProviders(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Pricing.ZeroCacheReadProviders = []string{"anthropic", "openai"}
+	svc := NewBillingService(cfg, nil)
+
+	// Both providers should have cache read zeroed
+	claudeCost, err := svc.CalculateCost("claude-sonnet-4", UsageTokens{CacheReadTokens: 10000}, 1.0)
+	require.NoError(t, err)
+	require.Equal(t, 0.0, claudeCost.CacheReadCost)
+
+	gptCost, err := svc.CalculateCost("gpt-5.4", UsageTokens{CacheReadTokens: 10000}, 1.0)
+	require.NoError(t, err)
+	require.Equal(t, 0.0, gptCost.CacheReadCost)
+}
