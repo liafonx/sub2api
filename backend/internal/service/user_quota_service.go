@@ -10,6 +10,19 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
+// QuotaZone represents the result zone of a per-user quota check.
+type QuotaZone = string
+
+const (
+	QuotaZoneDisabled       QuotaZone = "disabled"
+	QuotaZoneNoEpoch        QuotaZone = "no_epoch"
+	QuotaZoneRedisError     QuotaZone = "redis_error"
+	QuotaZoneGreen          QuotaZone = "green"
+	QuotaZoneYellowSticky   QuotaZone = "yellow_sticky"
+	QuotaZoneYellowNonStick QuotaZone = "yellow_non_sticky"
+	QuotaZoneRed            QuotaZone = "red"
+)
+
 // QuotaDisplayMeta holds display data for a single account's user quota state.
 type QuotaDisplayMeta struct {
 	PerUserLimit float64
@@ -161,7 +174,7 @@ func (s *userQuotaService) runCleanup(ctx context.Context) {
 // CheckUserQuota returns whether the user may proceed on this account.
 func (s *userQuotaService) CheckUserQuota(ctx context.Context, account *Account, userID int64, isSticky bool) (bool, string) {
 	if !account.IsUserQuotaEnabled() {
-		return true, "disabled"
+		return true, QuotaZoneDisabled
 	}
 
 	epoch, perUserLimit, perUserStickyReserve, userCost, _, err := s.cache.GetQuotaCheckData(ctx, account.ID, userID)
@@ -172,10 +185,10 @@ func (s *userQuotaService) CheckUserQuota(ctx context.Context, account *Account,
 			zap.Int64("user_id", userID),
 			zap.Error(err),
 		)
-		return true, "redis_error"
+		return true, QuotaZoneRedisError
 	}
 	if epoch == 0 {
-		return true, "no_epoch"
+		return true, QuotaZoneNoEpoch
 	}
 
 	if userCost < perUserLimit {
@@ -184,9 +197,9 @@ func (s *userQuotaService) CheckUserQuota(ctx context.Context, account *Account,
 			zap.Int64("user_id", userID),
 			zap.Float64("user_cost", userCost),
 			zap.Float64("per_user_limit", perUserLimit),
-			zap.String("zone", "green"),
+			zap.String("zone", QuotaZoneGreen),
 		)
-		return true, "green"
+		return true, QuotaZoneGreen
 	}
 
 	if userCost < perUserLimit+perUserStickyReserve {
@@ -196,18 +209,18 @@ func (s *userQuotaService) CheckUserQuota(ctx context.Context, account *Account,
 				zap.Int64("user_id", userID),
 				zap.Float64("user_cost", userCost),
 				zap.Float64("per_user_limit", perUserLimit),
-				zap.String("zone", "yellow_sticky"),
+				zap.String("zone", QuotaZoneYellowSticky),
 			)
-			return true, "yellow_sticky"
+			return true, QuotaZoneYellowSticky
 		}
 		logger.L().Warn("user_quota.check_blocked",
 			zap.Int64("account_id", account.ID),
 			zap.Int64("user_id", userID),
 			zap.Float64("user_cost", userCost),
 			zap.Float64("per_user_limit", perUserLimit),
-			zap.String("zone", "yellow_non_sticky"),
+			zap.String("zone", QuotaZoneYellowNonStick),
 		)
-		return false, "yellow_non_sticky"
+		return false, QuotaZoneYellowNonStick
 	}
 
 	logger.L().Warn("user_quota.check_blocked",
@@ -215,9 +228,9 @@ func (s *userQuotaService) CheckUserQuota(ctx context.Context, account *Account,
 		zap.Int64("user_id", userID),
 		zap.Float64("user_cost", userCost),
 		zap.Float64("per_user_limit", perUserLimit),
-		zap.String("zone", "red"),
+		zap.String("zone", QuotaZoneRed),
 	)
-	return false, "red"
+	return false, QuotaZoneRed
 }
 
 // RegisterActivity marks the user as active. Triggers recalculation on first appearance
@@ -295,7 +308,7 @@ func (s *userQuotaService) IncrementUserCost(ctx context.Context, accountID int6
 	if epoch == 0 {
 		return
 	}
-	logger.L().Info("user_quota.cost_incremented",
+	logger.L().Debug("user_quota.cost_incremented",
 		zap.Int64("account_id", accountID),
 		zap.Int64("user_id", userID),
 		zap.Int64("epoch", epoch),
@@ -328,17 +341,16 @@ func (s *userQuotaService) NotifyAccountUpdated(ctx context.Context, account *Ac
 	if !account.IsUserQuotaEnabled() {
 		return
 	}
-	s.mu.RLock()
-	_, exists := s.activeAccounts[account.ID]
-	s.mu.RUnlock()
+
+	s.mu.Lock()
+	state, exists := s.activeAccounts[account.ID]
 	if !exists {
+		s.mu.Unlock()
 		return
 	}
-	s.mu.Lock()
-	if state, ok := s.activeAccounts[account.ID]; ok {
-		state.account = account
-	}
+	state.account = account
 	s.mu.Unlock()
+
 	s.recalculateQuotas(ctx, account, false)
 	logger.L().Info("user_quota.account_updated",
 		zap.Int64("account_id", account.ID),
