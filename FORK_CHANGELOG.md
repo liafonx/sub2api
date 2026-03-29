@@ -59,14 +59,23 @@ grep "malformed HTTP\|transport: received unexpected" /usr/local/var/log/sub2api
 
 ### Patch 3: Per-User Quota Allocation (added 2026-03-08)
 
-**Purpose**: Prevents a single heavy user from exhausting an account's 5h window budget. Splits the remaining budget equally among currently active users, with epoch-based recalculation on user join/leave and 1-minute idle timeout.
+**Status**: Active on main
+
+**Purpose**: Prevents a single heavy user from exhausting an account's 5h window budget. Splits the remaining budget equally among currently active users, with epoch-based recalculation on user join/leave and configurable idle timeout.
 
 **Files**:
 
 | File | Change |
 |------|--------|
-| `backend/internal/service/user_quota_service.go` | **NEW** — `UserQuotaChecker` + `UserQuotaCache` interfaces; service implementation |
-| `backend/internal/repository/user_quota_cache.go` | **NEW** — Redis implementation |
+| `backend/internal/service/user_quota_service.go` | **NEW** — `UserQuotaChecker` + `UserQuotaCache` interfaces; `userQuotaService` implementation; `QuotaZone` constants; `accountQuotaState`; cleanup ticker |
+| `backend/internal/service/user_quota_service_test.go` | **NEW** — 26 table-driven tests covering all zones, concurrency, epoch isolation, window-reset detection |
+| `backend/internal/repository/user_quota_cache.go` | **NEW** — Redis implementation with 5 Lua scripts |
+| `backend/internal/service/account.go` | MODIFIED — `IsUserQuotaEnabled`, `GetUserQuotaIdleTimeout`, `GetWindowCostStickyReserve` helpers |
+| `backend/internal/handler/dto/types.go` | MODIFIED — `UserQuotaEnabled`, `UserQuotaIdleTimeout` DTO fields |
+| `backend/internal/handler/dto/mappers.go` | MODIFIED — `AccountToDTO` emits quota fields for Anthropic OAuth/SetupToken accounts |
+| `backend/internal/service/gateway_service.go` | MODIFIED — `SetUserQuotaChecker`, `RegisterUserActivity`, `CheckUserQuotaForAccount`, `IncrementUserCost` calls in `RecordUsage` |
+| `backend/internal/handler/gateway_handler.go` | MODIFIED — quota check after account selection (returns 429 when blocked) |
+| `backend/cmd/server/wire_gen.go` | MODIFIED — `NewUserQuotaCache` → `NewUserQuotaService` → `SetUserQuotaChecker` + 15s cleanup ticker |
 
 **Redis key schema**:
 
@@ -76,21 +85,84 @@ user_quota:cost:{accountID}:{epoch}:{userID} → String (INCRBYFLOAT, 6h TTL)
 user_quota:meta:{accountID}               → Hash (epoch, per_user_limit, per_user_sticky_reserve, active_count, 6h TTL)
 ```
 
+**Lua scripts** (all in `user_quota_cache.go`):
+
+| Script | Purpose | TOCTOU fix |
+|--------|---------|------------|
+| `zAddActivityScript` | ZADD GT + EXPIRE atomically; returns 1 if newly added | Prevents EXPIRE from being skipped on concurrent add |
+| `zRemIdleUsersScript` | ZRANGEBYSCORE + ZREMRANGEBYSCORE atomically; returns removed userIDs | Closes race between read-idle and remove-idle |
+| `bumpEpochAndSetMetaScript` | Uses `redis.call("TIME")` for epoch (ms precision); HSET + EXPIRE | Prevents epoch reuse after `DelMeta` (monotonic server clock) |
+| `getQuotaCheckDataScript` | HMGET meta + GET cost key in 1 RTT; constructs cost key from epoch inside Lua | Ensures epoch and cost are read atomically |
+| `atomicIncrCostScript` | HGET epoch + INCRBYFLOAT cost + EXPIRE; returns `[epoch, newTotal]` | Prevents stale-epoch cost writes during concurrent epoch bumps |
+
+**QuotaZone constants** (`type QuotaZone = string`):
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `QuotaZoneDisabled` | `"disabled"` | Feature not enabled; pass-through |
+| `QuotaZoneNoEpoch` | `"no_epoch"` | No meta hash yet; pass-through |
+| `QuotaZoneRedisError` | `"redis_error"` | Redis failure; fail-open |
+| `QuotaZoneGreen` | `"green"` | `userCost < perUserLimit` — allowed |
+| `QuotaZoneYellowSticky` | `"yellow_sticky"` | In yellow zone AND sticky — allowed |
+| `QuotaZoneYellowNonStick` | `"yellow_non_sticky"` | In yellow zone AND not sticky — blocked |
+| `QuotaZoneRed` | `"red"` | Above all limits — blocked |
+
+**Window-reset detection**: `accountQuotaState.lastWindowStartMs` tracks the 5h billing window start at last recalculation. When `RegisterActivity` or the cleanup ticker detects the window has rolled forward, a full `recalculateQuotas` is triggered, bumping epoch and resetting per-user limits.
+
+**Epoch derivation**: Uses Redis `TIME` command inside `bumpEpochAndSetMetaScript` (`t[1]*1000 + floor(t[2]/1000)` = ms precision). This prevents epoch reuse after `DelMeta` — unlike `HINCRBY` which would restart from 0.
+
+**Account helpers** (in `account.go`):
+
+| Method | Extra key | Default |
+|--------|-----------|---------|
+| `IsUserQuotaEnabled()` | `user_quota_enabled` | `false` (requires `IsAnthropicOAuthOrSetupToken`) |
+| `GetUserQuotaIdleTimeout()` | `user_quota_idle_timeout` | 60 seconds |
+| `GetWindowCostStickyReserve()` | `window_cost_sticky_reserve` | 10.0 |
+
+**DTO layer** (`dto/types.go`):
+- `UserQuotaEnabled *bool` — emitted when enabled on Anthropic OAuth/SetupToken accounts
+- `UserQuotaIdleTimeout *int` — seconds, emitted alongside enabled flag
+
 **Algorithm (three-zone)**:
 - Green (`userCost < perUserLimit`): allow all
 - Yellow (`userCost < perUserLimit + perUserStickyReserve`): allow only sticky sessions
 - Red (above): block with 429
 
-**Recalculation triggers**: user joins (new `RegisterActivity`), idle cleanup ticker (every 15s removes users idle >60s).
+**Recalculation triggers**: user joins (new `RegisterActivity`), idle cleanup ticker (every 15s removes users idle >idle_timeout), window reset detected, admin account update (`NotifyAccountUpdated`).
 
 **Enable per account**: set `account.Extra["user_quota_enabled"] = true`. Requires `window_cost_limit > 0`.
 
 **Integration points**:
-- `gateway_handler.go`: `RegisterUserActivity` called after account selection; `CheckUserQuotaForAccount` called before forwarding
-- `gateway_service.go` `RecordUsage`: `IncrementUserCost` called after cost is computed
+- `gateway_handler.go`: `RegisterUserActivity` called after account selection; `CheckUserQuotaForAccount` called before forwarding (returns HTTP 429 when blocked)
+- `gateway_service.go` `RecordUsage` + `RecordUsageWithLongContext`: `IncrementUserCost` called after cost is computed
 - `wire_gen.go`: `NewUserQuotaCache` → `NewUserQuotaService` → `SetUserQuotaChecker` + 15s cleanup ticker
 
 **Frontend**: Toggle in Create/Edit Account modals under "Quota Control" section (Anthropic OAuth/SetupToken accounts only, disabled when Window Cost Limit is off).
+
+**Reapply markers**:
+- `UserQuotaChecker`
+- `UserQuotaCache`
+- `QuotaZoneGreen`
+- `zAddActivityScript`
+- `bumpEpochAndSetMetaScript`
+- `getQuotaCheckDataScript`
+- `atomicIncrCostScript`
+- `IsUserQuotaEnabled`
+- `GetUserQuotaIdleTimeout`
+- `user_quota_enabled`
+
+**Verification**:
+
+```bash
+ls backend/internal/service/user_quota_service.go
+ls backend/internal/repository/user_quota_cache.go
+grep QuotaZoneGreen backend/internal/service/user_quota_service.go
+grep zAddActivityScript backend/internal/repository/user_quota_cache.go
+grep bumpEpochAndSetMetaScript backend/internal/repository/user_quota_cache.go
+grep IsUserQuotaEnabled backend/internal/service/account.go
+grep UserQuotaEnabled backend/internal/handler/dto/types.go
+grep SetUserQuotaChecker backend/cmd/server/wire_gen.go
+```
 
 ---
 
@@ -120,17 +192,81 @@ user_quota:meta:{accountID}               → Hash (epoch, per_user_limit, per_u
 
 ### Patch 6: Peak Usage Log (added 2026-03-25)
 
-**Purpose**: Records per-account peak concurrent usage. Stores the highest observed concurrent request count per account in a rolling window, queryable from the admin UI.
+**Status**: Active on main
+
+**Purpose**: Tracks all-time peak values for three metrics (concurrency, sessions, RPM) for both accounts and users. Redis stores live peaks via atomic Lua compare-and-set; a 5-minute TimingWheel flush persists to Postgres with `GREATEST()` upsert semantics. Admin UI shows peaks per entity with reset capability.
 
 **Files**:
 
 | File | Change |
 |------|--------|
-| `backend/internal/service/peak_usage_service.go` | **NEW** — `PeakUsageLogger` interface; service implementation |
-| `backend/internal/service/peak_usage_cache.go` | **NEW** — Cache interface definitions |
-| `backend/internal/repository/peak_usage_cache.go` | **NEW** — Redis implementation |
-| `backend/internal/handler/admin/peak_usage_handler.go` | **NEW** — Admin API handler |
-| `backend/ent/schema/peak_usage.go` | **NEW** — Ent schema for persistence |
+| `backend/internal/service/peak_usage_service.go` | **NEW** — `PeakUsageService`, `PeakDTO`, flush/upsert logic, `GREATEST()` SQL |
+| `backend/internal/service/peak_usage_cache.go` | **NEW** — `PeakUsageCache` interface, `PeakValues` struct, entity type/field constants, `updatePeakIfGreaterAsync` helper |
+| `backend/internal/repository/peak_usage_cache.go` | **NEW** — Redis implementation with `peakUpdateIfGreaterScript` Lua |
+| `backend/internal/handler/admin/peak_usage_handler.go` | **NEW** — Admin API handler (GET accounts, GET users, POST reset) |
+| `backend/ent/schema/peak_usage.go` | **NEW** — Ent schema (`peak_usages` table) |
+| `backend/migrations/081_peak_usage.sql` | **NEW** — DB migration |
+| `backend/internal/service/concurrency_service.go` | MODIFIED — `peakCache` field, `updatePeakConcurrencyAsync` after slot acquisition |
+| `backend/internal/service/gateway_service.go` | MODIFIED — `SetPeakUsageCache`, RPM peak tracking, session peak tracking |
+| `backend/internal/server/routes/admin.go` | MODIFIED — `registerPeakUsageRoutes` under `/peak-usage` |
+| `backend/internal/service/wire.go` | MODIFIED — `ProvidePeakUsageService`, `ProvideConcurrencyService` |
+| `backend/cmd/server/wire_gen.go` | MODIFIED — `NewPeakUsageCache` → `ProvidePeakUsageService` → `NewPeakUsageHandler` |
+| `frontend/src/api/admin/peakUsage.ts` | **NEW** — API client (`getAccountPeaks`, `getUserPeaks`, `resetPeaks`) |
+| `frontend/src/components/admin/PeakUsageModal.vue` | **NEW** — Peak usage modal with card grid and reset |
+| `frontend/src/views/admin/DashboardView.vue` | MODIFIED — clickable stat cards open peak modal |
+| `frontend/src/types/index.ts` | MODIFIED — `PeakUsageEntry` interface |
+| `frontend/src/i18n/locales/en.ts` | MODIFIED — `peakUsage` i18n keys |
+| `frontend/src/i18n/locales/zh.ts` | MODIFIED — `peakUsage` i18n keys |
+
+**Redis key schema**:
+
+```text
+peak:account:{id}  → Hash (concurrency, sessions, rpm, reset_at)
+peak:user:{id}     → Hash (concurrency, sessions, rpm, reset_at)
+```
+
+No TTL — keys are permanent until explicitly reset.
+
+**Lua script** — `peakUpdateIfGreaterScript`: atomic compare-and-set. `HGET` current value; if `newVal > current`, `HSET`. Returns old value. Prevents race conditions when multiple goroutines observe peaks simultaneously.
+
+**DB persistence**: 5-minute flush cycle via `TimingWheelService`. Upsert uses `GREATEST(peak_usages.{col}, EXCLUDED.{col})` for all three peak columns. `updated_at` only advances when a peak field actually increased (`peakUpdatedAtExpr` CASE expression). Zero-value entries skipped on flush to prevent Redis restarts from overwriting legitimate DB peaks.
+
+**Integration points**:
+- `ConcurrencyService.AcquireAccountSlot/AcquireUserSlot` → `updatePeakConcurrencyAsync` (concurrency metric)
+- `GatewayService.IncrementAccountRPM/IncrementUserRPM` → `updatePeakAsync` (RPM metric)
+- `GatewayService.TrackAccountSessionPeak/TrackUserSessionPeak` + `checkAndRegisterSession` → `UpdatePeakIfGreater` (sessions metric)
+
+All hot-path peak updates are fire-and-forget goroutines with 3-second timeout.
+
+**Admin API routes** (`/api/v1/admin/peak-usage`):
+- `GET /accounts` — returns `[]PeakDTO` enriched with account name, platform, limits
+- `GET /users` — returns `[]PeakDTO` enriched with user email
+- `POST /reset` — body `{"entity_type": "account"|"user"}`, zeros Redis + DB, sets `reset_at`
+
+**Upstream conflict risk**: MEDIUM — touches `concurrency_service.go`, `gateway_service.go`, `wire_gen.go`, admin routes.
+
+**Reapply markers**:
+- `PeakUsageCache`
+- `PeakUsageService`
+- `peakUpdateIfGreaterScript`
+- `updatePeakIfGreaterAsync`
+- `FlushPeaksFromRedis`
+- `peak_usage:flush`
+- `registerPeakUsageRoutes`
+- `PeakUsageModal`
+
+**Verification**:
+
+```bash
+ls backend/internal/service/peak_usage_service.go
+ls backend/internal/service/peak_usage_cache.go
+ls backend/internal/repository/peak_usage_cache.go
+ls backend/internal/handler/admin/peak_usage_handler.go
+grep peakUpdateIfGreaterScript backend/internal/repository/peak_usage_cache.go
+grep registerPeakUsageRoutes backend/internal/server/routes/admin.go
+grep PeakUsageModal frontend/src/components/admin/PeakUsageModal.vue
+grep SetPeakUsageCache backend/internal/service/gateway_service.go
+```
 
 ---
 
@@ -188,15 +324,37 @@ grep cc-probe backend/internal/server/routes/admin.go
 
 ### Patch 9: Provider Routing (added 2026-03-25)
 
+**Status**: Active on main
+
 **Purpose**: Optionally rejects requests where the model's `litellm_provider` does not match the account's platform. Prevents e.g. OpenAI models being routed to Anthropic accounts. Off by default (`enforce_provider_routing: false`).
 
 **Files**:
 
 | File | Change |
 |------|--------|
-| `backend/internal/service/provider_routing.go` | **NEW** — `EnforceProviderRouting` inline check (33 lines) |
-| `backend/internal/service/gateway_service.go` | Calls `EnforceProviderRouting` when `pricing.enforce_provider_routing: true` |
-| `backend/internal/config/config.go` | `PricingConfig.EnforceProviderRouting bool` field |
+| `backend/internal/service/provider_routing.go` | **NEW** — `platformToProviders` map, `providerToPlatform` reverse index (built in `init()`), `isProviderAllowedForPlatform` function |
+| `backend/internal/service/provider_routing_test.go` | **NEW** — 14 table-driven cases for `isProviderAllowedForPlatform` |
+| `backend/internal/service/gateway_service_provider_routing_test.go` | **NEW** — 6 integration tests for `isModelSupportedByAccount` with provider routing |
+| `backend/internal/service/gateway_service.go` | MODIFIED — `isModelSupportedByAccount` calls provider check before `NormalizeModelID` |
+| `backend/internal/service/pricing_service.go` | MODIFIED — `modelProvider` field, `buildModelProviderIndex`, `GetModelProvider` |
+| `backend/internal/service/pricing_service_test.go` | MODIFIED — tests for `buildModelProviderIndex` and `GetModelProvider` |
+| `backend/internal/config/config.go` | MODIFIED — `PricingConfig.EnforceProviderRouting bool` field |
+
+**Platform → provider mapping** (`platformToProviders`):
+
+| Platform | Accepted `litellm_provider` values |
+|----------|-------------------------------------|
+| `anthropic` | `"anthropic"` |
+| `openai` | `"openai"`, `"text-completion-openai"` |
+| `gemini` | `"gemini"`, `"vertex_ai-language-models"`, `"vertex_ai-vision-models"`, `"vertex_ai-embedding-models"` |
+
+`providerToPlatform` is the reverse index, built in `init()` by inverting `platformToProviders`. Unknown providers fail-open (return `true`).
+
+**Pre-normalize check**: The provider routing check runs BEFORE `NormalizeModelID` in `isModelSupportedByAccount`. This is because the `modelProvider` index is keyed on LiteLLM's original (short) model names. Normalizing first would transform short names into long versioned names that may not exist in the pricing index, causing false unknowns that silently fail-open.
+
+**PricingService integration**:
+- `modelProvider map[string]string` — lowercase model name → `litellm_provider`, built by `buildModelProviderIndex` from LiteLLM pricing data on each refresh
+- `GetModelProvider(modelName) string` — case-insensitive exact lookup; returns `""` for unknown models (caller treats as fail-open)
 
 **Config**:
 
@@ -207,10 +365,22 @@ pricing:
 
 **Upstream conflict risk**: LOW — small inline check + new file; `gateway_service.go` changes are common but the hook is a single conditional.
 
+**Reapply markers**:
+- `platformToProviders`
+- `providerToPlatform`
+- `isProviderAllowedForPlatform`
+- `EnforceProviderRouting`
+- `GetModelProvider`
+- `buildModelProviderIndex`
+
 **Verification**:
 
 ```bash
 ls backend/internal/service/provider_routing.go
+grep platformToProviders backend/internal/service/provider_routing.go
+grep EnforceProviderRouting backend/internal/config/config.go
+grep GetModelProvider backend/internal/service/pricing_service.go
+grep isProviderAllowedForPlatform backend/internal/service/gateway_service.go
 ```
 
 ---
@@ -511,6 +681,12 @@ ls backend/internal/pkg/tlsfingerprint/h2_roundtripper.go
 # Patch 3: Per-user quota
 ls backend/internal/service/user_quota_service.go
 ls backend/internal/repository/user_quota_cache.go
+grep QuotaZoneGreen backend/internal/service/user_quota_service.go
+grep zAddActivityScript backend/internal/repository/user_quota_cache.go
+grep bumpEpochAndSetMetaScript backend/internal/repository/user_quota_cache.go
+grep IsUserQuotaEnabled backend/internal/service/account.go
+grep UserQuotaEnabled backend/internal/handler/dto/types.go
+grep SetUserQuotaChecker backend/cmd/server/wire_gen.go
 
 # Patch 4: X25519MLKEM768 key shares
 grep X25519MLKEM768 backend/internal/pkg/tlsfingerprint/dialer.go
@@ -520,7 +696,12 @@ grep profileKey backend/internal/pkg/tlsfingerprint/profile_identity.go
 
 # Patch 6: Peak usage log
 ls backend/internal/service/peak_usage_service.go
+ls backend/internal/service/peak_usage_cache.go
+ls backend/internal/repository/peak_usage_cache.go
 ls backend/internal/handler/admin/peak_usage_handler.go
+grep peakUpdateIfGreaterScript backend/internal/repository/peak_usage_cache.go
+grep registerPeakUsageRoutes backend/internal/server/routes/admin.go
+grep SetPeakUsageCache backend/internal/service/gateway_service.go
 
 # Patch 7: Claude Code version detection
 ls backend/internal/service/claude_code_version_detect_service.go
@@ -531,6 +712,10 @@ grep cc-probe backend/internal/server/routes/admin.go
 
 # Patch 9: Provider Routing
 ls backend/internal/service/provider_routing.go
+grep platformToProviders backend/internal/service/provider_routing.go
+grep EnforceProviderRouting backend/internal/config/config.go
+grep GetModelProvider backend/internal/service/pricing_service.go
+grep isProviderAllowedForPlatform backend/internal/service/gateway_service.go
 
 # Patch 10: CC Trait Registry & Claude Code Validator
 ls backend/internal/service/cc_trait_registry.go

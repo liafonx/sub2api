@@ -183,13 +183,13 @@ Authoritative references:
 |---|-------|-----------|--------|
 | 1 | TLS Fingerprint Registry Fix | ~~`repository/http_upstream.go`~~ | SUPERSEDED (v0.1.105) |
 | 2 | HTTP/2 Upstream | `pkg/tlsfingerprint/h2_roundtripper.go` | Archived on old fork main |
-| 3 | Per-User Quota Allocation | `service/user_quota_service.go`, `repository/user_quota_cache.go` | Archived on old fork main |
+| 3 | Per-User Quota Allocation | `service/user_quota_service.go`, `repository/user_quota_cache.go`, `dto/types.go`, `dto/mappers.go` | Active on main |
 | 4 | Full X25519MLKEM768 Support | `pkg/tlsfingerprint/dialer.go` | Archived on old fork main |
 | 5 | TLS Profile Cache Key Fix | `pkg/tlsfingerprint/profile_identity.go`, `repository/http_upstream.go` | Archived on old fork main |
-| 6 | Peak Usage Log | `service/peak_usage_service.go`, `handler/admin/peak_usage_handler.go` | Archived on old fork main |
+| 6 | Peak Usage Log | `service/peak_usage_service.go`, `service/peak_usage_cache.go`, `repository/peak_usage_cache.go`, `handler/admin/peak_usage_handler.go` | Active on main |
 | 7 | Claude Code Version Detection | `service/claude_code_version_detect_service.go` | Archived on old fork main |
 | 8 | CC Probe Service | `service/cc_probe_service.go`, `repository/cc_probe_cache.go` | Archived on old fork main |
-| 9 | Provider Routing | `service/provider_routing.go` | Archived on old fork main |
+| 9 | Provider Routing | `service/provider_routing.go`, `service/pricing_service.go`, `config/config.go` | Active on main |
 | 10 | CC Trait Registry & Validator Enhancements | `service/cc_trait_registry.go`, `service/claude_code_validator.go` | Archived on old fork main |
 | 11 | Surgical Thinking Block Signature Fix | `service/gateway_request.go` | Archived on old fork main |
 | 12 | Probe-Aware Identity Defaults | `service/identity_service.go` | Archived on old fork main |
