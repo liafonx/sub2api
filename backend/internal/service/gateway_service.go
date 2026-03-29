@@ -3594,17 +3594,18 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 		_, ok := ResolveBedrockModelID(account, requestedModel)
 		return ok
 	}
-	// OAuth/SetupToken 账号使用 Anthropic 标准映射（短ID → 长ID）
-	if account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {
-		requestedModel = claude.NormalizeModelID(requestedModel)
-	}
-	// Provider-based routing: reject mismatched model→platform combinations
+	// Provider-based routing: check before NormalizeModelID so the lookup
+	// matches LiteLLM's original (short) model keys in the pricing map.
 	if s.cfg.Pricing.EnforceProviderRouting && s.pricingService != nil {
 		if provider := s.pricingService.GetModelProvider(requestedModel); provider != "" {
 			if !isProviderAllowedForPlatform(provider, account.Platform) {
 				return false
 			}
 		}
+	}
+	// OAuth/SetupToken 账号使用 Anthropic 标准映射（短ID → 长ID）
+	if account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {
+		requestedModel = claude.NormalizeModelID(requestedModel)
 	}
 	// 其他平台使用账户的模型支持检查
 	return account.IsModelSupported(requestedModel)

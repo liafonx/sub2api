@@ -8,7 +8,6 @@ var platformToProviders = map[string][]string{
 }
 
 // providerToPlatform is the reverse index: litellm_provider → platform.
-// Built once at init time for O(1) lookup.
 var providerToPlatform = make(map[string]string)
 
 func init() {
@@ -25,7 +24,6 @@ func init() {
 func isProviderAllowedForPlatform(provider, platform string) bool {
 	mapped, ok := providerToPlatform[provider]
 	if !ok {
-		// Unknown provider → fail open (caller decides)
 		return true
 	}
 	return mapped == platform

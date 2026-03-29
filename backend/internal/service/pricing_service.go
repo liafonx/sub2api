@@ -821,7 +821,7 @@ func buildModelProviderIndex(data map[string]*LiteLLMModelPricing) map[string]st
 func (s *PricingService) GetModelProvider(modelName string) string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.modelProvider[strings.ToLower(modelName)]
+	return s.modelProvider[strings.ToLower(strings.TrimSpace(modelName))]
 }
 
 // GetStatus 获取服务状态
