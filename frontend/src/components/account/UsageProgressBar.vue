@@ -34,11 +34,12 @@
 
     <!-- Progress bar row -->
     <div class="flex items-center gap-1">
-      <!-- Label badge (fixed width for alignment) -->
+      <!-- Label badge -->
       <span
-        :class="['w-[32px] shrink-0 rounded px-1 text-center text-[10px] font-medium', labelClass]"
+        :class="['shrink-0 rounded px-1 text-center text-[10px] font-medium', effectiveLimit != null && effectiveLimit > 0 ? '' : 'w-[32px]', labelClass]"
+        :title="effectiveLimit != null && effectiveLimit > 0 ? t('usage.effectiveLimitTooltip') : undefined"
       >
-        {{ label }}
+        {{ label }}<template v-if="effectiveLimit != null && effectiveLimit > 0"> ~${{ formatEffectiveLimit }}</template>
       </span>
 
       <!-- Progress bar container -->
@@ -76,6 +77,7 @@ const props = defineProps<{
   color: 'indigo' | 'emerald' | 'purple' | 'amber'
   windowStats?: WindowStats | null
   showNowWhenIdle?: boolean
+  effectiveLimit?: number | null
 }>()
 
 const { t } = useI18n()
@@ -198,6 +200,13 @@ const formatAccountCost = computed(() => {
 const formatUserCost = computed(() => {
   if (!props.windowStats || props.windowStats.user_cost == null) return '0.00'
   return props.windowStats.user_cost.toFixed(2)
+})
+
+const formatEffectiveLimit = computed(() => {
+  if (props.effectiveLimit == null || props.effectiveLimit <= 0) return '0'
+  return props.effectiveLimit < 10
+    ? props.effectiveLimit.toFixed(2)
+    : Math.round(props.effectiveLimit).toString()
 })
 
 // Derived estimated limit: standard_cost / (utilization / 100), shown when utilization >= 5%

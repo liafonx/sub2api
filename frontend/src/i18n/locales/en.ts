@@ -710,6 +710,7 @@ export default {
     userBilled: 'User billed',
     accountBilled: 'Account billed',
     estimatedLimitTooltip: 'Estimated account limit derived from sub2api cost / utilization',
+    effectiveLimitTooltip: 'Effective cost limit (derived or manual)',
     accountMultiplier: 'Account rate',
     avgDuration: 'Avg Duration',
     inSelectedRange: 'in selected range',

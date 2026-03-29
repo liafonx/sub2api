@@ -715,6 +715,7 @@ export default {
     userBilled: '用户扣费',
     accountBilled: '账号计费',
     estimatedLimitTooltip: '基于 sub2api 费用 / 利用率推算的账号限额',
+    effectiveLimitTooltip: '有效费用限额（推导或手动）',
     accountMultiplier: '账号倍率',
     avgDuration: '平均耗时',
     inSelectedRange: '所选范围内',

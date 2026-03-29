@@ -47,6 +47,7 @@
           :utilization="usageInfo.five_hour.utilization"
           :resets-at="usageInfo.five_hour.resets_at"
           :window-stats="usageInfo.five_hour.window_stats"
+          :effective-limit="account.effective_5h_limit"
           color="indigo"
         />
 
@@ -57,6 +58,7 @@
           :utilization="usageInfo.seven_day.utilization"
           :resets-at="usageInfo.seven_day.resets_at"
           :window-stats="usageInfo.seven_day.window_stats"
+          :effective-limit="account.effective_7d_limit"
           color="emerald"
         />
 
