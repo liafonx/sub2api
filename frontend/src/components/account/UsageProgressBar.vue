@@ -22,6 +22,13 @@
         >
           U ${{ formatUserCost }}
         </span>
+        <span
+          v-if="derivedEstimate != null"
+          class="rounded bg-blue-50 px-1.5 py-0.5 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400"
+          :title="t('usage.estimatedLimitTooltip')"
+        >
+          ~${{ derivedEstimate }}
+        </span>
       </div>
     </div>
 
@@ -191,6 +198,15 @@ const formatAccountCost = computed(() => {
 const formatUserCost = computed(() => {
   if (!props.windowStats || props.windowStats.user_cost == null) return '0.00'
   return props.windowStats.user_cost.toFixed(2)
+})
+
+// Derived estimated limit: standard_cost / (utilization / 100), shown when utilization >= 5%
+const derivedEstimate = computed(() => {
+  if (!props.windowStats || props.utilization < 5) return null
+  const cost = props.windowStats.standard_cost ?? props.windowStats.cost
+  if (!cost || cost <= 0) return null
+  const limit = cost / (props.utilization / 100)
+  return limit.toFixed(2)
 })
 
 </script>

@@ -308,21 +308,19 @@ func TestUpdateSessionWindow_ClearsUtilizationOnWindowReset(t *testing.T) {
 
 	svc.UpdateSessionWindow(context.Background(), account, headers)
 
-	// Should have 2 UpdateExtra calls: one to clear utilization, one to store new utilization
-	if len(repo.updateExtraCalls) != 2 {
-		t.Fatalf("expected 2 UpdateExtra calls, got %d", len(repo.updateExtraCalls))
+	// Consolidated into 1 UpdateExtra call: clear fields are set first, then overwritten by new values
+	if len(repo.updateExtraCalls) != 1 {
+		t.Fatalf("expected 1 UpdateExtra call, got %d", len(repo.updateExtraCalls))
 	}
 
-	// First call: clear utilization (nil value)
-	clearCall := repo.updateExtraCalls[0]
-	if clearCall.Updates["session_window_utilization"] != nil {
-		t.Errorf("expected utilization cleared to nil, got %v", clearCall.Updates["session_window_utilization"])
+	// The single call should have the new utilization value (overwriting the nil clear)
+	call := repo.updateExtraCalls[0]
+	if val, ok := call.Updates["session_window_utilization"].(float64); !ok || val != 0.15 {
+		t.Errorf("expected utilization stored as 0.15, got %v", call.Updates["session_window_utilization"])
 	}
-
-	// Second call: store new utilization
-	storeCall := repo.updateExtraCalls[1]
-	if val, ok := storeCall.Updates["session_window_utilization"].(float64); !ok || val != 0.15 {
-		t.Errorf("expected utilization stored as 0.15, got %v", storeCall.Updates["session_window_utilization"])
+	// 5h milestone should be cleared (nil)
+	if call.Updates["last_validated_5h_milestone"] != nil {
+		t.Errorf("expected last_validated_5h_milestone cleared to nil, got %v", call.Updates["last_validated_5h_milestone"])
 	}
 }
 

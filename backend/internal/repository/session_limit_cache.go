@@ -31,6 +31,9 @@ const (
 
 	// 窗口费用缓存 TTL（30秒）
 	windowCostCacheTTL = 30 * time.Second
+
+	// 7d 窗口费用缓存键前缀
+	windowCost7dKeyPrefix = "window_cost_7d:account:"
 )
 
 var (
@@ -309,17 +312,49 @@ func (c *sessionLimitCache) SetWindowCost(ctx context.Context, accountID int64, 
 
 // GetWindowCostBatch 批量获取窗口费用缓存
 func (c *sessionLimitCache) GetWindowCostBatch(ctx context.Context, accountIDs []int64) (map[int64]float64, error) {
+	return c.batchGetWindowCosts(ctx, accountIDs, windowCostKey)
+}
+
+// windowCost7dKey 生成 7d 窗口费用缓存的 Redis 键
+func windowCost7dKey(accountID int64) string {
+	return fmt.Sprintf("%s%d", windowCost7dKeyPrefix, accountID)
+}
+
+// GetWindowCost7d 获取缓存的 7d 窗口费用
+func (c *sessionLimitCache) GetWindowCost7d(ctx context.Context, accountID int64) (float64, bool, error) {
+	key := windowCost7dKey(accountID)
+	val, err := c.rdb.Get(ctx, key).Float64()
+	if err == redis.Nil {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return val, true, nil
+}
+
+// SetWindowCost7d 设置 7d 窗口费用缓存
+func (c *sessionLimitCache) SetWindowCost7d(ctx context.Context, accountID int64, cost float64) error {
+	key := windowCost7dKey(accountID)
+	return c.rdb.Set(ctx, key, cost, windowCostCacheTTL).Err()
+}
+
+// GetWindowCost7dBatch 批量获取 7d 窗口费用缓存
+func (c *sessionLimitCache) GetWindowCost7dBatch(ctx context.Context, accountIDs []int64) (map[int64]float64, error) {
+	return c.batchGetWindowCosts(ctx, accountIDs, windowCost7dKey)
+}
+
+// batchGetWindowCosts is a shared helper for batch MGET of window cost keys.
+func (c *sessionLimitCache) batchGetWindowCosts(ctx context.Context, accountIDs []int64, keyFn func(int64) string) (map[int64]float64, error) {
 	if len(accountIDs) == 0 {
 		return make(map[int64]float64), nil
 	}
 
-	// 构建批量查询的 keys
 	keys := make([]string, len(accountIDs))
 	for i, accountID := range accountIDs {
-		keys[i] = windowCostKey(accountID)
+		keys[i] = keyFn(accountID)
 	}
 
-	// 使用 MGET 批量获取
 	vals, err := c.rdb.MGet(ctx, keys...).Result()
 	if err != nil {
 		return nil, err
@@ -328,9 +363,8 @@ func (c *sessionLimitCache) GetWindowCostBatch(ctx context.Context, accountIDs [
 	results := make(map[int64]float64, len(accountIDs))
 	for i, val := range vals {
 		if val == nil {
-			continue // 缓存未命中
+			continue
 		}
-		// 尝试解析为 float64
 		switch v := val.(type) {
 		case string:
 			if cost, err := strconv.ParseFloat(v, 64); err == nil {
@@ -342,6 +376,12 @@ func (c *sessionLimitCache) GetWindowCostBatch(ctx context.Context, accountIDs [
 	}
 
 	return results, nil
+}
+
+// DeleteWindowCost7d 删除 7d 窗口费用缓存（窗口重置时使用）
+func (c *sessionLimitCache) DeleteWindowCost7d(ctx context.Context, accountID int64) error {
+	key := windowCost7dKey(accountID)
+	return c.rdb.Del(ctx, key).Err()
 }
 
 // registerUserSessionScript mirrors registerSessionScript for user-level sessions.

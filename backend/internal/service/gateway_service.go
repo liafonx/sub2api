@@ -2252,17 +2252,23 @@ type usageLogWindowStatsBatchProvider interface {
 	GetAccountWindowStatsBatch(ctx context.Context, accountIDs []int64, startTime time.Time) (map[int64]*usagestats.AccountStats, error)
 }
 
+// windowCostSnapshot holds prefetched cost data for both 5h and 7d windows.
+type windowCostSnapshot struct {
+	Cost5h float64
+	Cost7d float64
+}
+
 type windowCostPrefetchContextKeyType struct{}
 
 var windowCostPrefetchContextKey = windowCostPrefetchContextKeyType{}
 
-func windowCostFromPrefetchContext(ctx context.Context, accountID int64) (float64, bool) {
+func windowCostFromPrefetchContext(ctx context.Context, accountID int64) (*windowCostSnapshot, bool) {
 	if ctx == nil || accountID <= 0 {
-		return 0, false
+		return nil, false
 	}
-	m, ok := ctx.Value(windowCostPrefetchContextKey).(map[int64]float64)
+	m, ok := ctx.Value(windowCostPrefetchContextKey).(map[int64]*windowCostSnapshot)
 	if !ok || len(m) == 0 {
-		return 0, false
+		return nil, false
 	}
 	v, exists := m[accountID]
 	return v, exists
@@ -2280,7 +2286,7 @@ func (s *GatewayService) withWindowCostPrefetch(ctx context.Context, accounts []
 		if account == nil || !account.IsAnthropicOAuthOrSetupToken() {
 			continue
 		}
-		if account.GetWindowCostLimit() <= 0 {
+		if !account.HasWindowCostControl() {
 			continue
 		}
 		accountByID[account.ID] = account
@@ -2290,18 +2296,21 @@ func (s *GatewayService) withWindowCostPrefetch(ctx context.Context, accounts []
 		return ctx
 	}
 
-	costs := make(map[int64]float64, len(accountIDs))
+	snapshots := make(map[int64]*windowCostSnapshot, len(accountIDs))
+
+	// --- 5h cost prefetch (existing logic) ---
+	costs5h := make(map[int64]float64, len(accountIDs))
 	cacheValues, err := s.sessionLimitCache.GetWindowCostBatch(ctx, accountIDs)
 	if err == nil {
 		for accountID, cost := range cacheValues {
-			costs[accountID] = cost
+			costs5h[accountID] = cost
 		}
 		windowCostPrefetchCacheHitTotal.Add(int64(len(cacheValues)))
 	} else {
 		windowCostPrefetchErrorTotal.Add(1)
 		logger.LegacyPrintf("service.gateway", "window_cost batch cache read failed: %v", err)
 	}
-	cacheMissCount := len(accountIDs) - len(costs)
+	cacheMissCount := len(accountIDs) - len(costs5h)
 	if cacheMissCount < 0 {
 		cacheMissCount = 0
 	}
@@ -2310,7 +2319,7 @@ func (s *GatewayService) withWindowCostPrefetch(ctx context.Context, accounts []
 	missingByStart := make(map[int64][]int64)
 	startTimes := make(map[int64]time.Time)
 	for _, accountID := range accountIDs {
-		if _, ok := costs[accountID]; ok {
+		if _, ok := costs5h[accountID]; ok {
 			continue
 		}
 		account := accountByID[accountID]
@@ -2321,9 +2330,6 @@ func (s *GatewayService) withWindowCostPrefetch(ctx context.Context, accounts []
 		startKey := startTime.Unix()
 		missingByStart[startKey] = append(missingByStart[startKey], accountID)
 		startTimes[startKey] = startTime
-	}
-	if len(missingByStart) == 0 {
-		return context.WithValue(ctx, windowCostPrefetchContextKey, costs)
 	}
 
 	batchReader, hasBatch := s.usageLogRepo.(usageLogWindowStatsBatchProvider)
@@ -2345,7 +2351,7 @@ func (s *GatewayService) withWindowCostPrefetch(ctx context.Context, accounts []
 					if stats != nil {
 						cost = stats.StandardCost
 					}
-					costs[accountID] = cost
+					costs5h[accountID] = cost
 					_ = s.sessionLimitCache.SetWindowCost(ctx, accountID, cost)
 				}
 				continue
@@ -2354,7 +2360,6 @@ func (s *GatewayService) withWindowCostPrefetch(ctx context.Context, accounts []
 			logger.LegacyPrintf("service.gateway", "window_cost batch db query failed: start=%s err=%v", startTime.Format(time.RFC3339), err)
 		}
 
-		// 回退路径：缺少批量仓储能力或批量查询失败时，按账号单查（失败开放）。
 		windowCostPrefetchFallbackTotal.Add(int64(len(ids)))
 		for _, accountID := range ids {
 			stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, accountID, startTime)
@@ -2363,12 +2368,66 @@ func (s *GatewayService) withWindowCostPrefetch(ctx context.Context, accounts []
 				continue
 			}
 			cost := stats.StandardCost
-			costs[accountID] = cost
+			costs5h[accountID] = cost
 			_ = s.sessionLimitCache.SetWindowCost(ctx, accountID, cost)
 		}
 	}
 
-	return context.WithValue(ctx, windowCostPrefetchContextKey, costs)
+	// --- 7d cost prefetch ---
+	// Identify accounts that need 7d cost tracking
+	accounts7d := make([]int64, 0)
+	for _, accountID := range accountIDs {
+		account := accountByID[accountID]
+		if account == nil {
+			continue
+		}
+		if account.IsDynamicCostEnabled() || account.GetWindowCost7dLimit() > 0 {
+			if _, ok := account.Get7dWindowStartTime(); ok {
+				accounts7d = append(accounts7d, accountID)
+			}
+		}
+	}
+
+	costs7d := make(map[int64]float64, len(accounts7d))
+	if len(accounts7d) > 0 {
+		cache7d, err := s.sessionLimitCache.GetWindowCost7dBatch(ctx, accounts7d)
+		if err == nil {
+			for accountID, cost := range cache7d {
+				costs7d[accountID] = cost
+			}
+		}
+		// For 7d cache misses, query DB per account (7d starts are unique per account)
+		for _, accountID := range accounts7d {
+			if _, ok := costs7d[accountID]; ok {
+				continue
+			}
+			account := accountByID[accountID]
+			if account == nil {
+				continue
+			}
+			start7d, ok := account.Get7dWindowStartTime()
+			if !ok {
+				continue
+			}
+			stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, accountID, start7d)
+			if err != nil {
+				continue
+			}
+			costs7d[accountID] = stats.StandardCost
+			_ = s.sessionLimitCache.SetWindowCost7d(ctx, accountID, stats.StandardCost)
+		}
+	}
+
+	// Build snapshots
+	for _, accountID := range accountIDs {
+		snap := &windowCostSnapshot{Cost5h: costs5h[accountID]}
+		if cost7d, ok := costs7d[accountID]; ok {
+			snap.Cost7d = cost7d
+		}
+		snapshots[accountID] = snap
+	}
+
+	return context.WithValue(ctx, windowCostPrefetchContextKey, snapshots)
 }
 
 // isAccountSchedulableForQuota 检查账号是否在配额限制内
@@ -2380,57 +2439,158 @@ func (s *GatewayService) isAccountSchedulableForQuota(account *Account) bool {
 	return !account.IsQuotaExceeded()
 }
 
+// GetEffectiveWindowCostLimit computes the effective dollar limit for a window using graduated-trust.
+// windowType must be Window5h or Window7d.
+func (s *GatewayService) GetEffectiveWindowCostLimit(ctx context.Context, account *Account, windowType WindowType) float64 {
+	cost := s.getWindowCostForAccount(ctx, account, windowType)
+	return computeEffectiveWindowCostLimit(account, windowType, cost)
+}
+
+// computeEffectiveWindowCostLimit is the pure-compute variant that takes cost as a parameter,
+// avoiding a redundant getWindowCostForAccount call when the caller already has the cost.
+func computeEffectiveWindowCostLimit(account *Account, windowType WindowType, cost float64) float64 {
+	var utilization, derivedLimit, manualLimit float64
+
+	switch windowType {
+	case Window5h:
+		utilization = account.GetSessionWindowUtilization()
+		derivedLimit = account.GetDerived5hLimit()
+		manualLimit = account.GetWindowCostLimit()
+	case Window7d:
+		utilization = account.GetPassiveUsage7dUtilization()
+		derivedLimit = account.GetDerived7dLimit()
+		manualLimit = account.GetWindowCost7dLimit()
+	default:
+		return 0
+	}
+
+	if !account.IsDynamicCostEnabled() {
+		return manualLimit
+	}
+
+	// Determine fallback: derived stored limit > manual limit > 0 (fail-open)
+	fallback := derivedLimit
+	if fallback <= 0 {
+		fallback = manualLimit
+	}
+
+	// Graduated-trust algorithm
+	if utilization >= 0.05 {
+		return cost / utilization
+	}
+	if utilization >= 0.01 {
+		computed := cost / utilization
+		if fallback > 0 && computed > fallback {
+			return fallback
+		}
+		return computed
+	}
+	// utilization < 1% or missing: use fallback (fail-open if 0)
+	return fallback
+}
+
+// getWindowCostForAccount returns the current sub2api cost for the given window.
+func (s *GatewayService) getWindowCostForAccount(ctx context.Context, account *Account, windowType WindowType) float64 {
+	switch windowType {
+	case Window5h:
+		if snap, ok := windowCostFromPrefetchContext(ctx, account.ID); ok {
+			return snap.Cost5h
+		}
+		if s.sessionLimitCache != nil {
+			if cost, hit, err := s.sessionLimitCache.GetWindowCost(ctx, account.ID); err == nil && hit {
+				return cost
+			}
+		}
+		startTime := account.GetCurrentWindowStartTime()
+		stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, startTime)
+		if err != nil {
+			return 0
+		}
+		if s.sessionLimitCache != nil {
+			_ = s.sessionLimitCache.SetWindowCost(ctx, account.ID, stats.StandardCost)
+		}
+		return stats.StandardCost
+	case Window7d:
+		if snap, ok := windowCostFromPrefetchContext(ctx, account.ID); ok {
+			return snap.Cost7d
+		}
+		if s.sessionLimitCache != nil {
+			if cost, hit, err := s.sessionLimitCache.GetWindowCost7d(ctx, account.ID); err == nil && hit {
+				return cost
+			}
+		}
+		start7d, ok := account.Get7dWindowStartTime()
+		if !ok {
+			return 0
+		}
+		stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, start7d)
+		if err != nil {
+			return 0
+		}
+		if s.sessionLimitCache != nil {
+			_ = s.sessionLimitCache.SetWindowCost7d(ctx, account.ID, stats.StandardCost)
+		}
+		return stats.StandardCost
+	}
+	return 0
+}
+
+// checkWindowZone computes the scheduling zone for a single window (5h or 7d).
+func (s *GatewayService) checkWindowZone(ctx context.Context, account *Account, windowType WindowType) WindowCostSchedulability {
+	cost := s.getWindowCostForAccount(ctx, account, windowType)
+	effectiveLimit := computeEffectiveWindowCostLimit(account, windowType, cost)
+	if effectiveLimit <= 0 {
+		return WindowCostSchedulable // fail-open: no limit known
+	}
+
+	if cost < effectiveLimit {
+		return WindowCostSchedulable
+	}
+
+	var rawReserve float64
+	switch windowType {
+	case Window5h:
+		rawReserve = account.GetWindowCostStickyReserve()
+	case Window7d:
+		rawReserve = account.GetWindowCost7dStickyReserve()
+	}
+	cappedReserve := GetCappedStickyReserve(effectiveLimit, rawReserve)
+
+	if cost < effectiveLimit+cappedReserve {
+		return WindowCostStickyOnly
+	}
+	return WindowCostNotSchedulable
+}
+
 // isAccountSchedulableForWindowCost 检查账号是否可根据窗口费用进行调度
 // 仅适用于 Anthropic OAuth/SetupToken 账号
 // 返回 true 表示可调度，false 表示不可调度
 func (s *GatewayService) isAccountSchedulableForWindowCost(ctx context.Context, account *Account, isSticky bool) bool {
-	// 只检查 Anthropic OAuth/SetupToken 账号
 	if !account.IsAnthropicOAuthOrSetupToken() {
 		return true
 	}
-
-	limit := account.GetWindowCostLimit()
-	if limit <= 0 {
-		return true // 未启用窗口费用限制
+	if !account.HasWindowCostControl() {
+		return true
 	}
 
-	// 尝试从缓存获取窗口费用
-	var currentCost float64
-	if cost, ok := windowCostFromPrefetchContext(ctx, account.ID); ok {
-		currentCost = cost
-		goto checkSchedulability
-	}
-	if s.sessionLimitCache != nil {
-		if cost, hit, err := s.sessionLimitCache.GetWindowCost(ctx, account.ID); err == nil && hit {
-			currentCost = cost
-			goto checkSchedulability
+	// Check 5h window
+	zone5h := s.checkWindowZone(ctx, account, Window5h)
+
+	// Check 7d window (only if dynamic or 7d limit configured)
+	zone7d := WindowCostSchedulable
+	if account.IsDynamicCostEnabled() || account.GetWindowCost7dLimit() > 0 {
+		if _, ok := account.Get7dWindowStartTime(); ok {
+			zone7d = s.checkWindowZone(ctx, account, Window7d)
 		}
 	}
 
-	// 缓存未命中，从数据库查询
-	{
-		// 使用统一的窗口开始时间计算逻辑（考虑窗口过期情况）
-		startTime := account.GetCurrentWindowStartTime()
-
-		stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, startTime)
-		if err != nil {
-			// 失败开放：查询失败时允许调度
-			return true
-		}
-
-		// 使用标准费用（不含账号倍率）
-		currentCost = stats.StandardCost
-
-		// 设置缓存（忽略错误）
-		if s.sessionLimitCache != nil {
-			_ = s.sessionLimitCache.SetWindowCost(ctx, account.ID, currentCost)
-		}
+	// Worst of 5h and 7d
+	worstZone := zone5h
+	if zone7d > worstZone {
+		worstZone = zone7d
 	}
 
-checkSchedulability:
-	schedulability := account.CheckWindowCostSchedulability(currentCost)
-
-	switch schedulability {
+	switch worstZone {
 	case WindowCostSchedulable:
 		return true
 	case WindowCostStickyOnly:

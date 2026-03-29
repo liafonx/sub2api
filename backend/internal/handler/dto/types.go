@@ -171,6 +171,11 @@ type Account struct {
 	WindowCostLimit         *float64 `json:"window_cost_limit,omitempty"`
 	WindowCostStickyReserve *float64 `json:"window_cost_sticky_reserve,omitempty"`
 
+	// Dynamic cost tracking（仅 Anthropic OAuth/SetupToken 账号有效）
+	DynamicCostEnabled        *bool    `json:"dynamic_cost_enabled,omitempty"`
+	WindowCost7dLimit         *float64 `json:"window_cost_7d_limit,omitempty"`
+	WindowCost7dStickyReserve *float64 `json:"window_cost_7d_sticky_reserve,omitempty"`
+
 	// 会话数量控制（仅 Anthropic OAuth/SetupToken 账号有效）
 	// 从 extra 字段提取，方便前端显示和编辑
 	MaxSessions           *int `json:"max_sessions,omitempty"`

@@ -139,6 +139,18 @@ func (c StubSessionLimitCache) RegisterUserSession(_ context.Context, _ int64, _
 func (c StubSessionLimitCache) GetUserActiveSessionCount(_ context.Context, _ int64) (int, error) {
 	return 0, nil
 }
+func (c StubSessionLimitCache) GetWindowCost7d(_ context.Context, _ int64) (float64, bool, error) {
+	return 0, false, nil
+}
+func (c StubSessionLimitCache) SetWindowCost7d(_ context.Context, _ int64, _ float64) error {
+	return nil
+}
+func (c StubSessionLimitCache) GetWindowCost7dBatch(_ context.Context, _ []int64) (map[int64]float64, error) {
+	return nil, nil
+}
+func (c StubSessionLimitCache) DeleteWindowCost7d(_ context.Context, _ int64) error {
+	return nil
+}
 
 // ============================================================
 // StubRPMCache — service.RPMCache 的空实现

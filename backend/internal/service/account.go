@@ -1128,6 +1128,14 @@ func (a *Account) IsCodexCLIOnlyEnabled() bool {
 	return ok && enabled
 }
 
+// WindowType identifies a rate-limit window ("5h" or "7d").
+type WindowType string
+
+const (
+	Window5h WindowType = "5h"
+	Window7d WindowType = "7d"
+)
+
 // WindowCostSchedulability 窗口费用调度状态
 type WindowCostSchedulability int
 
@@ -1782,6 +1790,7 @@ func (a *Account) CheckRPMSchedulability(currentRPM int) WindowCostSchedulabilit
 	return WindowCostNotSchedulable
 }
 
+// Deprecated: Use GatewayService.checkWindowZone instead for dynamic cost support.
 // CheckWindowCostSchedulability 根据当前窗口费用检查调度状态
 // - 费用 < 阈值: WindowCostSchedulable（可正常调度）
 // - 费用 >= 阈值 且 < 阈值+预留: WindowCostStickyOnly（仅粘性会话）
@@ -1804,6 +1813,115 @@ func (a *Account) CheckWindowCostSchedulability(currentWindowCost float64) Windo
 	return WindowCostNotSchedulable
 }
 
+// IsDynamicCostEnabled 判断是否启用动态费用追踪
+func (a *Account) IsDynamicCostEnabled() bool {
+	if a.Extra == nil {
+		return false
+	}
+	v, ok := a.Extra["dynamic_cost_enabled"]
+	if !ok {
+		return false
+	}
+	if b, ok := v.(bool); ok {
+		return b
+	}
+	return false
+}
+
+// GetWindowCost7dLimit 获取 7d 窗口费用阈值（美元）
+// 返回 0 表示未启用
+func (a *Account) GetWindowCost7dLimit() float64 {
+	if a.Extra == nil {
+		return 0
+	}
+	if v, ok := a.Extra["window_cost_7d_limit"]; ok {
+		return parseExtraFloat64(v)
+	}
+	return 0
+}
+
+// GetWindowCost7dStickyReserve 获取 7d 粘性会话预留额度（美元）
+// 默认值为 10
+func (a *Account) GetWindowCost7dStickyReserve() float64 {
+	if a.Extra == nil {
+		return 10.0
+	}
+	if v, ok := a.Extra["window_cost_7d_sticky_reserve"]; ok {
+		val := parseExtraFloat64(v)
+		if val > 0 {
+			return val
+		}
+	}
+	return 10.0
+}
+
+// GetSessionWindowUtilization returns the passively-sampled 5h utilization (0–1).
+func (a *Account) GetSessionWindowUtilization() float64 {
+	return a.getExtraFloat64("session_window_utilization")
+}
+
+// GetPassiveUsage7dUtilization returns the passively-sampled 7d utilization (0–1).
+func (a *Account) GetPassiveUsage7dUtilization() float64 {
+	return a.getExtraFloat64("passive_usage_7d_utilization")
+}
+
+// GetDerived5hLimit 获取动态推导的 5h 窗口限额
+// 返回 0 表示尚未推导
+func (a *Account) GetDerived5hLimit() float64 {
+	if a.Extra == nil {
+		return 0
+	}
+	if v, ok := a.Extra["derived_5h_limit"]; ok {
+		return parseExtraFloat64(v)
+	}
+	return 0
+}
+
+// GetDerived7dLimit 获取动态推导的 7d 窗口限额
+// 返回 0 表示尚未推导
+func (a *Account) GetDerived7dLimit() float64 {
+	if a.Extra == nil {
+		return 0
+	}
+	if v, ok := a.Extra["derived_7d_limit"]; ok {
+		return parseExtraFloat64(v)
+	}
+	return 0
+}
+
+// Get7dWindowStartTime derives the 7d window start from passive_usage_7d_reset minus 7 days.
+// Returns (time, false) if passive_usage_7d_reset is absent — callers must skip 7d tracking when false.
+func (a *Account) Get7dWindowStartTime() (time.Time, bool) {
+	if a.Extra == nil {
+		return time.Time{}, false
+	}
+	v, ok := a.Extra["passive_usage_7d_reset"]
+	if !ok || v == nil {
+		return time.Time{}, false
+	}
+	resetTs := parseExtraFloat64(v)
+	if resetTs <= 0 {
+		return time.Time{}, false
+	}
+	resetTime := time.Unix(int64(resetTs), 0)
+	return resetTime.Add(-7 * 24 * time.Hour), true
+}
+
+// HasWindowCostControl returns true if any form of window cost control is enabled:
+// manual 5h limit, dynamic cost tracking, or manual 7d limit.
+func (a *Account) HasWindowCostControl() bool {
+	return a.GetWindowCostLimit() > 0 || a.IsDynamicCostEnabled() || a.GetWindowCost7dLimit() > 0
+}
+
+// GetCappedStickyReserve caps the raw sticky reserve to at most 20% of the effective limit.
+func GetCappedStickyReserve(effectiveLimit, rawReserve float64) float64 {
+	cap := effectiveLimit * 0.20
+	if rawReserve > cap {
+		return cap
+	}
+	return rawReserve
+}
+
 // GetCurrentWindowStartTime 获取当前有效的窗口开始时间
 // 逻辑：
 // 1. 如果窗口未过期（SessionWindowEnd 存在且在当前时间之后），使用记录的 SessionWindowStart
@@ -1819,6 +1937,11 @@ func (a *Account) GetCurrentWindowStartTime() time.Time {
 	// 窗口已过期或未设置，预测新的窗口开始时间（从当前整点开始）
 	// 与 ratelimit_service.go 中 UpdateSessionWindow 的预测逻辑保持一致
 	return time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), 0, 0, 0, now.Location())
+}
+
+// ParseExtraFloat64 exports parseExtraFloat64 for use by handler packages.
+func ParseExtraFloat64(value any) float64 {
+	return parseExtraFloat64(value)
 }
 
 // parseExtraFloat64 从 extra 字段解析 float64 值

@@ -1974,6 +1974,71 @@
           </div>
         </div>
 
+        <!-- Dynamic Cost Tracking -->
+        <div v-if="windowCostEnabled" class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+          <div class="mb-3 flex items-center justify-between">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.dynamicCost.label') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.quotaControl.dynamicCost.hint') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              @click="dynamicCostEnabled = !dynamicCostEnabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                dynamicCostEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  dynamicCostEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+
+          <div v-if="dynamicCostEnabled" class="space-y-3">
+            <p class="text-xs text-amber-600 dark:text-amber-400">
+              {{ t('admin.accounts.quotaControl.dynamicCost.fallbackNote') }}
+            </p>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="input-label">{{ t('admin.accounts.quotaControl.dynamicCost.limit7d') }}</label>
+                <div class="relative">
+                  <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">$</span>
+                  <input
+                    v-model.number="windowCost7dLimit"
+                    type="number"
+                    min="0"
+                    step="1"
+                    class="input pl-7"
+                    :placeholder="t('admin.accounts.quotaControl.dynamicCost.limit7dPlaceholder')"
+                  />
+                </div>
+                <p class="input-hint">{{ t('admin.accounts.quotaControl.dynamicCost.limit7dHint') }}</p>
+              </div>
+              <div>
+                <label class="input-label">{{ t('admin.accounts.quotaControl.dynamicCost.reserve7d') }}</label>
+                <div class="relative">
+                  <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">$</span>
+                  <input
+                    v-model.number="windowCost7dStickyReserve"
+                    type="number"
+                    min="0"
+                    step="1"
+                    class="input pl-7"
+                    :placeholder="t('admin.accounts.quotaControl.dynamicCost.reserve7dPlaceholder')"
+                  />
+                </div>
+                <p class="input-hint">{{ t('admin.accounts.quotaControl.dynamicCost.reserve7dHint') }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Per-User Quota Allocation -->
         <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
           <div class="mb-3 flex items-center justify-between">
@@ -3120,6 +3185,9 @@ const showGeminiHelpDialog = ref(false)
 const windowCostEnabled = ref(false)
 const windowCostLimit = ref<number | null>(null)
 const windowCostStickyReserve = ref<number | null>(null)
+const dynamicCostEnabled = ref(false)
+const windowCost7dLimit = ref<number | null>(null)
+const windowCost7dStickyReserve = ref<number | null>(null)
 const userQuotaEnabled = ref(false)
 const userQuotaIdleTimeout = ref<number | null>(null)
 const sessionLimitEnabled = ref(false)
@@ -4862,6 +4930,17 @@ const handleAnthropicExchange = async (authCode: string) => {
       extra.window_cost_sticky_reserve = windowCostStickyReserve.value ?? 10
     }
 
+    // Add dynamic cost tracking settings
+    if (dynamicCostEnabled.value) {
+      extra.dynamic_cost_enabled = true
+      if (windowCost7dLimit.value != null && windowCost7dLimit.value > 0) {
+        extra.window_cost_7d_limit = windowCost7dLimit.value
+      }
+      if (windowCost7dStickyReserve.value != null && windowCost7dStickyReserve.value > 0) {
+        extra.window_cost_7d_sticky_reserve = windowCost7dStickyReserve.value
+      }
+    }
+
     // Add per-user quota settings
     if (userQuotaEnabled.value && windowCostEnabled.value) {
       extra.user_quota_enabled = true
@@ -4986,6 +5065,17 @@ const handleCookieAuth = async (sessionKey: string) => {
         if (windowCostEnabled.value && windowCostLimit.value != null && windowCostLimit.value > 0) {
           extra.window_cost_limit = windowCostLimit.value
           extra.window_cost_sticky_reserve = windowCostStickyReserve.value ?? 10
+        }
+
+        // Add dynamic cost tracking settings
+        if (dynamicCostEnabled.value) {
+          extra.dynamic_cost_enabled = true
+          if (windowCost7dLimit.value != null && windowCost7dLimit.value > 0) {
+            extra.window_cost_7d_limit = windowCost7dLimit.value
+          }
+          if (windowCost7dStickyReserve.value != null && windowCost7dStickyReserve.value > 0) {
+            extra.window_cost_7d_sticky_reserve = windowCost7dStickyReserve.value
+          }
         }
 
         // Add per-user quota settings

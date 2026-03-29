@@ -82,8 +82,9 @@ type accountQuotaState struct {
 
 // userQuotaService implements UserQuotaChecker.
 type userQuotaService struct {
-	cache            UserQuotaCache
-	windowCostGetter func(ctx context.Context, account *Account) float64
+	cache             UserQuotaCache
+	windowCostGetter  func(ctx context.Context, account *Account) float64
+	windowLimitGetter func(ctx context.Context, account *Account) float64
 
 	mu             sync.RWMutex
 	activeAccounts map[int64]*accountQuotaState
@@ -96,6 +97,14 @@ func NewUserQuotaService(cache UserQuotaCache, windowCostGetter func(ctx context
 		cache:            cache,
 		windowCostGetter: windowCostGetter,
 		activeAccounts:   make(map[int64]*accountQuotaState),
+	}
+}
+
+// SetWindowLimitGetter sets the callback to resolve effective window cost limit.
+// Must be called after construction (before traffic).
+func SetWindowLimitGetter(svc UserQuotaChecker, getter func(ctx context.Context, account *Account) float64) {
+	if impl, ok := svc.(*userQuotaService); ok {
+		impl.windowLimitGetter = getter
 	}
 }
 
@@ -391,14 +400,20 @@ func (s *userQuotaService) recalculateQuotas(ctx context.Context, account *Accou
 	}
 
 	currentWindowCost := s.windowCostGetter(ctx, account)
-	limit := account.GetWindowCostLimit()
+	var limit float64
+	if s.windowLimitGetter != nil {
+		limit = s.windowLimitGetter(ctx, account)
+	} else {
+		limit = account.GetWindowCostLimit()
+	}
 	remaining := limit - currentWindowCost
 	if remaining < 0 {
 		remaining = 0
 	}
 
 	perUserLimit := remaining / float64(activeCount)
-	perUserStickyReserve := account.GetWindowCostStickyReserve() / float64(activeCount)
+	cappedReserve := GetCappedStickyReserve(limit, account.GetWindowCostStickyReserve())
+	perUserStickyReserve := cappedReserve / float64(activeCount)
 
 	newEpoch, err = s.cache.BumpEpochAndSetMeta(ctx, account.ID, perUserLimit, perUserStickyReserve, activeCount)
 	if err != nil {

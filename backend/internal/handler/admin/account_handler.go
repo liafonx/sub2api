@@ -171,6 +171,11 @@ type AccountWithConcurrency struct {
 	CurrentRPM        *int     `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
 	PerUserLimit      *float64 `json:"per_user_limit,omitempty"`
 	ActiveUserCount   *int     `json:"active_user_count,omitempty"`
+	// Dynamic cost tracking runtime fields
+	Effective5hLimit *float64 `json:"effective_5h_limit,omitempty"`
+	Effective7dLimit *float64 `json:"effective_7d_limit,omitempty"`
+	Utilization5h    *float64 `json:"utilization_5h,omitempty"`
+	Utilization7d    *float64 `json:"utilization_7d,omitempty"`
 }
 
 const accountListGroupUngroupedQueryValue = "ungrouped"
@@ -191,7 +196,7 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	}
 
 	if account.IsAnthropicOAuthOrSetupToken() {
-		if h.accountUsageService != nil && account.GetWindowCostLimit() > 0 {
+		if h.accountUsageService != nil && account.HasWindowCostControl() {
 			startTime := account.GetCurrentWindowStartTime()
 			if stats, err := h.accountUsageService.GetAccountWindowStats(ctx, account.ID, startTime); err == nil && stats != nil {
 				cost := stats.StandardCost
@@ -215,7 +220,7 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 			}
 		}
 
-		if h.userQuotaChecker != nil && account.IsUserQuotaEnabled() && account.GetWindowCostLimit() > 0 {
+		if h.userQuotaChecker != nil && account.IsUserQuotaEnabled() && account.HasWindowCostControl() {
 			if meta, err := h.userQuotaChecker.GetDisplayMetaBatch(ctx, []int64{account.ID}); err == nil {
 				if m, ok := meta[account.ID]; ok {
 					item.PerUserLimit = &m.PerUserLimit
@@ -224,9 +229,33 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 				}
 			}
 		}
+
+		// Dynamic cost tracking runtime fields (read from Extra)
+		if account.HasWindowCostControl() {
+			enrichDynamicCostRuntime(&item, account)
+		}
 	}
 
 	return item
+}
+
+func enrichDynamicCostRuntime(item *AccountWithConcurrency, account *service.Account) {
+	if derived5h := account.GetDerived5hLimit(); derived5h > 0 {
+		item.Effective5hLimit = &derived5h
+	} else if manual5h := account.GetWindowCostLimit(); manual5h > 0 {
+		item.Effective5hLimit = &manual5h
+	}
+	if derived7d := account.GetDerived7dLimit(); derived7d > 0 {
+		item.Effective7dLimit = &derived7d
+	} else if manual7d := account.GetWindowCost7dLimit(); manual7d > 0 {
+		item.Effective7dLimit = &manual7d
+	}
+	if util5h := account.GetSessionWindowUtilization(); util5h > 0 {
+		item.Utilization5h = &util5h
+	}
+	if util7d := account.GetPassiveUsage7dUtilization(); util7d > 0 {
+		item.Utilization7d = &util7d
+	}
 }
 
 // List handles listing all accounts with pagination
@@ -296,7 +325,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 	for i := range accounts {
 		acc := &accounts[i]
 		if acc.IsAnthropicOAuthOrSetupToken() {
-			if acc.GetWindowCostLimit() > 0 {
+			if acc.HasWindowCostControl() {
 				windowCostAccountIDs = append(windowCostAccountIDs, acc.ID)
 			}
 			if acc.GetMaxSessions() > 0 {
@@ -306,7 +335,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 			if acc.GetBaseRPM() > 0 {
 				rpmAccountIDs = append(rpmAccountIDs, acc.ID)
 			}
-			if acc.IsUserQuotaEnabled() && acc.GetWindowCostLimit() > 0 {
+			if acc.IsUserQuotaEnabled() && acc.HasWindowCostControl() {
 				userQuotaAccountIDs = append(userQuotaAccountIDs, acc.ID)
 			}
 		}
@@ -343,7 +372,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 
 		for i := range accounts {
 			acc := &accounts[i]
-			if !acc.IsAnthropicOAuthOrSetupToken() || acc.GetWindowCostLimit() <= 0 {
+			if !acc.IsAnthropicOAuthOrSetupToken() || !acc.HasWindowCostControl() {
 				continue
 			}
 			accCopy := acc // 闭包捕获
@@ -398,6 +427,11 @@ func (h *AccountHandler) List(c *gin.Context) {
 				count := int(m.ActiveCount)
 				item.ActiveUserCount = &count
 			}
+		}
+
+		// Dynamic cost tracking runtime fields
+		if acc.IsAnthropicOAuthOrSetupToken() && acc.HasWindowCostControl() {
+			enrichDynamicCostRuntime(&item, acc)
 		}
 
 		result[i] = item

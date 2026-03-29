@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -25,6 +26,8 @@ type RateLimitService struct {
 	timeoutCounterCache   TimeoutCounterCache
 	settingService        *SettingService
 	tokenCacheInvalidator TokenCacheInvalidator
+	sessionLimitCache     SessionLimitCache
+	userQuotaChecker      UserQuotaChecker
 	usageCacheMu          sync.RWMutex
 	usageCache            map[int64]*geminiUsageCacheEntry
 }
@@ -77,6 +80,16 @@ func (s *RateLimitService) SetSettingService(settingService *SettingService) {
 // SetTokenCacheInvalidator 设置 token 缓存清理器（可选依赖）
 func (s *RateLimitService) SetTokenCacheInvalidator(invalidator TokenCacheInvalidator) {
 	s.tokenCacheInvalidator = invalidator
+}
+
+// SetSessionLimitCache 设置 session limit cache（可选依赖，用于 7d cache invalidation）
+func (s *RateLimitService) SetSessionLimitCache(cache SessionLimitCache) {
+	s.sessionLimitCache = cache
+}
+
+// SetUserQuotaChecker 设置 user quota checker（可选依赖，用于 milestone 触发配额重算）
+func (s *RateLimitService) SetUserQuotaChecker(checker UserQuotaChecker) {
+	s.userQuotaChecker = checker
 }
 
 // ErrorPolicyResult 表示错误策略检查的结果
@@ -1129,43 +1142,63 @@ func (s *RateLimitService) UpdateSessionWindow(ctx context.Context, account *Acc
 		slog.Info("account_session_window_initialized", "account_id", account.ID, "window_start", start, "window_end", end, "status", status)
 	}
 
-	// 窗口重置时清除旧的 utilization 和被动采样数据，避免残留上个窗口的数据
-	if windowEnd != nil && needInitWindow {
-		_ = s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{
-			"session_window_utilization":   nil,
-			"passive_usage_7d_utilization": nil,
-			"passive_usage_7d_reset":       nil,
-			"passive_usage_sampled_at":     nil,
-		})
-	}
-
 	if err := s.accountRepo.UpdateSessionWindow(ctx, account.ID, windowStart, windowEnd, status); err != nil {
 		slog.Warn("session_window_update_failed", "account_id", account.ID, "error", err)
 	}
 
-	// 被动采样：从响应头收集 5h + 7d utilization，合并为一次 DB 写入
-	extraUpdates := make(map[string]any, 4)
+	// Accumulate all extra field updates into a single map to minimize DB writes.
+	extraUpdates := make(map[string]any, 8)
+
+	// 5h window reset: clear stale utilization and milestone tracking
+	if windowEnd != nil && needInitWindow {
+		extraUpdates["session_window_utilization"] = nil
+		extraUpdates["passive_usage_sampled_at"] = nil
+		extraUpdates["last_validated_5h_milestone"] = nil
+	}
+
+	var util5h, util7d float64
 	// 5h utilization（0-1 小数），供 estimateSetupTokenUsage 使用
 	if utilStr := headers.Get("anthropic-ratelimit-unified-5h-utilization"); utilStr != "" {
 		if util, err := strconv.ParseFloat(utilStr, 64); err == nil {
+			util5h = util
 			extraUpdates["session_window_utilization"] = util
 		}
 	}
 	// 7d utilization（0-1 小数）
 	if utilStr := headers.Get("anthropic-ratelimit-unified-7d-utilization"); utilStr != "" {
 		if util, err := strconv.ParseFloat(utilStr, 64); err == nil {
+			util7d = util
 			extraUpdates["passive_usage_7d_utilization"] = util
 		}
 	}
-	// 7d reset timestamp
+	// 7d reset timestamp + window reset detection
 	if resetStr := headers.Get("anthropic-ratelimit-unified-7d-reset"); resetStr != "" {
 		if ts, err := strconv.ParseInt(resetStr, 10, 64); err == nil {
 			if ts > 1e11 {
 				ts = ts / 1000
 			}
+			// Detect 7d window boundary crossing
+			oldReset := parseExtraFloat64(account.Extra["passive_usage_7d_reset"])
+			if oldReset > 0 && int64(oldReset) != ts {
+				slog.Info("7d_window_reset_detected", "account_id", account.ID, "old_reset", int64(oldReset), "new_reset", ts)
+				// Clear 7d tracking data (new values below will overwrite nils)
+				extraUpdates["passive_usage_7d_utilization"] = nil
+				extraUpdates["passive_usage_7d_reset"] = nil
+				extraUpdates["last_validated_7d_milestone"] = nil
+				if s.sessionLimitCache != nil {
+					_ = s.sessionLimitCache.DeleteWindowCost7d(ctx, account.ID)
+				}
+			}
 			extraUpdates["passive_usage_7d_reset"] = ts
 		}
 	}
+
+	// Persist derived limits and validate milestones (dynamic cost tracking)
+	// Note: milestone UpdateExtra calls remain separate (different code path with recalc triggers)
+	if account.IsDynamicCostEnabled() {
+		s.persistDerivedLimitsAndMilestones(ctx, account, util5h, util7d)
+	}
+
 	if len(extraUpdates) > 0 {
 		extraUpdates["passive_usage_sampled_at"] = time.Now().UTC().Format(time.RFC3339)
 		if err := s.accountRepo.UpdateExtra(ctx, account.ID, extraUpdates); err != nil {
@@ -1177,6 +1210,126 @@ func (s *RateLimitService) UpdateSessionWindow(ctx context.Context, account *Acc
 	if status == "allowed" && account.IsRateLimited() {
 		if err := s.ClearRateLimit(ctx, account.ID); err != nil {
 			slog.Warn("rate_limit_clear_failed", "account_id", account.ID, "error", err)
+		}
+	}
+}
+
+// persistDerivedLimitsAndMilestones derives limits from utilization headers and persists them.
+// Also validates milestones at 10% boundaries, triggering per-user quota recalculation on large drift.
+func (s *RateLimitService) persistDerivedLimitsAndMilestones(ctx context.Context, account *Account, util5h, util7d float64) {
+	extraUpdates := make(map[string]any, 4)
+
+	// 5h derived limit
+	if util5h >= 0.05 {
+		cost5h := s.getWindowCostForAccount(ctx, account, Window5h)
+		if cost5h > 0 {
+			derived5h := cost5h / util5h
+			stored5h := account.GetDerived5hLimit()
+			// Persist if differs >10% from stored
+			if stored5h <= 0 || math.Abs(derived5h-stored5h)/stored5h > 0.10 {
+				extraUpdates["derived_5h_limit"] = derived5h
+				slog.Info("derived_5h_limit_updated", "account_id", account.ID,
+					"derived", derived5h, "old", stored5h, "utilization", util5h, "cost", cost5h)
+			}
+			// Milestone validation
+			s.validateMilestone(ctx, account, Window5h, util5h, cost5h, derived5h)
+		}
+	}
+
+	// 7d derived limit
+	if util7d >= 0.05 {
+		cost7d := s.getWindowCostForAccount(ctx, account, Window7d)
+		if cost7d > 0 {
+			derived7d := cost7d / util7d
+			stored7d := account.GetDerived7dLimit()
+			if stored7d <= 0 || math.Abs(derived7d-stored7d)/stored7d > 0.10 {
+				extraUpdates["derived_7d_limit"] = derived7d
+				slog.Info("derived_7d_limit_updated", "account_id", account.ID,
+					"derived", derived7d, "old", stored7d, "utilization", util7d, "cost", cost7d)
+			}
+			s.validateMilestone(ctx, account, Window7d, util7d, cost7d, derived7d)
+		}
+	}
+
+	if len(extraUpdates) > 0 {
+		if err := s.accountRepo.UpdateExtra(ctx, account.ID, extraUpdates); err != nil {
+			slog.Warn("derived_limit_persist_failed", "account_id", account.ID, "error", err)
+		}
+	}
+}
+
+func (s *RateLimitService) getWindowCostForAccount(ctx context.Context, account *Account, windowType WindowType) float64 {
+	switch windowType {
+	case Window5h:
+		if s.sessionLimitCache != nil {
+			if cost, hit, err := s.sessionLimitCache.GetWindowCost(ctx, account.ID); err == nil && hit {
+				return cost
+			}
+		}
+		startTime := account.GetCurrentWindowStartTime()
+		stats, err := s.usageRepo.GetAccountWindowStats(ctx, account.ID, startTime)
+		if err != nil {
+			return 0
+		}
+		return stats.StandardCost
+	case Window7d:
+		if s.sessionLimitCache != nil {
+			if cost, hit, err := s.sessionLimitCache.GetWindowCost7d(ctx, account.ID); err == nil && hit {
+				return cost
+			}
+		}
+		start7d, ok := account.Get7dWindowStartTime()
+		if !ok {
+			return 0
+		}
+		stats, err := s.usageRepo.GetAccountWindowStats(ctx, account.ID, start7d)
+		if err != nil {
+			return 0
+		}
+		return stats.StandardCost
+	}
+	return 0
+}
+
+// validateMilestone checks if utilization crossed a 10% boundary and logs/triggers recalc.
+func (s *RateLimitService) validateMilestone(ctx context.Context, account *Account, windowType WindowType, utilization, cost, derivedLimit float64) {
+	currentMilestone := int(utilization*100) / 10 * 10 // Round down to nearest 10%
+	if currentMilestone < 10 {
+		return // Only track from 10% upward
+	}
+
+	milestoneKey := "last_validated_" + string(windowType) + "_milestone"
+	lastMilestone := parseExtraInt(account.Extra[milestoneKey])
+	if currentMilestone <= lastMilestone {
+		return // Already validated this milestone or higher
+	}
+
+	slog.Info("dynamic_cost_milestone",
+		"account_id", account.ID,
+		"window", windowType,
+		"milestone_pct", currentMilestone,
+		"utilization", utilization,
+		"sub2api_cost", cost,
+		"derived_limit", derivedLimit,
+	)
+
+	// Persist milestone
+	_ = s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{
+		milestoneKey: currentMilestone,
+	})
+
+	// If derived limit changed >15% from previous checkpoint, trigger per-user quota recalculation
+	if windowType == Window5h && s.userQuotaChecker != nil {
+		storedLimit := account.GetDerived5hLimit()
+		if storedLimit > 0 && math.Abs(derivedLimit-storedLimit)/storedLimit > 0.15 {
+			slog.Info("dynamic_cost_milestone_recalc_triggered",
+				"account_id", account.ID,
+				"old_limit", storedLimit,
+				"new_limit", derivedLimit,
+			)
+			// Use context.WithoutCancel for the recalc trigger (response path)
+			recalcCtx := context.WithoutCancel(ctx)
+			s.userQuotaChecker.NotifyAccountUpdated(recalcCtx, account)
 		}
 	}
 }

@@ -227,6 +227,20 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		if limit := a.GetWindowCostLimit(); limit > 0 {
 			out.WindowCostLimit = &limit
 		}
+		// Dynamic cost tracking fields
+		if a.IsDynamicCostEnabled() {
+			enabled := true
+			out.DynamicCostEnabled = &enabled
+		}
+		if limit7d := a.GetWindowCost7dLimit(); limit7d > 0 {
+			out.WindowCost7dLimit = &limit7d
+		}
+		// Only serialize 7d sticky reserve when 7d tracking is actually active
+		if a.IsDynamicCostEnabled() || a.GetWindowCost7dLimit() > 0 {
+			if reserve7d := a.GetWindowCost7dStickyReserve(); reserve7d > 0 {
+				out.WindowCost7dStickyReserve = &reserve7d
+			}
+		}
 		if reserve := a.GetWindowCostStickyReserve(); reserve > 0 {
 			out.WindowCostStickyReserve = &reserve
 		}

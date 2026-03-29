@@ -537,7 +537,12 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 		usage.FiveHour.WindowStats = windowStatsFromAccountStats(stats)
 	}
 
-	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, now.Add(-7*24*time.Hour)); err == nil {
+	// Use precise 7d window start from header if available, otherwise fall back to now - 7d
+	start7d := now.Add(-7 * 24 * time.Hour)
+	if precise7d, ok := account.Get7dWindowStartTime(); ok {
+		start7d = precise7d
+	}
+	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, start7d); err == nil {
 		if usage.SevenDay == nil {
 			usage.SevenDay = &UsageProgress{Utilization: 0}
 		}

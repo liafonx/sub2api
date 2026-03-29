@@ -712,6 +712,11 @@ export interface Account {
   window_cost_limit?: number | null
   window_cost_sticky_reserve?: number | null
 
+  // Dynamic cost tracking（仅 Anthropic OAuth/SetupToken 账号有效）
+  dynamic_cost_enabled?: boolean | null
+  window_cost_7d_limit?: number | null
+  window_cost_7d_sticky_reserve?: number | null
+
   // 每用户配额分配（仅 Anthropic OAuth/SetupToken 账号有效）
   user_quota_enabled?: boolean
   user_quota_idle_timeout?: number | null
@@ -770,6 +775,12 @@ export interface Account {
   current_window_cost?: number | null // 当前窗口费用
   active_sessions?: number | null // 当前活跃会话数
   current_rpm?: number | null // 当前分钟 RPM 计数
+
+  // Dynamic cost tracking runtime（仅当 dynamic_cost_enabled 时返回）
+  effective_5h_limit?: number | null
+  effective_7d_limit?: number | null
+  utilization_5h?: number | null
+  utilization_7d?: number | null
 }
 
 // Account Usage types

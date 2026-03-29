@@ -82,6 +82,13 @@ type sessionLimitCacheHotpathStub struct {
 	setErr  error
 }
 
+func (s *sessionLimitCacheHotpathStub) GetWindowCost(_ context.Context, accountID int64) (float64, bool, error) {
+	if v, ok := s.batchData[accountID]; ok {
+		return v, true, nil
+	}
+	return 0, false, nil
+}
+
 func (s *sessionLimitCacheHotpathStub) GetWindowCostBatch(ctx context.Context, accountIDs []int64) (map[int64]float64, error) {
 	if s.batchErr != nil {
 		return nil, s.batchErr
@@ -103,6 +110,19 @@ func (s *sessionLimitCacheHotpathStub) SetWindowCost(ctx context.Context, accoun
 		s.setData = make(map[int64]float64)
 	}
 	s.setData[accountID] = cost
+	return nil
+}
+
+func (s *sessionLimitCacheHotpathStub) GetWindowCost7d(_ context.Context, _ int64) (float64, bool, error) {
+	return 0, false, nil
+}
+func (s *sessionLimitCacheHotpathStub) SetWindowCost7d(_ context.Context, _ int64, _ float64) error {
+	return nil
+}
+func (s *sessionLimitCacheHotpathStub) GetWindowCost7dBatch(_ context.Context, _ []int64) (map[int64]float64, error) {
+	return make(map[int64]float64), nil
+}
+func (s *sessionLimitCacheHotpathStub) DeleteWindowCost7d(_ context.Context, _ int64) error {
 	return nil
 }
 
@@ -347,13 +367,13 @@ func TestWithWindowCostPrefetch_BatchReadAndContextReuse(t *testing.T) {
 	outCtx := svc.withWindowCostPrefetch(context.Background(), accounts)
 	require.NotNil(t, outCtx)
 
-	cost1, ok1 := windowCostFromPrefetchContext(outCtx, 1)
+	snap1, ok1 := windowCostFromPrefetchContext(outCtx, 1)
 	require.True(t, ok1)
-	require.Equal(t, 11.0, cost1)
+	require.Equal(t, 11.0, snap1.Cost5h)
 
-	cost2, ok2 := windowCostFromPrefetchContext(outCtx, 2)
+	snap2, ok2 := windowCostFromPrefetchContext(outCtx, 2)
 	require.True(t, ok2)
-	require.Equal(t, 22.0, cost2)
+	require.Equal(t, 22.0, snap2.Cost5h)
 
 	_, ok3 := windowCostFromPrefetchContext(outCtx, 3)
 	require.False(t, ok3)
@@ -406,12 +426,12 @@ func TestWithWindowCostPrefetch_AllHitNoSQL(t *testing.T) {
 	}
 
 	outCtx := svc.withWindowCostPrefetch(context.Background(), accounts)
-	cost1, ok1 := windowCostFromPrefetchContext(outCtx, 1)
-	cost2, ok2 := windowCostFromPrefetchContext(outCtx, 2)
+	snap1, ok1 := windowCostFromPrefetchContext(outCtx, 1)
+	snap2, ok2 := windowCostFromPrefetchContext(outCtx, 2)
 	require.True(t, ok1)
 	require.True(t, ok2)
-	require.Equal(t, 11.0, cost1)
-	require.Equal(t, 22.0, cost2)
+	require.Equal(t, 11.0, snap1.Cost5h)
+	require.Equal(t, 22.0, snap2.Cost5h)
 	require.Equal(t, int64(0), repo.batchCalls.Load())
 	require.Equal(t, int64(0), repo.singleCalls.Load())
 
@@ -452,9 +472,9 @@ func TestWithWindowCostPrefetch_BatchErrorFallbackSingleQuery(t *testing.T) {
 	}
 
 	outCtx := svc.withWindowCostPrefetch(context.Background(), accounts)
-	cost, ok := windowCostFromPrefetchContext(outCtx, 2)
+	snap, ok := windowCostFromPrefetchContext(outCtx, 2)
 	require.True(t, ok)
-	require.Equal(t, 33.0, cost)
+	require.Equal(t, 33.0, snap.Cost5h)
 	require.Equal(t, int64(1), repo.batchCalls.Load())
 	require.Equal(t, int64(1), repo.singleCalls.Load())
 
@@ -635,12 +655,12 @@ func TestGatewayHotpathHelpers_CacheTTLAndStickyContext(t *testing.T) {
 			return ok
 		}())
 
-		ctx := context.WithValue(context.Background(), windowCostPrefetchContextKey, map[int64]float64{
-			9: 12.34,
+		ctx := context.WithValue(context.Background(), windowCostPrefetchContextKey, map[int64]*windowCostSnapshot{
+			9: {Cost5h: 12.34},
 		})
-		cost, ok := windowCostFromPrefetchContext(ctx, 9)
+		snap, ok := windowCostFromPrefetchContext(ctx, 9)
 		require.True(t, ok)
-		require.Equal(t, 12.34, cost)
+		require.Equal(t, 12.34, snap.Cost5h)
 	})
 }
 

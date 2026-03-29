@@ -714,6 +714,7 @@ export default {
     actualCost: '实际',
     userBilled: '用户扣费',
     accountBilled: '账号计费',
+    estimatedLimitTooltip: '基于 sub2api 费用 / 利用率推算的账号限额',
     accountMultiplier: '账号倍率',
     avgDuration: '平均耗时',
     inSelectedRange: '所选范围内',
@@ -2418,6 +2419,17 @@ export default {
           stickyReserve: '粘性预留额度',
           stickyReservePlaceholder: '10',
           stickyReserveHint: '为粘性会话预留的额外额度'
+        },
+        dynamicCost: {
+          label: '动态费用追踪',
+          hint: '从利用率头部自动推导限额',
+          fallbackNote: '利用率 < 5% 时使用上方 5h 限额作为回退',
+          limit7d: '7d 费用限额',
+          limit7dPlaceholder: '200',
+          limit7dHint: '7天窗口阈值（可选）',
+          reserve7d: '7d 粘性预留',
+          reserve7dPlaceholder: '10',
+          reserve7dHint: '7天窗口粘性预留额度'
         },
         userQuota: {
           label: '每用户配额分配',

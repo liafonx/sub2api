@@ -709,6 +709,7 @@ export default {
     actualCost: 'Actual',
     userBilled: 'User billed',
     accountBilled: 'Account billed',
+    estimatedLimitTooltip: 'Estimated account limit derived from sub2api cost / utilization',
     accountMultiplier: 'Account rate',
     avgDuration: 'Avg Duration',
     inSelectedRange: 'in selected range',
@@ -2274,6 +2275,17 @@ export default {
           stickyReserve: 'Sticky Reserve',
           stickyReservePlaceholder: '10',
           stickyReserveHint: 'Additional reserve for sticky sessions'
+        },
+        dynamicCost: {
+          label: 'Dynamic Cost Tracking',
+          hint: 'Auto-derive limits from utilization headers',
+          fallbackNote: '5h limit above is used as fallback while utilization < 5%',
+          limit7d: '7d Cost Limit',
+          limit7dPlaceholder: '200',
+          limit7dHint: '7-day window threshold (optional)',
+          reserve7d: '7d Sticky Reserve',
+          reserve7dPlaceholder: '10',
+          reserve7dHint: 'Sticky reserve for the 7-day window'
         },
         userQuota: {
           label: 'Per-User Quota Allocation',

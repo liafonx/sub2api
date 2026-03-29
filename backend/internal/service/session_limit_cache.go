@@ -67,4 +67,20 @@ type SessionLimitCache interface {
 	// GetWindowCostBatch 批量获取窗口费用缓存
 	// 返回 map[accountID]cost，缓存未命中的账号不在 map 中
 	GetWindowCostBatch(ctx context.Context, accountIDs []int64) (map[int64]float64, error)
+
+	// ========== 7d窗口费用缓存 ==========
+	// Key 格式: window_cost_7d:account:{accountID}
+	// 用于缓存账号在当前7d窗口内的标准费用
+
+	// GetWindowCost7d 获取缓存的 7d 窗口费用
+	GetWindowCost7d(ctx context.Context, accountID int64) (cost float64, hit bool, err error)
+
+	// SetWindowCost7d 设置 7d 窗口费用缓存
+	SetWindowCost7d(ctx context.Context, accountID int64, cost float64) error
+
+	// GetWindowCost7dBatch 批量获取 7d 窗口费用缓存
+	GetWindowCost7dBatch(ctx context.Context, accountIDs []int64) (map[int64]float64, error)
+
+	// DeleteWindowCost7d 删除 7d 窗口费用缓存（窗口重置时使用）
+	DeleteWindowCost7d(ctx context.Context, accountID int64) error
 }

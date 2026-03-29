@@ -149,7 +149,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	rpmCache := repository.NewRPMCache(redisClient)
 	userQuotaCache := repository.NewUserQuotaCache(redisClient)
 	userQuotaService := service.NewUserQuotaService(userQuotaCache, func(ctx context.Context, account *service.Account) float64 {
-		if account.GetWindowCostLimit() <= 0 {
+		if !account.HasWindowCostControl() {
 			return 0
 		}
 		if cost, hit, err := sessionLimitCache.GetWindowCost(ctx, account.ID); err == nil && hit {
@@ -195,6 +195,13 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	gatewayService.SetPricingService(pricingService)
 	gatewayService.SetUserQuotaChecker(userQuotaService)
 	gatewayService.SetPeakUsageCache(peakUsageCache)
+	// Wire windowLimitGetter: resolves effective limit using dynamic cost tracking
+	service.SetWindowLimitGetter(userQuotaService, func(ctx context.Context, account *service.Account) float64 {
+		return gatewayService.GetEffectiveWindowCostLimit(ctx, account, "5h")
+	})
+	// Wire RateLimitService dependencies for dynamic cost tracking
+	rateLimitService.SetSessionLimitCache(sessionLimitCache)
+	rateLimitService.SetUserQuotaChecker(userQuotaService)
 	service.StartUserQuotaCleanupTicker(context.Background(), userQuotaService, 15*time.Second)
 	peakUsageService := service.ProvidePeakUsageService(client, peakUsageCache, accountRepository, userRepository, timingWheelService)
 	openAITokenProvider := service.ProvideOpenAITokenProvider(accountRepository, geminiTokenCache, openAIOAuthService, oauthRefreshAPI)
