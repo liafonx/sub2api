@@ -145,3 +145,4 @@ deploy/CRS-README.md
 deploy/caddy/
 deploy/nginx/
 deploy/config-vps-merged.yaml
+deploy/config-vps.yaml
