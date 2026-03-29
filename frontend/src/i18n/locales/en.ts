@@ -2271,6 +2271,14 @@ export default {
           stickyReservePlaceholder: '10',
           stickyReserveHint: 'Additional reserve for sticky sessions'
         },
+        userQuota: {
+          label: 'Per-User Quota Allocation',
+          hint: 'Distribute remaining window budget equally among active users',
+          idleTimeout: 'Idle Timeout (seconds)',
+          idleTimeoutPlaceholder: '60',
+          idleTimeoutHint: 'User slots are released after this many seconds of inactivity',
+          requiresWindowCost: 'Requires Window Cost Limit to be enabled'
+        },
         sessionLimit: {
           label: 'Session Count Limit',
           hint: 'Limit the number of active concurrent sessions',

@@ -198,6 +198,10 @@ type Account struct {
 	CacheTTLOverrideEnabled *bool   `json:"cache_ttl_override_enabled,omitempty"`
 	CacheTTLOverrideTarget  *string `json:"cache_ttl_override_target,omitempty"`
 
+	// 每用户配额分配（仅 Anthropic OAuth/SetupToken 账号有效）
+	UserQuotaEnabled     *bool `json:"user_quota_enabled,omitempty"`
+	UserQuotaIdleTimeout *int  `json:"user_quota_idle_timeout,omitempty"`
+
 	// API Key 账号配额限制
 	QuotaLimit       *float64 `json:"quota_limit,omitempty"`
 	QuotaUsed        *float64 `json:"quota_used,omitempty"`

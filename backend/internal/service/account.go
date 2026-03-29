@@ -1648,6 +1648,39 @@ func (a *Account) GetWindowCostStickyReserve() float64 {
 	return 10.0
 }
 
+// IsUserQuotaEnabled 判断是否启用每用户配额分配
+// 仅适用于 Anthropic OAuth/SetupToken 账号
+func (a *Account) IsUserQuotaEnabled() bool {
+	if !a.IsAnthropicOAuthOrSetupToken() {
+		return false
+	}
+	if a.Extra == nil {
+		return false
+	}
+	v, ok := a.Extra["user_quota_enabled"]
+	if !ok {
+		return false
+	}
+	if b, ok := v.(bool); ok {
+		return b
+	}
+	return false
+}
+
+// GetUserQuotaIdleTimeout 获取用户配额空闲超时时长，默认 60 秒
+func (a *Account) GetUserQuotaIdleTimeout() time.Duration {
+	if a.Extra == nil {
+		return 60 * time.Second
+	}
+	if v, ok := a.Extra["user_quota_idle_timeout"]; ok {
+		val := parseExtraInt(v)
+		if val > 0 {
+			return time.Duration(val) * time.Second
+		}
+	}
+	return 60 * time.Second
+}
+
 // GetMaxSessions 获取最大并发会话数
 // 返回 0 表示未启用
 func (a *Account) GetMaxSessions() int {
