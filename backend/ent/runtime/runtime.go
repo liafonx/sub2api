@@ -13,6 +13,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/errorpassthroughrule"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
+	"github.com/Wei-Shaw/sub2api/ent/peakusage"
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
@@ -499,6 +500,61 @@ func init() {
 	idempotencyrecordDescErrorReason := idempotencyrecordFields[6].Descriptor()
 	// idempotencyrecord.ErrorReasonValidator is a validator for the "error_reason" field. It is called by the builders before save.
 	idempotencyrecord.ErrorReasonValidator = idempotencyrecordDescErrorReason.Validators[0].(func(string) error)
+	peakusageMixin := schema.PeakUsage{}.Mixin()
+	peakusageMixinFields0 := peakusageMixin[0].Fields()
+	_ = peakusageMixinFields0
+	peakusageFields := schema.PeakUsage{}.Fields()
+	_ = peakusageFields
+	// peakusageDescCreatedAt is the schema descriptor for created_at field.
+	peakusageDescCreatedAt := peakusageMixinFields0[0].Descriptor()
+	// peakusage.DefaultCreatedAt holds the default value on creation for the created_at field.
+	peakusage.DefaultCreatedAt = peakusageDescCreatedAt.Default.(func() time.Time)
+	// peakusageDescUpdatedAt is the schema descriptor for updated_at field.
+	peakusageDescUpdatedAt := peakusageMixinFields0[1].Descriptor()
+	// peakusage.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	peakusage.DefaultUpdatedAt = peakusageDescUpdatedAt.Default.(func() time.Time)
+	// peakusage.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	peakusage.UpdateDefaultUpdatedAt = peakusageDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// peakusageDescEntityType is the schema descriptor for entity_type field.
+	peakusageDescEntityType := peakusageFields[0].Descriptor()
+	// peakusage.EntityTypeValidator is a validator for the "entity_type" field. It is called by the builders before save.
+	peakusage.EntityTypeValidator = func() func(string) error {
+		validators := peakusageDescEntityType.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(entity_type string) error {
+			for _, fn := range fns {
+				if err := fn(entity_type); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// peakusageDescEntityID is the schema descriptor for entity_id field.
+	peakusageDescEntityID := peakusageFields[1].Descriptor()
+	// peakusage.EntityIDValidator is a validator for the "entity_id" field. It is called by the builders before save.
+	peakusage.EntityIDValidator = peakusageDescEntityID.Validators[0].(func(int64) error)
+	// peakusageDescPeakConcurrency is the schema descriptor for peak_concurrency field.
+	peakusageDescPeakConcurrency := peakusageFields[2].Descriptor()
+	// peakusage.DefaultPeakConcurrency holds the default value on creation for the peak_concurrency field.
+	peakusage.DefaultPeakConcurrency = peakusageDescPeakConcurrency.Default.(int)
+	// peakusage.PeakConcurrencyValidator is a validator for the "peak_concurrency" field. It is called by the builders before save.
+	peakusage.PeakConcurrencyValidator = peakusageDescPeakConcurrency.Validators[0].(func(int) error)
+	// peakusageDescPeakSessions is the schema descriptor for peak_sessions field.
+	peakusageDescPeakSessions := peakusageFields[3].Descriptor()
+	// peakusage.DefaultPeakSessions holds the default value on creation for the peak_sessions field.
+	peakusage.DefaultPeakSessions = peakusageDescPeakSessions.Default.(int)
+	// peakusage.PeakSessionsValidator is a validator for the "peak_sessions" field. It is called by the builders before save.
+	peakusage.PeakSessionsValidator = peakusageDescPeakSessions.Validators[0].(func(int) error)
+	// peakusageDescPeakRpm is the schema descriptor for peak_rpm field.
+	peakusageDescPeakRpm := peakusageFields[4].Descriptor()
+	// peakusage.DefaultPeakRpm holds the default value on creation for the peak_rpm field.
+	peakusage.DefaultPeakRpm = peakusageDescPeakRpm.Default.(int)
+	// peakusage.PeakRpmValidator is a validator for the "peak_rpm" field. It is called by the builders before save.
+	peakusage.PeakRpmValidator = peakusageDescPeakRpm.Validators[0].(func(int) error)
 	promocodeFields := schema.PromoCode{}.Fields()
 	_ = promocodeFields
 	// promocodeDescCode is the schema descriptor for code field.

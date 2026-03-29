@@ -92,8 +92,8 @@ func (f *fakeGroupRepo) UpdateSortOrders(context.Context, []service.GroupSortOrd
 
 type fakeConcurrencyCache struct{}
 
-func (f *fakeConcurrencyCache) AcquireAccountSlot(context.Context, int64, int, string) (bool, error) {
-	return true, nil
+func (f *fakeConcurrencyCache) AcquireAccountSlot(context.Context, int64, int, string) (int, error) {
+	return 1, nil
 }
 func (f *fakeConcurrencyCache) ReleaseAccountSlot(context.Context, int64, string) error { return nil }
 func (f *fakeConcurrencyCache) GetAccountConcurrency(context.Context, int64) (int, error) {
@@ -106,8 +106,8 @@ func (f *fakeConcurrencyCache) DecrementAccountWaitCount(context.Context, int64)
 func (f *fakeConcurrencyCache) GetAccountWaitingCount(context.Context, int64) (int, error) {
 	return 0, nil
 }
-func (f *fakeConcurrencyCache) AcquireUserSlot(context.Context, int64, int, string) (bool, error) {
-	return true, nil
+func (f *fakeConcurrencyCache) AcquireUserSlot(context.Context, int64, int, string) (int, error) {
+	return 1, nil
 }
 func (f *fakeConcurrencyCache) ReleaseUserSlot(context.Context, int64, string) error   { return nil }
 func (f *fakeConcurrencyCache) GetUserConcurrency(context.Context, int64) (int, error) { return 0, nil }
@@ -167,7 +167,7 @@ func newTestGatewayHandler(t *testing.T, group *service.Group, accounts []*servi
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, cfg)
 
-	concurrencySvc := service.NewConcurrencyService(&fakeConcurrencyCache{})
+	concurrencySvc := service.NewConcurrencyService(&fakeConcurrencyCache{}, nil)
 	concurrencyHelper := NewConcurrencyHelper(concurrencySvc, SSEPingFormatClaude, 0)
 
 	h := &GatewayHandler{

@@ -20,6 +20,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/errorpassthroughrule"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
+	"github.com/Wei-Shaw/sub2api/ent/peakusage"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
@@ -55,6 +56,7 @@ const (
 	TypeErrorPassthroughRule    = "ErrorPassthroughRule"
 	TypeGroup                   = "Group"
 	TypeIdempotencyRecord       = "IdempotencyRecord"
+	TypePeakUsage               = "PeakUsage"
 	TypePromoCode               = "PromoCode"
 	TypePromoCodeUsage          = "PromoCodeUsage"
 	TypeProxy                   = "Proxy"
@@ -12534,6 +12536,867 @@ func (m *IdempotencyRecordMutation) ClearEdge(name string) error {
 // It returns an error if the edge is not defined in the schema.
 func (m *IdempotencyRecordMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown IdempotencyRecord edge %s", name)
+}
+
+// PeakUsageMutation represents an operation that mutates the PeakUsage nodes in the graph.
+type PeakUsageMutation struct {
+	config
+	op                  Op
+	typ                 string
+	id                  *int64
+	created_at          *time.Time
+	updated_at          *time.Time
+	entity_type         *string
+	entity_id           *int64
+	addentity_id        *int64
+	peak_concurrency    *int
+	addpeak_concurrency *int
+	peak_sessions       *int
+	addpeak_sessions    *int
+	peak_rpm            *int
+	addpeak_rpm         *int
+	reset_at            *time.Time
+	clearedFields       map[string]struct{}
+	done                bool
+	oldValue            func(context.Context) (*PeakUsage, error)
+	predicates          []predicate.PeakUsage
+}
+
+var _ ent.Mutation = (*PeakUsageMutation)(nil)
+
+// peakusageOption allows management of the mutation configuration using functional options.
+type peakusageOption func(*PeakUsageMutation)
+
+// newPeakUsageMutation creates new mutation for the PeakUsage entity.
+func newPeakUsageMutation(c config, op Op, opts ...peakusageOption) *PeakUsageMutation {
+	m := &PeakUsageMutation{
+		config:        c,
+		op:            op,
+		typ:           TypePeakUsage,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withPeakUsageID sets the ID field of the mutation.
+func withPeakUsageID(id int64) peakusageOption {
+	return func(m *PeakUsageMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *PeakUsage
+		)
+		m.oldValue = func(ctx context.Context) (*PeakUsage, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().PeakUsage.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withPeakUsage sets the old PeakUsage of the mutation.
+func withPeakUsage(node *PeakUsage) peakusageOption {
+	return func(m *PeakUsageMutation) {
+		m.oldValue = func(context.Context) (*PeakUsage, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m PeakUsageMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m PeakUsageMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *PeakUsageMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *PeakUsageMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().PeakUsage.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *PeakUsageMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *PeakUsageMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the PeakUsage entity.
+// If the PeakUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PeakUsageMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *PeakUsageMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *PeakUsageMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *PeakUsageMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the PeakUsage entity.
+// If the PeakUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PeakUsageMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *PeakUsageMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetEntityType sets the "entity_type" field.
+func (m *PeakUsageMutation) SetEntityType(s string) {
+	m.entity_type = &s
+}
+
+// EntityType returns the value of the "entity_type" field in the mutation.
+func (m *PeakUsageMutation) EntityType() (r string, exists bool) {
+	v := m.entity_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEntityType returns the old "entity_type" field's value of the PeakUsage entity.
+// If the PeakUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PeakUsageMutation) OldEntityType(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEntityType is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEntityType requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEntityType: %w", err)
+	}
+	return oldValue.EntityType, nil
+}
+
+// ResetEntityType resets all changes to the "entity_type" field.
+func (m *PeakUsageMutation) ResetEntityType() {
+	m.entity_type = nil
+}
+
+// SetEntityID sets the "entity_id" field.
+func (m *PeakUsageMutation) SetEntityID(i int64) {
+	m.entity_id = &i
+	m.addentity_id = nil
+}
+
+// EntityID returns the value of the "entity_id" field in the mutation.
+func (m *PeakUsageMutation) EntityID() (r int64, exists bool) {
+	v := m.entity_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEntityID returns the old "entity_id" field's value of the PeakUsage entity.
+// If the PeakUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PeakUsageMutation) OldEntityID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEntityID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEntityID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEntityID: %w", err)
+	}
+	return oldValue.EntityID, nil
+}
+
+// AddEntityID adds i to the "entity_id" field.
+func (m *PeakUsageMutation) AddEntityID(i int64) {
+	if m.addentity_id != nil {
+		*m.addentity_id += i
+	} else {
+		m.addentity_id = &i
+	}
+}
+
+// AddedEntityID returns the value that was added to the "entity_id" field in this mutation.
+func (m *PeakUsageMutation) AddedEntityID() (r int64, exists bool) {
+	v := m.addentity_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetEntityID resets all changes to the "entity_id" field.
+func (m *PeakUsageMutation) ResetEntityID() {
+	m.entity_id = nil
+	m.addentity_id = nil
+}
+
+// SetPeakConcurrency sets the "peak_concurrency" field.
+func (m *PeakUsageMutation) SetPeakConcurrency(i int) {
+	m.peak_concurrency = &i
+	m.addpeak_concurrency = nil
+}
+
+// PeakConcurrency returns the value of the "peak_concurrency" field in the mutation.
+func (m *PeakUsageMutation) PeakConcurrency() (r int, exists bool) {
+	v := m.peak_concurrency
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPeakConcurrency returns the old "peak_concurrency" field's value of the PeakUsage entity.
+// If the PeakUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PeakUsageMutation) OldPeakConcurrency(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPeakConcurrency is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPeakConcurrency requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPeakConcurrency: %w", err)
+	}
+	return oldValue.PeakConcurrency, nil
+}
+
+// AddPeakConcurrency adds i to the "peak_concurrency" field.
+func (m *PeakUsageMutation) AddPeakConcurrency(i int) {
+	if m.addpeak_concurrency != nil {
+		*m.addpeak_concurrency += i
+	} else {
+		m.addpeak_concurrency = &i
+	}
+}
+
+// AddedPeakConcurrency returns the value that was added to the "peak_concurrency" field in this mutation.
+func (m *PeakUsageMutation) AddedPeakConcurrency() (r int, exists bool) {
+	v := m.addpeak_concurrency
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetPeakConcurrency resets all changes to the "peak_concurrency" field.
+func (m *PeakUsageMutation) ResetPeakConcurrency() {
+	m.peak_concurrency = nil
+	m.addpeak_concurrency = nil
+}
+
+// SetPeakSessions sets the "peak_sessions" field.
+func (m *PeakUsageMutation) SetPeakSessions(i int) {
+	m.peak_sessions = &i
+	m.addpeak_sessions = nil
+}
+
+// PeakSessions returns the value of the "peak_sessions" field in the mutation.
+func (m *PeakUsageMutation) PeakSessions() (r int, exists bool) {
+	v := m.peak_sessions
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPeakSessions returns the old "peak_sessions" field's value of the PeakUsage entity.
+// If the PeakUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PeakUsageMutation) OldPeakSessions(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPeakSessions is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPeakSessions requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPeakSessions: %w", err)
+	}
+	return oldValue.PeakSessions, nil
+}
+
+// AddPeakSessions adds i to the "peak_sessions" field.
+func (m *PeakUsageMutation) AddPeakSessions(i int) {
+	if m.addpeak_sessions != nil {
+		*m.addpeak_sessions += i
+	} else {
+		m.addpeak_sessions = &i
+	}
+}
+
+// AddedPeakSessions returns the value that was added to the "peak_sessions" field in this mutation.
+func (m *PeakUsageMutation) AddedPeakSessions() (r int, exists bool) {
+	v := m.addpeak_sessions
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetPeakSessions resets all changes to the "peak_sessions" field.
+func (m *PeakUsageMutation) ResetPeakSessions() {
+	m.peak_sessions = nil
+	m.addpeak_sessions = nil
+}
+
+// SetPeakRpm sets the "peak_rpm" field.
+func (m *PeakUsageMutation) SetPeakRpm(i int) {
+	m.peak_rpm = &i
+	m.addpeak_rpm = nil
+}
+
+// PeakRpm returns the value of the "peak_rpm" field in the mutation.
+func (m *PeakUsageMutation) PeakRpm() (r int, exists bool) {
+	v := m.peak_rpm
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPeakRpm returns the old "peak_rpm" field's value of the PeakUsage entity.
+// If the PeakUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PeakUsageMutation) OldPeakRpm(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPeakRpm is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPeakRpm requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPeakRpm: %w", err)
+	}
+	return oldValue.PeakRpm, nil
+}
+
+// AddPeakRpm adds i to the "peak_rpm" field.
+func (m *PeakUsageMutation) AddPeakRpm(i int) {
+	if m.addpeak_rpm != nil {
+		*m.addpeak_rpm += i
+	} else {
+		m.addpeak_rpm = &i
+	}
+}
+
+// AddedPeakRpm returns the value that was added to the "peak_rpm" field in this mutation.
+func (m *PeakUsageMutation) AddedPeakRpm() (r int, exists bool) {
+	v := m.addpeak_rpm
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetPeakRpm resets all changes to the "peak_rpm" field.
+func (m *PeakUsageMutation) ResetPeakRpm() {
+	m.peak_rpm = nil
+	m.addpeak_rpm = nil
+}
+
+// SetResetAt sets the "reset_at" field.
+func (m *PeakUsageMutation) SetResetAt(t time.Time) {
+	m.reset_at = &t
+}
+
+// ResetAt returns the value of the "reset_at" field in the mutation.
+func (m *PeakUsageMutation) ResetAt() (r time.Time, exists bool) {
+	v := m.reset_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldResetAt returns the old "reset_at" field's value of the PeakUsage entity.
+// If the PeakUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PeakUsageMutation) OldResetAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldResetAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldResetAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldResetAt: %w", err)
+	}
+	return oldValue.ResetAt, nil
+}
+
+// ClearResetAt clears the value of the "reset_at" field.
+func (m *PeakUsageMutation) ClearResetAt() {
+	m.reset_at = nil
+	m.clearedFields[peakusage.FieldResetAt] = struct{}{}
+}
+
+// ResetAtCleared returns if the "reset_at" field was cleared in this mutation.
+func (m *PeakUsageMutation) ResetAtCleared() bool {
+	_, ok := m.clearedFields[peakusage.FieldResetAt]
+	return ok
+}
+
+// ResetResetAt resets all changes to the "reset_at" field.
+func (m *PeakUsageMutation) ResetResetAt() {
+	m.reset_at = nil
+	delete(m.clearedFields, peakusage.FieldResetAt)
+}
+
+// Where appends a list predicates to the PeakUsageMutation builder.
+func (m *PeakUsageMutation) Where(ps ...predicate.PeakUsage) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the PeakUsageMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *PeakUsageMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.PeakUsage, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *PeakUsageMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *PeakUsageMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (PeakUsage).
+func (m *PeakUsageMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *PeakUsageMutation) Fields() []string {
+	fields := make([]string, 0, 8)
+	if m.created_at != nil {
+		fields = append(fields, peakusage.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, peakusage.FieldUpdatedAt)
+	}
+	if m.entity_type != nil {
+		fields = append(fields, peakusage.FieldEntityType)
+	}
+	if m.entity_id != nil {
+		fields = append(fields, peakusage.FieldEntityID)
+	}
+	if m.peak_concurrency != nil {
+		fields = append(fields, peakusage.FieldPeakConcurrency)
+	}
+	if m.peak_sessions != nil {
+		fields = append(fields, peakusage.FieldPeakSessions)
+	}
+	if m.peak_rpm != nil {
+		fields = append(fields, peakusage.FieldPeakRpm)
+	}
+	if m.reset_at != nil {
+		fields = append(fields, peakusage.FieldResetAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *PeakUsageMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case peakusage.FieldCreatedAt:
+		return m.CreatedAt()
+	case peakusage.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case peakusage.FieldEntityType:
+		return m.EntityType()
+	case peakusage.FieldEntityID:
+		return m.EntityID()
+	case peakusage.FieldPeakConcurrency:
+		return m.PeakConcurrency()
+	case peakusage.FieldPeakSessions:
+		return m.PeakSessions()
+	case peakusage.FieldPeakRpm:
+		return m.PeakRpm()
+	case peakusage.FieldResetAt:
+		return m.ResetAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *PeakUsageMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case peakusage.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case peakusage.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case peakusage.FieldEntityType:
+		return m.OldEntityType(ctx)
+	case peakusage.FieldEntityID:
+		return m.OldEntityID(ctx)
+	case peakusage.FieldPeakConcurrency:
+		return m.OldPeakConcurrency(ctx)
+	case peakusage.FieldPeakSessions:
+		return m.OldPeakSessions(ctx)
+	case peakusage.FieldPeakRpm:
+		return m.OldPeakRpm(ctx)
+	case peakusage.FieldResetAt:
+		return m.OldResetAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown PeakUsage field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *PeakUsageMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case peakusage.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case peakusage.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case peakusage.FieldEntityType:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEntityType(v)
+		return nil
+	case peakusage.FieldEntityID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEntityID(v)
+		return nil
+	case peakusage.FieldPeakConcurrency:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPeakConcurrency(v)
+		return nil
+	case peakusage.FieldPeakSessions:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPeakSessions(v)
+		return nil
+	case peakusage.FieldPeakRpm:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPeakRpm(v)
+		return nil
+	case peakusage.FieldResetAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetResetAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown PeakUsage field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *PeakUsageMutation) AddedFields() []string {
+	var fields []string
+	if m.addentity_id != nil {
+		fields = append(fields, peakusage.FieldEntityID)
+	}
+	if m.addpeak_concurrency != nil {
+		fields = append(fields, peakusage.FieldPeakConcurrency)
+	}
+	if m.addpeak_sessions != nil {
+		fields = append(fields, peakusage.FieldPeakSessions)
+	}
+	if m.addpeak_rpm != nil {
+		fields = append(fields, peakusage.FieldPeakRpm)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *PeakUsageMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case peakusage.FieldEntityID:
+		return m.AddedEntityID()
+	case peakusage.FieldPeakConcurrency:
+		return m.AddedPeakConcurrency()
+	case peakusage.FieldPeakSessions:
+		return m.AddedPeakSessions()
+	case peakusage.FieldPeakRpm:
+		return m.AddedPeakRpm()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *PeakUsageMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case peakusage.FieldEntityID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddEntityID(v)
+		return nil
+	case peakusage.FieldPeakConcurrency:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddPeakConcurrency(v)
+		return nil
+	case peakusage.FieldPeakSessions:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddPeakSessions(v)
+		return nil
+	case peakusage.FieldPeakRpm:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddPeakRpm(v)
+		return nil
+	}
+	return fmt.Errorf("unknown PeakUsage numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *PeakUsageMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(peakusage.FieldResetAt) {
+		fields = append(fields, peakusage.FieldResetAt)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *PeakUsageMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *PeakUsageMutation) ClearField(name string) error {
+	switch name {
+	case peakusage.FieldResetAt:
+		m.ClearResetAt()
+		return nil
+	}
+	return fmt.Errorf("unknown PeakUsage nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *PeakUsageMutation) ResetField(name string) error {
+	switch name {
+	case peakusage.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case peakusage.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case peakusage.FieldEntityType:
+		m.ResetEntityType()
+		return nil
+	case peakusage.FieldEntityID:
+		m.ResetEntityID()
+		return nil
+	case peakusage.FieldPeakConcurrency:
+		m.ResetPeakConcurrency()
+		return nil
+	case peakusage.FieldPeakSessions:
+		m.ResetPeakSessions()
+		return nil
+	case peakusage.FieldPeakRpm:
+		m.ResetPeakRpm()
+		return nil
+	case peakusage.FieldResetAt:
+		m.ResetResetAt()
+		return nil
+	}
+	return fmt.Errorf("unknown PeakUsage field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *PeakUsageMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *PeakUsageMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *PeakUsageMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *PeakUsageMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *PeakUsageMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *PeakUsageMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *PeakUsageMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown PeakUsage unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *PeakUsageMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown PeakUsage edge %s", name)
 }
 
 // PromoCodeMutation represents an operation that mutates the PromoCode nodes in the graph.

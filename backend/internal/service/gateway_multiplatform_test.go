@@ -1888,14 +1888,17 @@ type mockConcurrencyCache struct {
 	skipDefaultLoad     bool
 }
 
-func (m *mockConcurrencyCache) AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (bool, error) {
+func (m *mockConcurrencyCache) AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (int, error) {
 	m.acquireAccountCalls++
 	if m.acquireResults != nil {
 		if result, ok := m.acquireResults[accountID]; ok {
-			return result, nil
+			if result {
+				return 1, nil
+			}
+			return 0, nil
 		}
 	}
-	return true, nil
+	return 1, nil
 }
 
 func (m *mockConcurrencyCache) ReleaseAccountSlot(ctx context.Context, accountID int64, requestID string) error {
@@ -1931,8 +1934,8 @@ func (m *mockConcurrencyCache) GetAccountWaitingCount(ctx context.Context, accou
 	return 0, nil
 }
 
-func (m *mockConcurrencyCache) AcquireUserSlot(ctx context.Context, userID int64, maxConcurrency int, requestID string) (bool, error) {
-	return true, nil
+func (m *mockConcurrencyCache) AcquireUserSlot(ctx context.Context, userID int64, maxConcurrency int, requestID string) (int, error) {
+	return 1, nil
 }
 
 func (m *mockConcurrencyCache) ReleaseUserSlot(ctx context.Context, userID int64, requestID string) error {
@@ -2179,7 +2182,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 			accountRepo:        repo,
 			cache:              cache,
 			cfg:                cfg,
-			concurrencyService: NewConcurrencyService(concurrencyCache),
+			concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 		}
 
 		result, err := svc.SelectAccountWithLoadAwareness(ctx, nil, "sticky", "claude-3-5-sonnet-20241022", nil, "")
@@ -2215,7 +2218,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 			accountRepo:        repo,
 			cache:              cache,
 			cfg:                cfg,
-			concurrencyService: NewConcurrencyService(concurrencyCache),
+			concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 		}
 
 		result, err := svc.SelectAccountWithLoadAwareness(ctx, nil, "sticky", "claude-3-5-sonnet-20241022", nil, "")
@@ -2256,7 +2259,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 			accountRepo:        repo,
 			cache:              cache,
 			cfg:                cfg,
-			concurrencyService: NewConcurrencyService(concurrencyCache),
+			concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 		}
 
 		result, err := svc.SelectAccountWithLoadAwareness(testCtx, nil, "sticky", "claude-3-5-sonnet-20241022", nil, "")
@@ -2387,7 +2390,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 			accountRepo:        repo,
 			cache:              cache,
 			cfg:                cfg,
-			concurrencyService: NewConcurrencyService(concurrencyCache),
+			concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 		}
 
 		result, err := svc.SelectAccountWithLoadAwareness(ctx, nil, "sticky", "claude-3-5-sonnet-20241022", nil, "")
@@ -2423,7 +2426,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 			accountRepo:        repo,
 			cache:              cache,
 			cfg:                cfg,
-			concurrencyService: NewConcurrencyService(concurrencyCache),
+			concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 		}
 
 		result, err := svc.SelectAccountWithLoadAwareness(ctx, nil, "legacy", "claude-3-5-sonnet-20241022", nil, "")
@@ -2482,7 +2485,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 			groupRepo:          groupRepo,
 			cache:              cache,
 			cfg:                cfg,
-			concurrencyService: NewConcurrencyService(concurrencyCache),
+			concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 		}
 
 		result, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, sessionHash, "claude-3-5-sonnet-20241022", nil, "")
@@ -2536,7 +2539,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 			groupRepo:          groupRepo,
 			cache:              cache,
 			cfg:                cfg,
-			concurrencyService: NewConcurrencyService(concurrencyCache),
+			concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 		}
 
 		result, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, sessionHash, "claude-3-5-sonnet-20241022", nil, "")
@@ -2590,7 +2593,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 			groupRepo:          groupRepo,
 			cache:              cache,
 			cfg:                cfg,
-			concurrencyService: NewConcurrencyService(concurrencyCache),
+			concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 		}
 
 		result, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, sessionHash, "claude-3-5-sonnet-20241022", nil, "")
@@ -2648,7 +2651,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 			groupRepo:          groupRepo,
 			cache:              cache,
 			cfg:                cfg,
-			concurrencyService: NewConcurrencyService(concurrencyCache),
+			concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 		}
 
 		result, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, "route", "claude-3-5-sonnet-20241022", nil, "")
@@ -2706,7 +2709,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 			groupRepo:          groupRepo,
 			cache:              cache,
 			cfg:                cfg,
-			concurrencyService: NewConcurrencyService(concurrencyCache),
+			concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 		}
 
 		result, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, "route-full", "claude-3-5-sonnet-20241022", nil, "")
@@ -2764,7 +2767,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 			groupRepo:          groupRepo,
 			cache:              cache,
 			cfg:                cfg,
-			concurrencyService: NewConcurrencyService(concurrencyCache),
+			concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 		}
 
 		result, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, "fallback", "claude-3-5-sonnet-20241022", nil, "")
@@ -2801,7 +2804,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 			accountRepo:        repo,
 			cache:              cache,
 			cfg:                cfg,
-			concurrencyService: NewConcurrencyService(concurrencyCache),
+			concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 		}
 
 		result, err := svc.SelectAccountWithLoadAwareness(ctx, nil, "", "claude-3-5-sonnet-20241022", nil, "")
@@ -2853,7 +2856,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 			groupRepo:          groupRepo,
 			cache:              cache,
 			cfg:                cfg,
-			concurrencyService: NewConcurrencyService(concurrencyCache),
+			concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 		}
 
 		result, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, "gemini", "gemini-2.5-pro", nil, "")
@@ -2930,7 +2933,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 			groupRepo:          groupRepo,
 			cache:              cache,
 			cfg:                cfg,
-			concurrencyService: NewConcurrencyService(concurrencyCache),
+			concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 		}
 
 		excluded := map[int64]struct{}{1: {}}
@@ -3056,7 +3059,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 			accountRepo:        repo,
 			cache:              cache,
 			cfg:                cfg,
-			concurrencyService: NewConcurrencyService(concurrencyCache),
+			concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 		}
 
 		result, err := svc.SelectAccountWithLoadAwareness(ctx, nil, "wait", "claude-3-5-sonnet-20241022", nil, "")
@@ -3094,7 +3097,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 			accountRepo:        repo,
 			cache:              cache,
 			cfg:                cfg,
-			concurrencyService: NewConcurrencyService(concurrencyCache),
+			concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 		}
 
 		result, err := svc.SelectAccountWithLoadAwareness(ctx, nil, "missing-load", "claude-3-5-sonnet-20241022", nil, "")

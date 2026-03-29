@@ -30,6 +30,7 @@ type AdminHandlers struct {
 	TLSFingerprintProfile *admin.TLSFingerprintProfileHandler
 	APIKey                *admin.AdminAPIKeyHandler
 	ScheduledTest         *admin.ScheduledTestHandler
+	PeakUsage             *admin.PeakUsageHandler
 }
 
 // Handlers contains all HTTP handlers

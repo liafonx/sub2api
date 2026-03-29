@@ -342,3 +342,47 @@ func (c *sessionLimitCache) GetWindowCostBatch(ctx context.Context, accountIDs [
 
 	return results, nil
 }
+
+func userSessionLimitKey(userID int64) string {
+	return fmt.Sprintf("session_limit:user:%d", userID)
+}
+
+func (c *sessionLimitCache) RegisterUserSession(ctx context.Context, userID int64, sessionUUID string, maxSessions int, idleTimeout time.Duration) (bool, error) {
+	key := userSessionLimitKey(userID)
+	now := float64(time.Now().UnixMilli())
+	cutoff := now - float64(idleTimeout.Milliseconds())
+
+	// Remove expired sessions first
+	c.rdb.ZRemRangeByScore(ctx, key, "-inf", fmt.Sprintf("%f", cutoff))
+
+	// Check if session exists
+	_, err := c.rdb.ZScore(ctx, key, sessionUUID).Result()
+	if err == nil {
+		// Session exists, refresh
+		c.rdb.ZAdd(ctx, key, redis.Z{Score: now, Member: sessionUUID})
+		c.rdb.Expire(ctx, key, idleTimeout+time.Minute)
+		return true, nil
+	}
+
+	// Check count
+	count, err := c.rdb.ZCard(ctx, key).Result()
+	if err != nil {
+		return true, nil // fail open
+	}
+	if int(count) >= maxSessions {
+		return false, nil
+	}
+
+	c.rdb.ZAdd(ctx, key, redis.Z{Score: now, Member: sessionUUID})
+	c.rdb.Expire(ctx, key, idleTimeout+time.Minute)
+	return true, nil
+}
+
+func (c *sessionLimitCache) GetUserActiveSessionCount(ctx context.Context, userID int64) (int, error) {
+	key := userSessionLimitKey(userID)
+	count, err := c.rdb.ZCard(ctx, key).Result()
+	if err != nil {
+		return 0, err
+	}
+	return int(count), nil
+}

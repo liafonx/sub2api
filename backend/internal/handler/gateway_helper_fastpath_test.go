@@ -11,17 +11,17 @@ import (
 )
 
 type concurrencyCacheMock struct {
-	acquireUserSlotFn    func(ctx context.Context, userID int64, maxConcurrency int, requestID string) (bool, error)
-	acquireAccountSlotFn func(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (bool, error)
+	acquireUserSlotFn    func(ctx context.Context, userID int64, maxConcurrency int, requestID string) (int, error)
+	acquireAccountSlotFn func(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (int, error)
 	releaseUserCalled    int32
 	releaseAccountCalled int32
 }
 
-func (m *concurrencyCacheMock) AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (bool, error) {
+func (m *concurrencyCacheMock) AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (int, error) {
 	if m.acquireAccountSlotFn != nil {
 		return m.acquireAccountSlotFn(ctx, accountID, maxConcurrency, requestID)
 	}
-	return false, nil
+	return 0, nil
 }
 
 func (m *concurrencyCacheMock) ReleaseAccountSlot(ctx context.Context, accountID int64, requestID string) error {
@@ -53,11 +53,11 @@ func (m *concurrencyCacheMock) GetAccountWaitingCount(ctx context.Context, accou
 	return 0, nil
 }
 
-func (m *concurrencyCacheMock) AcquireUserSlot(ctx context.Context, userID int64, maxConcurrency int, requestID string) (bool, error) {
+func (m *concurrencyCacheMock) AcquireUserSlot(ctx context.Context, userID int64, maxConcurrency int, requestID string) (int, error) {
 	if m.acquireUserSlotFn != nil {
 		return m.acquireUserSlotFn(ctx, userID, maxConcurrency, requestID)
 	}
-	return false, nil
+	return 0, nil
 }
 
 func (m *concurrencyCacheMock) ReleaseUserSlot(ctx context.Context, userID int64, requestID string) error {
@@ -95,11 +95,11 @@ func (m *concurrencyCacheMock) CleanupStaleProcessSlots(ctx context.Context, act
 
 func TestConcurrencyHelper_TryAcquireUserSlot(t *testing.T) {
 	cache := &concurrencyCacheMock{
-		acquireUserSlotFn: func(ctx context.Context, userID int64, maxConcurrency int, requestID string) (bool, error) {
-			return true, nil
+		acquireUserSlotFn: func(ctx context.Context, userID int64, maxConcurrency int, requestID string) (int, error) {
+			return 1, nil
 		},
 	}
-	helper := NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second)
+	helper := NewConcurrencyHelper(service.NewConcurrencyService(cache, nil), SSEPingFormatNone, time.Second)
 
 	release, acquired, err := helper.TryAcquireUserSlot(context.Background(), 101, 2)
 	require.NoError(t, err)
@@ -112,11 +112,11 @@ func TestConcurrencyHelper_TryAcquireUserSlot(t *testing.T) {
 
 func TestConcurrencyHelper_TryAcquireAccountSlot_NotAcquired(t *testing.T) {
 	cache := &concurrencyCacheMock{
-		acquireAccountSlotFn: func(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (bool, error) {
-			return false, nil
+		acquireAccountSlotFn: func(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (int, error) {
+			return 0, nil
 		},
 	}
-	helper := NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second)
+	helper := NewConcurrencyHelper(service.NewConcurrencyService(cache, nil), SSEPingFormatNone, time.Second)
 
 	release, acquired, err := helper.TryAcquireAccountSlot(context.Background(), 201, 1)
 	require.NoError(t, err)

@@ -5011,5 +5011,23 @@ export default {
     examplePrompt2: 'Drone aerial view, green aurora reflecting on a glacial lake in Iceland, slow push-in',
     examplePrompt3: 'Cyberpunk futuristic city, neon lights reflected in rain puddles, nightscape, cinematic colors',
     examplePrompt4: 'Chinese ink painting style, a small boat drifting among misty mountains and rivers, classical atmosphere'
+  },
+  peakUsage: {
+    titleAccounts: 'Account Peak Usage',
+    titleUsers: 'User Peak Usage',
+    concurrency: 'Peak Concurrency',
+    sessions: 'Peak Sessions',
+    rpm: 'Peak RPM',
+    noData: 'No peak data recorded yet',
+    resetAll: 'Reset All Peaks',
+    resetConfirmTitle: 'Reset Peak Usage',
+    resetConfirmMessage:
+      'This will permanently clear all recorded peak usage data for this entity type. This action cannot be undone.',
+    resetConfirmBtn: 'Reset',
+    resetSuccess: 'Peak usage data reset successfully',
+    resetError: 'Failed to reset peak usage data',
+    fetchError: 'Failed to load peak usage data',
+    trackingSince: 'Tracking since',
+    lastUpdated: 'Last updated'
   }
 }

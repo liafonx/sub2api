@@ -26,16 +26,19 @@ type helperConcurrencyCacheStub struct {
 	userReleaseCalls    int
 }
 
-func (s *helperConcurrencyCacheStub) AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (bool, error) {
+func (s *helperConcurrencyCacheStub) AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.accountAcquireCalls++
 	if len(s.accountSeq) == 0 {
-		return false, nil
+		return 0, nil
 	}
 	v := s.accountSeq[0]
 	s.accountSeq = s.accountSeq[1:]
-	return v, nil
+	if v {
+		return 1, nil
+	}
+	return 0, nil
 }
 
 func (s *helperConcurrencyCacheStub) ReleaseAccountSlot(ctx context.Context, accountID int64, requestID string) error {
@@ -69,16 +72,19 @@ func (s *helperConcurrencyCacheStub) GetAccountWaitingCount(ctx context.Context,
 	return 0, nil
 }
 
-func (s *helperConcurrencyCacheStub) AcquireUserSlot(ctx context.Context, userID int64, maxConcurrency int, requestID string) (bool, error) {
+func (s *helperConcurrencyCacheStub) AcquireUserSlot(ctx context.Context, userID int64, maxConcurrency int, requestID string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.userAcquireCalls++
 	if len(s.userSeq) == 0 {
-		return false, nil
+		return 0, nil
 	}
 	v := s.userSeq[0]
 	s.userSeq = s.userSeq[1:]
-	return v, nil
+	if v {
+		return 1, nil
+	}
+	return 0, nil
 }
 
 func (s *helperConcurrencyCacheStub) ReleaseUserSlot(ctx context.Context, userID int64, requestID string) error {
@@ -222,7 +228,7 @@ func TestWaitForSlotWithPingTimeout_AccountAndUserAcquire(t *testing.T) {
 		accountSeq: []bool{false, true},
 		userSeq:    []bool{false, true},
 	}
-	concurrency := service.NewConcurrencyService(cache)
+	concurrency := service.NewConcurrencyService(cache, nil)
 	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond)
 
 	t.Run("account_slot_acquired_after_retry", func(t *testing.T) {
@@ -253,7 +259,7 @@ func TestWaitForSlotWithPingTimeout_TimeoutAndStreamPing(t *testing.T) {
 	cache := &helperConcurrencyCacheStub{
 		accountSeq: []bool{false, false, false},
 	}
-	concurrency := service.NewConcurrencyService(cache)
+	concurrency := service.NewConcurrencyService(cache, nil)
 
 	t.Run("timeout_returns_concurrency_error", func(t *testing.T) {
 		helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond)
@@ -284,7 +290,7 @@ func TestWaitForSlotWithPingTimeout_AcquireError(t *testing.T) {
 	errCache := &helperConcurrencyCacheStubWithError{
 		err: errors.New("redis unavailable"),
 	}
-	concurrency := service.NewConcurrencyService(errCache)
+	concurrency := service.NewConcurrencyService(errCache, nil)
 	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond)
 	c, _ := newHelperTestContext(http.MethodPost, "/v1/messages")
 	streamStarted := false
@@ -298,7 +304,7 @@ func TestAcquireAccountSlotWithWaitTimeout_ImmediateAttemptBeforeBackoff(t *test
 	cache := &helperConcurrencyCacheStub{
 		accountSeq: []bool{false},
 	}
-	concurrency := service.NewConcurrencyService(cache)
+	concurrency := service.NewConcurrencyService(cache, nil)
 	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond)
 	c, _ := newHelperTestContext(http.MethodPost, "/v1/messages")
 	streamStarted := false
@@ -316,6 +322,6 @@ type helperConcurrencyCacheStubWithError struct {
 	err error
 }
 
-func (s *helperConcurrencyCacheStubWithError) AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (bool, error) {
-	return false, s.err
+func (s *helperConcurrencyCacheStubWithError) AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (int, error) {
+	return 0, s.err
 }

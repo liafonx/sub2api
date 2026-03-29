@@ -1627,3 +1627,19 @@ export interface UpdateScheduledTestPlanRequest {
   max_results?: number
   auto_recover?: boolean
 }
+
+// ==================== Peak Usage Types ====================
+
+export interface PeakUsageEntry {
+  entity_id: number | string
+  entity_name?: string
+  entity_label?: string
+  updated_at?: string
+  reset_at?: string
+  peak_concurrency?: number
+  max_concurrency?: number
+  peak_sessions?: number
+  max_sessions?: number
+  peak_rpm?: number
+  max_rpm?: number
+}

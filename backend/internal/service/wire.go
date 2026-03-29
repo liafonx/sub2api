@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/google/wire"
@@ -124,6 +125,19 @@ func ProvideAntigravityTokenProvider(
 	return p
 }
 
+// ProvidePeakUsageService creates and starts PeakUsageService.
+func ProvidePeakUsageService(
+	entClient *ent.Client,
+	peakCache PeakUsageCache,
+	accountRepo AccountRepository,
+	userRepo UserRepository,
+	timingWheel *TimingWheelService,
+) *PeakUsageService {
+	svc := NewPeakUsageService(entClient, peakCache, accountRepo, userRepo, timingWheel)
+	svc.Start()
+	return svc
+}
+
 // ProvideDashboardAggregationService 创建并启动仪表盘聚合服务
 func ProvideDashboardAggregationService(repo DashboardAggregationRepository, timingWheel *TimingWheelService, cfg *config.Config) *DashboardAggregationService {
 	svc := NewDashboardAggregationService(repo, timingWheel, cfg)
@@ -170,8 +184,8 @@ func ProvideDeferredService(accountRepo AccountRepository, timingWheel *TimingWh
 }
 
 // ProvideConcurrencyService creates ConcurrencyService and starts slot cleanup worker.
-func ProvideConcurrencyService(cache ConcurrencyCache, accountRepo AccountRepository, cfg *config.Config) *ConcurrencyService {
-	svc := NewConcurrencyService(cache)
+func ProvideConcurrencyService(cache ConcurrencyCache, peakCache PeakUsageCache, accountRepo AccountRepository, cfg *config.Config) *ConcurrencyService {
+	svc := NewConcurrencyService(cache, peakCache)
 	if err := svc.CleanupStaleProcessSlots(context.Background()); err != nil {
 		logger.LegacyPrintf("service.concurrency", "Warning: startup cleanup stale process slots failed: %v", err)
 	}
@@ -490,4 +504,5 @@ var ProviderSet = wire.NewSet(
 	ProvideScheduledTestService,
 	ProvideScheduledTestRunnerService,
 	NewGroupCapacityService,
+	ProvidePeakUsageService,
 )

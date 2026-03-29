@@ -87,6 +87,9 @@ func RegisterAdminRoutes(
 
 		// 定时测试计划
 		registerScheduledTestRoutes(admin, h)
+
+		// 峰值使用量
+		registerPeakUsageRoutes(admin, h)
 	}
 }
 
@@ -565,5 +568,14 @@ func registerTLSFingerprintProfileRoutes(admin *gin.RouterGroup, h *handler.Hand
 		profiles.POST("", h.Admin.TLSFingerprintProfile.Create)
 		profiles.PUT("/:id", h.Admin.TLSFingerprintProfile.Update)
 		profiles.DELETE("/:id", h.Admin.TLSFingerprintProfile.Delete)
+	}
+}
+
+func registerPeakUsageRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	peakUsage := admin.Group("/peak-usage")
+	{
+		peakUsage.GET("/accounts", h.Admin.PeakUsage.GetAccountPeaks)
+		peakUsage.GET("/users", h.Admin.PeakUsage.GetUserPeaks)
+		peakUsage.POST("/reset", h.Admin.PeakUsage.ResetPeaks)
 	}
 }

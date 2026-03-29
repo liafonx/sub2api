@@ -139,3 +139,23 @@ func (c *RPMCacheImpl) GetRPMBatch(ctx context.Context, accountIDs []int64) (map
 	}
 	return result, nil
 }
+
+// IncrementUserRPM atomically increments and returns the current minute's RPM count for a user.
+func (c *RPMCacheImpl) IncrementUserRPM(ctx context.Context, userID int64) (int, error) {
+	serverTime, err := c.rdb.Time(ctx).Result()
+	if err != nil {
+		return 0, fmt.Errorf("user rpm increment: %w", err)
+	}
+	minuteTS := serverTime.Unix() / 60
+	key := fmt.Sprintf("user_rpm:%d:%d", userID, minuteTS)
+
+	pipe := c.rdb.TxPipeline()
+	incrCmd := pipe.Incr(ctx, key)
+	pipe.Expire(ctx, key, rpmKeyTTL)
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return 0, fmt.Errorf("user rpm increment: %w", err)
+	}
+
+	return int(incrCmd.Val()), nil
+}

@@ -56,7 +56,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyRateLimite
 	cache := &stubGatewayCache{sessionBindings: map[string]int64{"openai:session_hash_rate_limited": 31001}}
 	snapshotCache := &openAISnapshotCacheStub{snapshotAccounts: []*Account{staleSticky, staleBackup}, accountsByID: map[int64]*Account{31001: freshSticky, 31002: freshBackup}}
 	snapshotService := &SchedulerSnapshotService{cache: snapshotCache}
-	svc := &OpenAIGatewayService{accountRepo: stubOpenAIAccountRepo{accounts: []Account{*freshSticky, *freshBackup}}, cache: cache, cfg: &config.Config{}, schedulerSnapshot: snapshotService, concurrencyService: NewConcurrencyService(stubConcurrencyCache{})}
+	svc := &OpenAIGatewayService{accountRepo: stubOpenAIAccountRepo{accounts: []Account{*freshSticky, *freshBackup}}, cache: cache, cfg: &config.Config{}, schedulerSnapshot: snapshotService, concurrencyService: NewConcurrencyService(stubConcurrencyCache{}, nil)}
 
 	selection, decision, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "session_hash_rate_limited", "gpt-5.1", nil, OpenAIUpstreamTransportAny)
 	require.NoError(t, err)
@@ -103,7 +103,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyDBRuntimeR
 		cache:              cache,
 		cfg:                &config.Config{},
 		schedulerSnapshot:  snapshotService,
-		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}, nil),
 	}
 
 	selection, decision, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "session_hash_db_runtime_recheck", "gpt-5.1", nil, OpenAIUpstreamTransportAny)
@@ -166,7 +166,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_PreviousResponseSticky(
 		accountRepo:        stubOpenAIAccountRepo{accounts: []Account{account}},
 		cache:              cache,
 		cfg:                cfg,
-		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}, nil),
 	}
 
 	store := svc.getOpenAIWSStateStore()
@@ -214,7 +214,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionSticky(t *testin
 		accountRepo:        stubOpenAIAccountRepo{accounts: []Account{account}},
 		cache:              cache,
 		cfg:                &config.Config{},
-		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}, nil),
 	}
 
 	selection, decision, err := svc.SelectAccountWithScheduler(
@@ -291,7 +291,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyBusyKeepsS
 		accountRepo:        stubOpenAIAccountRepo{accounts: accounts},
 		cache:              cache,
 		cfg:                cfg,
-		concurrencyService: NewConcurrencyService(concurrencyCache),
+		concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 	}
 
 	selection, decision, err := svc.SelectAccountWithScheduler(
@@ -338,7 +338,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionSticky_ForceHTTP
 		accountRepo:        stubOpenAIAccountRepo{accounts: []Account{account}},
 		cache:              cache,
 		cfg:                &config.Config{},
-		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}, nil),
 	}
 
 	selection, decision, err := svc.SelectAccountWithScheduler(
@@ -406,7 +406,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_RequiredWSV2_SkipsStick
 		accountRepo:        stubOpenAIAccountRepo{accounts: accounts},
 		cache:              cache,
 		cfg:                cfg,
-		concurrencyService: NewConcurrencyService(concurrencyCache),
+		concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 	}
 
 	selection, decision, err := svc.SelectAccountWithScheduler(
@@ -448,7 +448,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_RequiredWSV2_NoAvailabl
 		accountRepo:        stubOpenAIAccountRepo{accounts: accounts},
 		cache:              &stubGatewayCache{},
 		cfg:                newOpenAIWSV2TestConfig(),
-		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}, nil),
 	}
 
 	selection, decision, err := svc.SelectAccountWithScheduler(
@@ -523,7 +523,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceTopKFallback
 		accountRepo:        stubOpenAIAccountRepo{accounts: accounts},
 		cache:              &stubGatewayCache{},
 		cfg:                cfg,
-		concurrencyService: NewConcurrencyService(concurrencyCache),
+		concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 	}
 
 	selection, decision, err := svc.SelectAccountWithScheduler(
@@ -568,7 +568,7 @@ func TestOpenAIGatewayService_OpenAIAccountSchedulerMetrics(t *testing.T) {
 		accountRepo:        stubOpenAIAccountRepo{accounts: []Account{account}},
 		cache:              cache,
 		cfg:                &config.Config{},
-		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}, nil),
 	}
 
 	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "session_hash_metrics", "gpt-5.1", nil, OpenAIUpstreamTransportAny)
@@ -760,7 +760,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceDistributesA
 		accountRepo:        stubOpenAIAccountRepo{accounts: accounts},
 		cache:              &stubGatewayCache{sessionBindings: map[string]int64{}},
 		cfg:                cfg,
-		concurrencyService: NewConcurrencyService(concurrencyCache),
+		concurrencyService: NewConcurrencyService(concurrencyCache, nil),
 	}
 
 	selected := make(map[int64]int, len(accounts))

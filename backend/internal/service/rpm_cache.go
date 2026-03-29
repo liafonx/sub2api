@@ -14,4 +14,7 @@ type RPMCache interface {
 
 	// GetRPMBatch 批量获取多个账号的 RPM 计数（使用 Pipeline）
 	GetRPMBatch(ctx context.Context, accountIDs []int64) (map[int64]int, error)
+
+	// IncrementUserRPM atomically increments and returns the current minute's RPM count for a user.
+	IncrementUserRPM(ctx context.Context, userID int64) (count int, err error)
 }

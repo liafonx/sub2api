@@ -604,3 +604,22 @@ func (r *userRepository) DisableTotp(ctx context.Context, userID int64) error {
 	}
 	return nil
 }
+
+func (r *userRepository) ListAllIDs(ctx context.Context) ([]int64, error) {
+	return r.client.User.Query().IDs(ctx)
+}
+
+func (r *userRepository) GetByIDs(ctx context.Context, ids []int64) ([]*service.User, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := r.client.User.Query().Where(dbuser.IDIn(ids...)).All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	users := make([]*service.User, 0, len(rows))
+	for _, row := range rows {
+		users = append(users, userEntityToService(row))
+	}
+	return users, nil
+}

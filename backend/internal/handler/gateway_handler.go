@@ -444,12 +444,21 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 
 			// RPM 计数递增（Forward 成功后）
-			// 注意：TOCTOU 竞态是已知且可接受的设计权衡，与 WindowCost 一致的 soft-limit 模式。
-			// 在高并发下可能短暂超出 RPM 限制，但不会导致请求失败。
-			if account.IsAnthropicOAuthOrSetupToken() && account.GetBaseRPM() > 0 {
-				if err := h.gatewayService.IncrementAccountRPM(c.Request.Context(), account.ID); err != nil {
-					reqLog.Warn("gateway.rpm_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+			rpmCtx, rpmCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := h.gatewayService.IncrementAccountRPM(rpmCtx, account.ID); err != nil {
+				reqLog.Warn("gateway.rpm_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+			}
+			if apiKey.User != nil && apiKey.User.ID > 0 {
+				if err := h.gatewayService.IncrementUserRPM(rpmCtx, apiKey.User.ID); err != nil {
+					reqLog.Warn("gateway.user_rpm_increment_failed", zap.Int64("user_id", apiKey.User.ID), zap.Error(err))
 				}
+			}
+			rpmCancel()
+			if sessionHash != "" {
+				h.gatewayService.TrackAccountSessionPeak(account.ID, sessionHash)
+			}
+			if apiKey.User != nil && apiKey.User.ID > 0 && sessionHash != "" {
+				h.gatewayService.TrackUserSessionPeak(apiKey.User.ID, sessionHash)
 			}
 
 			// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
@@ -786,12 +795,21 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 
 			// RPM 计数递增（Forward 成功后）
-			// 注意：TOCTOU 竞态是已知且可接受的设计权衡，与 WindowCost 一致的 soft-limit 模式。
-			// 在高并发下可能短暂超出 RPM 限制，但不会导致请求失败。
-			if account.IsAnthropicOAuthOrSetupToken() && account.GetBaseRPM() > 0 {
-				if err := h.gatewayService.IncrementAccountRPM(c.Request.Context(), account.ID); err != nil {
-					reqLog.Warn("gateway.rpm_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+			rpmCtx, rpmCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := h.gatewayService.IncrementAccountRPM(rpmCtx, account.ID); err != nil {
+				reqLog.Warn("gateway.rpm_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+			}
+			if apiKey.User != nil && apiKey.User.ID > 0 {
+				if err := h.gatewayService.IncrementUserRPM(rpmCtx, apiKey.User.ID); err != nil {
+					reqLog.Warn("gateway.user_rpm_increment_failed", zap.Int64("user_id", apiKey.User.ID), zap.Error(err))
 				}
+			}
+			rpmCancel()
+			if sessionHash != "" {
+				h.gatewayService.TrackAccountSessionPeak(account.ID, sessionHash)
+			}
+			if apiKey.User != nil && apiKey.User.ID > 0 && sessionHash != "" {
+				h.gatewayService.TrackUserSessionPeak(apiKey.User.ID, sessionHash)
 			}
 
 			// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
