@@ -197,5 +197,6 @@ Authoritative references:
 | 14 | Scheduled Rate Multiplier | `group_scheduled_rate.go`, ent schema, `group_repo.go`, `gateway_service.go`, `GroupsView.vue` | Archived on old fork main |
 | 18 | Zero Cache Read Pricing | `config/config.go`, `service/billing_service.go` | Active on main |
 | 19 | Dynamic Cost Tracking | `service/account.go`, `service/gateway_service.go`, `service/ratelimit_service.go`, `repository/session_limit_cache.go` | Active on main |
+| 20 | Login Page Mobile Blur Fix | `components/layout/AuthLayout.vue` | Active on main |
 
 See `FORK_CHANGELOG.md` for verification commands to run after each upstream merge.

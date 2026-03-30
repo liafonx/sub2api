@@ -8,15 +8,17 @@
     <!-- Decorative Elements -->
     <div class="pointer-events-none absolute inset-0 overflow-hidden">
       <!-- Gradient Orbs -->
-      <div
-        class="absolute -right-40 -top-40 h-80 w-80 rounded-full bg-primary-400/20 blur-3xl"
-      ></div>
-      <div
-        class="absolute -bottom-40 -left-40 h-80 w-80 rounded-full bg-primary-500/15 blur-3xl"
-      ></div>
-      <div
-        class="absolute left-1/2 top-1/2 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary-300/10 blur-3xl"
-      ></div>
+      <div class="auth-decorative-orbs">
+        <div
+          class="absolute -right-40 -top-40 h-80 w-80 rounded-full bg-primary-400/20 blur-3xl"
+        ></div>
+        <div
+          class="absolute -bottom-40 -left-40 h-80 w-80 rounded-full bg-primary-500/15 blur-3xl"
+        ></div>
+        <div
+          class="absolute left-1/2 top-1/2 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary-300/10 blur-3xl"
+        ></div>
+      </div>
 
       <!-- Grid Pattern -->
       <div
@@ -45,7 +47,7 @@
       </div>
 
       <!-- Card Container -->
-      <div class="card-glass rounded-2xl p-8 shadow-glass">
+      <div class="auth-card card-glass rounded-2xl p-8 shadow-glass">
         <slot />
       </div>
 
@@ -84,5 +86,21 @@ onMounted(() => {
 <style scoped>
 .text-gradient {
   @apply bg-gradient-to-r from-primary-600 to-primary-500 bg-clip-text text-transparent;
+}
+
+@media (max-width: 768px), (pointer: coarse) {
+  .auth-decorative-orbs {
+    display: none;
+  }
+  .auth-card {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+@media (max-width: 768px) and (prefers-color-scheme: dark), (pointer: coarse) and (prefers-color-scheme: dark) {
+  .auth-card {
+    background: rgba(30, 41, 59, 0.95);
+  }
 }
 </style>

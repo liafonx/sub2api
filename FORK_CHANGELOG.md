@@ -789,6 +789,42 @@ go test -run "TestGetEffectiveWindowCostLimit|TestCheckWindowZone|TestManualLimi
 
 ---
 
+### Patch 20: Login Page Mobile Blur Performance Fix (added 2026-03-30)
+
+**Status**: Active on main
+
+**Purpose**: Disables GPU-intensive CSS blur effects on mobile devices to eliminate login page lag. Three `blur-3xl` gradient orbs (64px blur radius each) and a `backdrop-filter: blur(24px)` card cause expensive GPU compositing on low-power devices.
+
+**Files**:
+
+| File | Change |
+|------|--------|
+| `frontend/src/components/layout/AuthLayout.vue` | MODIFIED — added `auth-decorative-orbs` wrapper class, `auth-card` class on card div, scoped media query disabling blur on mobile |
+
+**What changes on mobile** (`max-width: 768px` or `pointer: coarse`):
+- Gradient orbs hidden (`display: none`) — eliminates three 64px blur compositing passes
+- Card background switches from `backdrop-filter: blur(24px)` to opaque `rgba(255, 255, 255, 0.95)` (light) or `rgba(30, 41, 59, 0.95)` (dark)
+- Grid pattern kept (cheap paint, no blur)
+
+**Desktop unchanged**: glass blur effect fully preserved.
+
+**Upstream conflict risk**: LOW — single file, scoped styles only.
+
+**Reapply markers**:
+- `auth-decorative-orbs`
+- `auth-card`
+- `pointer: coarse`
+
+**Verification**:
+
+```bash
+grep auth-decorative-orbs frontend/src/components/layout/AuthLayout.vue
+grep auth-card frontend/src/components/layout/AuthLayout.vue
+grep "pointer: coarse" frontend/src/components/layout/AuthLayout.vue
+```
+
+---
+
 ## Verification
 
 Run after every upstream merge to confirm patches survived:
@@ -888,6 +924,11 @@ grep computeEffectiveWindowCostLimit backend/internal/service/gateway_service.go
 grep persistDerivedLimitsAndMilestones backend/internal/service/ratelimit_service.go
 grep batchGetWindowCosts backend/internal/repository/session_limit_cache.go
 grep dynamic_cost_enabled frontend/src/types/index.ts
+
+# Patch 20: Login page mobile blur fix
+grep auth-decorative-orbs frontend/src/components/layout/AuthLayout.vue
+grep auth-card frontend/src/components/layout/AuthLayout.vue
+grep "pointer: coarse" frontend/src/components/layout/AuthLayout.vue
 
 # utls version
 grep refraction-networking/utls backend/go.mod
