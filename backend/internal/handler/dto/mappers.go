@@ -289,6 +289,14 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 			idleTimeout := int(a.GetUserQuotaIdleTimeout().Seconds())
 			out.UserQuotaIdleTimeout = &idleTimeout
 		}
+		// 自定义 Base URL 中继转发
+		if a.IsCustomBaseURLEnabled() {
+			enabled := true
+			out.CustomBaseURLEnabled = &enabled
+			if customURL := a.GetCustomBaseURL(); customURL != "" {
+				out.CustomBaseURL = &customURL
+			}
+		}
 	}
 
 	// 提取账号配额限制（apikey / bedrock 类型有效）

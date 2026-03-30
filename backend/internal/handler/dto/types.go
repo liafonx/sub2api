@@ -207,6 +207,10 @@ type Account struct {
 	UserQuotaEnabled     *bool `json:"user_quota_enabled,omitempty"`
 	UserQuotaIdleTimeout *int  `json:"user_quota_idle_timeout,omitempty"`
 
+	// 自定义 Base URL 中继转发（仅 Anthropic OAuth/SetupToken 账号有效）
+	CustomBaseURLEnabled *bool   `json:"custom_base_url_enabled,omitempty"`
+	CustomBaseURL        *string `json:"custom_base_url,omitempty"`
+
 	// API Key 账号配额限制
 	QuotaLimit       *float64 `json:"quota_limit,omitempty"`
 	QuotaUsed        *float64 `json:"quota_used,omitempty"`
