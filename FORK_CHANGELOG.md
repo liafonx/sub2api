@@ -485,22 +485,51 @@ Also fixes OpenAI OAuth token refresh to pass `client_id` from stored credential
 
 ---
 
-### Patch 13: InfoPopup Tooltip Component (added 2026-03-28)
+### Patch 13: InfoPopup Tooltip Component (added 2026-03-30)
 
-**Purpose**: Reusable floating-ui tooltip component replacing manual Teleport-based tooltips in usage views. Uses `@floating-ui/vue` for smart positioning with arrow, supports hover and click interaction, and implements singleton pattern (only one popup open at a time).
+**Purpose**: Reusable `@floating-ui/vue` tooltip component replacing ~140 lines of duplicated inline `<Teleport>` + `getBoundingClientRect()` tooltip code in each usage view. Smart positioning (flip, shift, arrow), singleton pattern (one popup at a time), hover+click+touch support.
 
 **Files**:
 
 | File | Change |
 |------|--------|
-| `frontend/src/components/common/InfoPopup.vue` | **NEW** — Reusable floating tooltip component |
-| `frontend/src/components/common/InfoPopup.spec.ts` | **NEW** — Component tests |
-| `frontend/src/components/common/UsageCostPopup.vue` | **NEW** — Cost-detail popup built on top of InfoPopup |
-| `frontend/src/components/common/UsageTokenPopup.vue` | **NEW** — Token-detail popup built on top of InfoPopup |
-| `frontend/src/components/admin/usage/UsageTable.vue` | MODIFIED — replaced manual Teleport tooltips with InfoPopup |
-| `frontend/src/views/user/UsageView.vue` | MODIFIED — replaced manual Teleport tooltips with InfoPopup |
+| `frontend/src/components/common/InfoPopup.vue` | **NEW** — Core floating tooltip: dual `<script>` blocks (module-scope singleton + setup), `@floating-ui/vue` positioning, `pointerenter`/`pointerleave` (mouse-only) + click toggle, outside-click close via capture-phase global listener with reference counting |
+| `frontend/src/components/common/InfoPopup.spec.ts` | **NEW** — 9 Vitest tests: open/close, toggle, pointer events, slot rendering, floating styles, singleton behavior, listener cleanup on last unmount, destroy-while-open cleanup |
+| `frontend/src/components/common/UsageCostPopup.vue` | **NEW** — Thin wrapper: cost breakdown (input/output/cache costs, per-million pricing, service tier, rate); `showAccountBilling` prop adds account multiplier + account billed rows (admin view) |
+| `frontend/src/components/common/UsageTokenPopup.vue` | **NEW** — Thin wrapper: token breakdown (input/output/cache tokens with 5m/1h TTL badges, cache TTL override indicator) |
+| `frontend/src/components/admin/usage/UsageTable.vue` | MODIFIED — removed ~140 lines inline Teleport tooltips + state/functions, replaced with `<UsageCostPopup>` and `<UsageTokenPopup>` |
+| `frontend/src/views/user/UsageView.vue` | MODIFIED — removed ~180 lines inline Teleport tooltips + state/functions, replaced with `<UsageCostPopup>` and `<UsageTokenPopup>` |
+| `frontend/package.json` | MODIFIED — added `@floating-ui/vue ^1.1.11` dependency |
+| `frontend/vite.config.ts` | MODIFIED — added `vue-demi` and `@floating-ui/` to `vendor-vue` manual chunk to prevent cross-chunk TDZ circular dependency (vue-demi re-exports Vue internals; placing it in `vendor-misc` caused `ReferenceError: Cannot access '$' before initialization`) |
+
+**Key design decisions**:
+- Module-scope singleton (`closeActivePopup`, `activeContains`, `listenerCount`) in non-setup `<script lang="ts">` block — ensures only one popup open across all instances
+- `data-infopopup-trigger` DOM attribute for click-outside detection (global click handler skips clicks on other triggers to let their `toggle()` handle singleton swap)
+- `HelpTooltip.vue` left as-is — different use case (hover-only, fixed width, text content)
+- Components imported by path, not exported from `components/common/index.ts` (domain-specific wrappers)
 
 **Upstream conflict risk**: HIGH — upstream may rewrite tooltip implementations in usage views.
+
+**Reapply markers**:
+- `InfoPopup`
+- `UsageCostPopup`
+- `UsageTokenPopup`
+- `@floating-ui/vue`
+- `data-infopopup-trigger`
+- `closeActivePopup`
+
+**Verification**:
+
+```bash
+ls frontend/src/components/common/InfoPopup.vue
+ls frontend/src/components/common/UsageCostPopup.vue
+ls frontend/src/components/common/UsageTokenPopup.vue
+grep InfoPopup frontend/src/components/admin/usage/UsageTable.vue
+grep InfoPopup frontend/src/views/user/UsageView.vue
+grep floating-ui frontend/package.json
+grep vue-demi frontend/vite.config.ts
+cd frontend && pnpm vitest run src/components/common/InfoPopup.spec.ts
+```
 
 ---
 
@@ -827,8 +856,11 @@ ls backend/internal/service/identity_service.go
 grep SetIdentityService backend/cmd/server/wire_gen.go
 
 # Patch 13: InfoPopup tooltips
+ls frontend/src/components/common/InfoPopup.vue
 grep InfoPopup frontend/src/components/admin/usage/UsageTable.vue
 grep InfoPopup frontend/src/views/user/UsageView.vue
+grep floating-ui frontend/package.json
+grep vue-demi frontend/vite.config.ts
 
 # Patch 14: Scheduled Rate Multiplier
 grep scheduled_rate_config backend/ent/schema/group.go
