@@ -1150,6 +1150,41 @@ func TestFullWorkflow_MultiUserJoinSpendJoin(t *testing.T) {
 // New: DelMeta must not cause epoch reuse
 // ---------------------------------------------------------------------------
 
+// TestRecalculate_LimitZero_FailOpen validates that recalculateQuotas does NOT bump the
+// epoch (and thus does NOT write perUserLimit=0) when the resolved limit is 0. This is the
+// defense-in-depth guard for the dynamic-bootstrap window-reset scenario where
+// computeEffectiveWindowCostLimit may return 0 due to stale/missing data.
+func TestRecalculate_LimitZero_FailOpen(t *testing.T) {
+	ctx := context.Background()
+	mock := newMock()
+	account := newTestAccount(1, enabledExtra(0, 0)) // window_cost_limit=0 → limit=0
+	now := time.Now().UnixMilli()
+	mock.activeUsers[account.ID] = map[int64]int64{1: now, 2: now}
+	// Seed a prior epoch with a valid perUserLimit so we can verify it's untouched.
+	mock.epochCounters[account.ID] = 5
+	mock.meta[account.ID] = quotaMetaData{epoch: 5, perUserLimit: 20, activeCount: 2}
+
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 })
+	impl := svc.(*userQuotaService)
+
+	epoch, activeCount := impl.recalculateQuotas(ctx, account, true)
+
+	// No epoch bump — existing meta must remain intact.
+	if mock.epochCounters[account.ID] != 5 {
+		t.Fatalf("epoch bumped to %d, want 5 (limit=0 must not overwrite existing valid meta)", mock.epochCounters[account.ID])
+	}
+	if epoch != 0 {
+		t.Fatalf("returned epoch=%d want 0 (fail-open path must return 0)", epoch)
+	}
+	if activeCount != 2 {
+		t.Fatalf("returned activeCount=%d want 2", activeCount)
+	}
+	// Existing meta must be preserved.
+	if mock.meta[account.ID].perUserLimit != 20 {
+		t.Fatalf("perUserLimit=%v want 20 (must not be overwritten)", mock.meta[account.ID].perUserLimit)
+	}
+}
+
 // TestDelMeta_DoesNotResetEpoch validates the root cause of the stale-cost bug:
 // when all users go idle the cleanup cycle deletes the meta hash (DelMeta). On the next
 // request, BumpEpochAndSetMeta must produce an epoch that is DIFFERENT from the one that

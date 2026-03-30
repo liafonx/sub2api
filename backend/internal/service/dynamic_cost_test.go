@@ -170,6 +170,20 @@ func TestGetEffectiveWindowCostLimit(t *testing.T) {
 			want:       0.0, // fail-open
 		},
 		{
+			name:       "dynamic, high utilization but cost=0 (window bootstrap), uses derived fallback",
+			extra:      map[string]any{"dynamic_cost_enabled": true, "session_window_utilization": 0.29, "derived_5h_limit": 75.0},
+			costInCtx:  0.0,
+			windowType: Window5h,
+			want:       75.0, // cost=0 must not feed the graduated-trust formula; use derived fallback
+		},
+		{
+			name:       "dynamic, medium utilization but cost=0 (window bootstrap), uses manual fallback",
+			extra:      map[string]any{"dynamic_cost_enabled": true, "session_window_utilization": 0.03, "window_cost_limit": 60.0},
+			costInCtx:  0.0,
+			windowType: Window5h,
+			want:       60.0, // cost=0 must fall through to manual limit fallback
+		},
+		{
 			name:       "7d window, manual limit only",
 			extra:      map[string]any{"window_cost_7d_limit": 200.0},
 			windowType: Window7d,

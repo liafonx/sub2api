@@ -2474,18 +2474,21 @@ func computeEffectiveWindowCostLimit(account *Account, windowType WindowType, co
 		fallback = manualLimit
 	}
 
-	// Graduated-trust algorithm
-	if utilization >= 0.05 {
+	// Graduated-trust algorithm.
+	// cost=0 means the window just started (no spending yet). Zero divided by any
+	// utilization produces 0, which is "no signal", not "zero budget". Fall through
+	// to the fallback path so we use the best-known stored/manual limit instead.
+	if utilization >= 0.05 && cost > 0 {
 		return cost / utilization
 	}
-	if utilization >= 0.01 {
+	if utilization >= 0.01 && cost > 0 {
 		computed := cost / utilization
 		if fallback > 0 && computed > fallback {
 			return fallback
 		}
 		return computed
 	}
-	// utilization < 1% or missing: use fallback (fail-open if 0)
+	// utilization < 1%, missing, OR cost=0 (bootstrap): use fallback (fail-open if 0)
 	return fallback
 }
 

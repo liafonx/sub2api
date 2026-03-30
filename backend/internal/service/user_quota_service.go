@@ -414,6 +414,16 @@ func (s *userQuotaService) recalculateQuotas(ctx context.Context, account *Accou
 	} else {
 		limit = account.GetWindowCostLimit()
 	}
+	if limit <= 0 {
+		// Fail-open: no effective limit could be resolved (dynamic bootstrap after
+		// window reset, stale in-memory account snapshot, etc.). Writing perUserLimit=0
+		// would block all users. Leave the last valid epoch intact instead.
+		logger.L().Warn("user_quota.limit_unknown_failopen",
+			zap.Int64("account_id", account.ID),
+			zap.Int64("active_users", activeCount),
+		)
+		return 0, activeCount
+	}
 	remaining := limit - currentWindowCost
 	if remaining < 0 {
 		remaining = 0
