@@ -570,7 +570,8 @@ func TestRecalculate_EqualSplit(t *testing.T) {
 	if meta.epoch <= 0 {
 		t.Fatalf("epoch=%d want > 0", meta.epoch)
 	}
-	assertFloatEqual(t, meta.perUserLimit, 10)
+	// remaining=30-10(reserve)=20, 3 users → perUserLimit=20/3
+	assertFloatEqual(t, meta.perUserLimit, 20.0/3.0)
 	assertFloatEqual(t, meta.perUserStickyReserve, 10.0/3.0)
 }
 
@@ -777,7 +778,8 @@ func TestNotifyAccountUpdated_ActiveAccount_RecalculatesQuotas(t *testing.T) {
 	if mock.epochCounters[account.ID] <= 1 {
 		t.Fatalf("epoch=%d want > 1 (NotifyAccountUpdated must trigger a recalculation)", mock.epochCounters[account.ID])
 	}
-	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 25)
+	// limit=50, windowCost=0, reserve=10, normalRemaining=40, 2 users → perUserLimit=20
+	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 20)
 	if impl.activeAccounts[account.ID].account != updatedAccount {
 		t.Fatalf("expected activeAccounts to hold updated account pointer")
 	}
@@ -967,7 +969,7 @@ func TestBumpEpochAndSetMeta(t *testing.T) {
 	mock.epochCounters[account.ID] = 3
 	mock.meta[account.ID] = quotaMetaData{epoch: 3}
 
-	// windowCost=10, remaining=50-10=40, 2 users → perUserLimit=20
+	// windowCost=10, remaining=40, reserve=10, normalRemaining=30, 2 users → perUserLimit=15
 	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 10 })
 	impl := svc.(*userQuotaService)
 
@@ -976,7 +978,7 @@ func TestBumpEpochAndSetMeta(t *testing.T) {
 	if mock.meta[account.ID].epoch <= 3 {
 		t.Fatalf("epoch=%d want > 3 (epoch must increase monotonically)", mock.meta[account.ID].epoch)
 	}
-	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 20)
+	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 15)
 	assertFloatEqual(t, mock.meta[account.ID].perUserStickyReserve, 5) // 10/2
 	if mock.meta[account.ID].activeCount != 2 {
 		t.Fatalf("activeCount=%d want 2", mock.meta[account.ID].activeCount)
@@ -1018,8 +1020,8 @@ func TestWindowResetTriggersRecalc_RegisterActivity(t *testing.T) {
 		t.Fatalf("epoch=%d want > 1 (window reset must trigger recalculation)", mock.epochCounters[account.ID])
 	}
 	// On window reset, cost is forced to 0 (new window has no spending).
-	// remaining=50-0=50, 1 user → perUserLimit=50
-	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 50)
+	// remaining=50, reserve=10, normalRemaining=40, 1 user → perUserLimit=40
+	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 40)
 
 	// lastWindowStartMs must be updated to current window start
 	state := impl.activeAccounts[account.ID]
@@ -1079,14 +1081,14 @@ func TestRecalculation_UsesCurrentRemaining(t *testing.T) {
 	now := time.Now().UnixMilli()
 	mock.activeUsers[account.ID] = map[int64]int64{1: now}
 
-	// windowCost=40, remaining=50-40=10, 1 user → perUserLimit=10
+	// windowCost=40, remaining=10, reserve clamped to 10, normalRemaining=0, 1 user → perUserLimit=0
 	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 40 })
 	impl := svc.(*userQuotaService)
 
 	impl.recalculateQuotas(ctx, account, true)
 
-	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 10)
-	assertFloatEqual(t, mock.meta[account.ID].perUserStickyReserve, 10) // 10/1
+	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 0)
+	assertFloatEqual(t, mock.meta[account.ID].perUserStickyReserve, 10) // 10/1, all remaining budget is sticky
 }
 
 // ---------------------------------------------------------------------------
@@ -1102,13 +1104,13 @@ func TestFullWorkflow_MultiUserJoinSpendJoin(t *testing.T) {
 	account := newTestAccount(1, enabledExtra(50, 10))
 	svc := NewUserQuotaService(mock, func(_ context.Context, _ *Account) float64 { return windowCost })
 
-	// Step 1: User A (1) joins → first recalculation, remaining=50-20=30, perUserLimit=30
+	// Step 1: User A (1) joins → first recalculation, remaining=30, reserve=10, normalRemaining=20, perUserLimit=20
 	svc.RegisterActivity(ctx, account, 1)
 	epochAfterA := mock.epochCounters[account.ID]
 	if epochAfterA <= 0 {
 		t.Fatalf("after A join: epoch=%d want > 0", epochAfterA)
 	}
-	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 30)
+	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 20)
 
 	// Step 2: User A spends $5
 	svc.IncrementUserCost(ctx, account.ID, 1, 5.0)
@@ -1124,12 +1126,12 @@ func TestFullWorkflow_MultiUserJoinSpendJoin(t *testing.T) {
 	// Step 3: Update window cost (A spent $5, total window now $25)
 	windowCost = 25.0
 
-	// Step 4: User B (2) joins → recalculate → new epoch, remaining=50-25=25, 2 users → perUserLimit=12.5
+	// Step 4: User B (2) joins → recalculate → new epoch, remaining=25, reserve=10, normalRemaining=15, 2 users → perUserLimit=7.5
 	svc.RegisterActivity(ctx, account, 2)
 	if mock.epochCounters[account.ID] <= epochAfterA {
 		t.Fatalf("after B join: epoch=%d want > %d (recalculation must produce a new epoch)", mock.epochCounters[account.ID], epochAfterA)
 	}
-	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 12.5)
+	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 7.5)
 
 	// Step 5: User A's cost in new epoch (2) must be 0 -- NOT carried over from epoch 1
 	_, _, _, costANew, _, err := mock.GetQuotaCheckData(ctx, account.ID, 1)

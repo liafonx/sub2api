@@ -429,8 +429,17 @@ func (s *userQuotaService) recalculateQuotas(ctx context.Context, account *Accou
 		remaining = 0
 	}
 
-	perUserLimit := remaining / float64(activeCount)
+	// Deduct sticky reserve from normal budget before splitting.
+	// perUserLimit covers the green zone only; perUserStickyReserve is the
+	// additional yellow-zone buffer. Without the deduction, the sum of all
+	// users' max spend (N × (perUserLimit + perUserStickyReserve)) would
+	// exceed remaining by the full sticky reserve amount.
 	cappedReserve := GetCappedStickyReserve(limit, account.GetWindowCostStickyReserve())
+	if cappedReserve > remaining {
+		cappedReserve = remaining // window nearly exhausted: shrink sticky buffer to fit
+	}
+	normalRemaining := remaining - cappedReserve
+	perUserLimit := normalRemaining / float64(activeCount)
 	perUserStickyReserve := cappedReserve / float64(activeCount)
 
 	newEpoch, err = s.cache.BumpEpochAndSetMeta(ctx, account.ID, perUserLimit, perUserStickyReserve, activeCount)
