@@ -31,7 +31,7 @@
         </svg>
         <span class="font-mono">${{ formatCost(currentWindowCost) }}</span>
         <span class="text-gray-400 dark:text-gray-500">/</span>
-        <span class="font-mono">${{ formatCost(account.window_cost_limit) }}</span>
+        <span class="font-mono">${{ formatCost(effective5hLimit) }}</span>
       </span>
     </div>
 
@@ -127,14 +127,14 @@ const isAnthropicOAuthOrSetupToken = computed(() => {
   )
 })
 
+// Effective 5h limit: prefer derived, fall back to manual
+const effective5hLimit = computed(() => {
+  return props.account.effective_5h_limit ?? props.account.window_cost_limit ?? 0
+})
+
 // 是否显示窗口费用限制
 const showWindowCost = computed(() => {
-  return (
-    isAnthropicOAuthOrSetupToken.value &&
-    props.account.window_cost_limit !== undefined &&
-    props.account.window_cost_limit !== null &&
-    props.account.window_cost_limit > 0
-  )
+  return isAnthropicOAuthOrSetupToken.value && effective5hLimit.value > 0
 })
 
 // 当前窗口费用
@@ -191,7 +191,7 @@ const windowCostClass = computed(() => {
   if (!showWindowCost.value) return ''
 
   const current = currentWindowCost.value
-  const limit = props.account.window_cost_limit || 0
+  const limit = effective5hLimit.value
   const reserve = props.account.window_cost_sticky_reserve || 10
 
   if (current >= limit + reserve) {
@@ -211,7 +211,7 @@ const windowCostTooltip = computed(() => {
   if (!showWindowCost.value) return ''
 
   const current = currentWindowCost.value
-  const limit = props.account.window_cost_limit || 0
+  const limit = effective5hLimit.value
   const reserve = props.account.window_cost_sticky_reserve || 10
 
   if (current >= limit + reserve) {
