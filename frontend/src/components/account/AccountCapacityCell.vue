@@ -56,7 +56,7 @@
           <span class="text-gray-400 dark:text-gray-500">&middot;</span>
           <span class="font-mono">${{ formatCost(perUserLimit) }}</span>
         </template>
-        <span v-else class="font-mono">Q</span>
+        <span v-else class="font-mono">0</span>
       </span>
     </div>
 

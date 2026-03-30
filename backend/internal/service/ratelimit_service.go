@@ -1291,11 +1291,11 @@ func (s *RateLimitService) getWindowCostForAccount(ctx context.Context, account 
 	return 0
 }
 
-// validateMilestone checks if utilization crossed a 10% boundary and logs/triggers recalc.
+// validateMilestone checks if utilization crossed a 5% boundary and logs/triggers recalc.
 func (s *RateLimitService) validateMilestone(ctx context.Context, account *Account, windowType WindowType, utilization, cost, derivedLimit float64) {
-	currentMilestone := int(utilization*100) / 10 * 10 // Round down to nearest 10%
-	if currentMilestone < 10 {
-		return // Only track from 10% upward
+	currentMilestone := int(utilization*100) / 5 * 5 // Round down to nearest 5%
+	if currentMilestone < 5 {
+		return // Only track from 5% upward
 	}
 
 	milestoneKey := "last_validated_" + string(windowType) + "_milestone"
