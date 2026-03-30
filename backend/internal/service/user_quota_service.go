@@ -170,7 +170,7 @@ func (s *userQuotaService) runCleanup(ctx context.Context) {
 					zap.String("trigger", "cleanup_tick"),
 				)
 			}
-			s.recalculateQuotas(ctx, account, true)
+			s.recalculateQuotas(ctx, account, true, windowChanged)
 		}
 	}
 
@@ -287,7 +287,7 @@ func (s *userQuotaService) RegisterActivity(ctx context.Context, account *Accoun
 				zap.String("trigger", "register_activity"),
 			)
 		}
-		newEpoch, activeCount := s.recalculateQuotas(ctx, account, false)
+		newEpoch, activeCount := s.recalculateQuotas(ctx, account, false, windowChanged)
 		if isNew && activeCount > 0 {
 			logger.L().Info("user_quota.user_joined",
 				zap.Int64("account_id", account.ID),
@@ -366,9 +366,11 @@ func (s *userQuotaService) NotifyAccountUpdated(ctx context.Context, account *Ac
 	)
 }
 
-// recalculateQuotas bumps epoch and redistributes remaining budget equally among active users.
+// recalculateQuotas recomputes per-user quota limits.
+// When windowReset is true, the 5h window just changed and the cached cost is stale —
+// the cost is forced to 0 (new window has no spending yet).
 // Returns (newEpoch, activeCount). Returns (0, 0) on error or when no active users remain.
-func (s *userQuotaService) recalculateQuotas(ctx context.Context, account *Account, skipEviction bool) (newEpoch, activeCount int64) {
+func (s *userQuotaService) recalculateQuotas(ctx context.Context, account *Account, skipEviction bool, windowReset ...bool) (newEpoch, activeCount int64) {
 	if !skipEviction {
 		cutoffMs := time.Now().UnixMilli() - account.GetUserQuotaIdleTimeout().Milliseconds()
 		if _, err := s.cache.ZRemIdleUsers(ctx, account.ID, cutoffMs); err != nil {
@@ -399,7 +401,13 @@ func (s *userQuotaService) recalculateQuotas(ctx context.Context, account *Accou
 		return 0, 0
 	}
 
-	currentWindowCost := s.windowCostGetter(ctx, account)
+	// On window reset, cost is 0 — the new window has no spending yet.
+	// Calling the getter would return stale cached cost from the previous window.
+	var currentWindowCost float64
+	isWindowReset := len(windowReset) > 0 && windowReset[0]
+	if !isWindowReset {
+		currentWindowCost = s.windowCostGetter(ctx, account)
+	}
 	var limit float64
 	if s.windowLimitGetter != nil {
 		limit = s.windowLimitGetter(ctx, account)

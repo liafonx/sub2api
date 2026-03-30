@@ -140,9 +140,21 @@ const showWindowCost = computed(() => {
 // 当前窗口费用
 const currentWindowCost = computed(() => props.account.current_window_cost ?? 0)
 
-// 每用户配额
-const perUserLimit = computed(() => props.account.per_user_limit ?? 0)
+// 每用户配额 — compute from real-time cost data when available to avoid stale cache lag
 const activeUserCount = computed(() => props.account.active_user_count ?? 0)
+const perUserLimit = computed(() => {
+  // When we have real-time cost + effective limit + active users, compute directly
+  if (
+    effective5hLimit.value > 0 &&
+    activeUserCount.value > 0 &&
+    props.account.current_window_cost != null
+  ) {
+    const remaining = Math.max(0, effective5hLimit.value - currentWindowCost.value)
+    return remaining / activeUserCount.value
+  }
+  // Fall back to cached backend value
+  return props.account.per_user_limit ?? 0
+})
 
 const showUserQuotaActive = computed(() => {
   return (

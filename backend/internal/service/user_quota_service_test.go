@@ -41,7 +41,7 @@ type mockUserQuotaCache struct {
 	quotaCheckOverride *quotaCheckResult
 
 	// AtomicIncrCost / GetUserCost
-	costs            map[string]float64 // "accountID:epoch:userID" -> cost
+	costs             map[string]float64 // "accountID:epoch:userID" -> cost
 	atomicIncrCostErr error
 	getCostErr        error
 
@@ -1017,8 +1017,9 @@ func TestWindowResetTriggersRecalc_RegisterActivity(t *testing.T) {
 	if mock.epochCounters[account.ID] <= 1 {
 		t.Fatalf("epoch=%d want > 1 (window reset must trigger recalculation)", mock.epochCounters[account.ID])
 	}
-	// remaining=50-20=30, 1 user
-	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 30)
+	// On window reset, cost is forced to 0 (new window has no spending).
+	// remaining=50-0=50, 1 user → perUserLimit=50
+	assertFloatEqual(t, mock.meta[account.ID].perUserLimit, 50)
 
 	// lastWindowStartMs must be updated to current window start
 	state := impl.activeAccounts[account.ID]
