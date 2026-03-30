@@ -1226,7 +1226,7 @@ func (s *RateLimitService) persistDerivedLimitsAndMilestones(ctx context.Context
 			derived5h := cost5h / util5h
 			stored5h := account.GetDerived5hLimit()
 			// Persist if differs >10% from stored
-			if stored5h <= 0 || math.Abs(derived5h-stored5h)/stored5h > 0.10 {
+			if stored5h <= 0 || math.Abs(derived5h-stored5h)/stored5h > 0.05 {
 				extraUpdates["derived_5h_limit"] = derived5h
 				slog.Info("derived_5h_limit_updated", "account_id", account.ID,
 					"derived", derived5h, "old", stored5h, "utilization", util5h, "cost", cost5h)
@@ -1242,7 +1242,7 @@ func (s *RateLimitService) persistDerivedLimitsAndMilestones(ctx context.Context
 		if cost7d > 0 {
 			derived7d := cost7d / util7d
 			stored7d := account.GetDerived7dLimit()
-			if stored7d <= 0 || math.Abs(derived7d-stored7d)/stored7d > 0.10 {
+			if stored7d <= 0 || math.Abs(derived7d-stored7d)/stored7d > 0.05 {
 				extraUpdates["derived_7d_limit"] = derived7d
 				slog.Info("derived_7d_limit_updated", "account_id", account.ID,
 					"derived", derived7d, "old", stored7d, "utilization", util7d, "cost", cost7d)
