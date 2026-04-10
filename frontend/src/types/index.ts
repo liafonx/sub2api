@@ -44,7 +44,7 @@ export interface AdminUser extends User {
   // 用户专属分组倍率配置 (group_id -> rate_multiplier)
   group_rates?: Record<number, number>;
   // 当前并发数（仅管理员列表接口返回）
-  current_concurrency?: number
+  current_concurrency?: number;
 }
 
 export interface LoginRequest {
@@ -88,29 +88,29 @@ export interface CustomEndpoint {
 }
 
 export interface PublicSettings {
-  registration_enabled: boolean
-  email_verify_enabled: boolean
-  registration_email_suffix_whitelist: string[]
-  promo_code_enabled: boolean
-  password_reset_enabled: boolean
-  invitation_code_enabled: boolean
-  turnstile_enabled: boolean
-  turnstile_site_key: string
-  site_name: string
-  site_logo: string
-  site_subtitle: string
-  api_base_url: string
-  contact_info: string
-  doc_url: string
-  home_content: string
-  hide_ccs_import_button: boolean
-  purchase_subscription_enabled: boolean
-  purchase_subscription_url: string
-  custom_menu_items: CustomMenuItem[]
-  custom_endpoints: CustomEndpoint[]
-  linuxdo_oauth_enabled: boolean
-  backend_mode_enabled: boolean
-  version: string
+  registration_enabled: boolean;
+  email_verify_enabled: boolean;
+  registration_email_suffix_whitelist: string[];
+  promo_code_enabled: boolean;
+  password_reset_enabled: boolean;
+  invitation_code_enabled: boolean;
+  turnstile_enabled: boolean;
+  turnstile_site_key: string;
+  site_name: string;
+  site_logo: string;
+  site_subtitle: string;
+  api_base_url: string;
+  contact_info: string;
+  doc_url: string;
+  home_content: string;
+  hide_ccs_import_button: boolean;
+  purchase_subscription_enabled: boolean;
+  purchase_subscription_url: string;
+  custom_menu_items: CustomMenuItem[];
+  custom_endpoints: CustomEndpoint[];
+  linuxdo_oauth_enabled: boolean;
+  backend_mode_enabled: boolean;
+  version: string;
 }
 
 export interface AuthResponse {
@@ -362,12 +362,7 @@ export interface PaginationConfig {
 
 // ==================== API Key & Group Types ====================
 
-export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity'
-export type GroupPlatform =
-  | "anthropic"
-  | "openai"
-  | "gemini"
-  | "antigravity"
+export type GroupPlatform = "anthropic" | "openai" | "gemini" | "antigravity";
 
 export type SubscriptionType = "standard" | "subscription";
 
@@ -384,19 +379,19 @@ export interface Group {
   weekly_limit_usd: number | null;
   monthly_limit_usd: number | null;
   // 图片生成计费配置（仅 antigravity 平台使用）
-  image_price_1k: number | null
-  image_price_2k: number | null
-  image_price_4k: number | null
+  image_price_1k: number | null;
+  image_price_2k: number | null;
+  image_price_4k: number | null;
   // Claude Code 客户端限制
   claude_code_only: boolean;
   fallback_group_id: number | null;
   fallback_group_id_on_invalid_request: number | null;
   // OpenAI Messages 调度开关（用户侧需要此字段判断是否展示 Claude Code 教程）
-  allow_messages_dispatch?: boolean
-  require_oauth_only: boolean
-  require_privacy_set: boolean
-  created_at: string
-  updated_at: string
+  allow_messages_dispatch?: boolean;
+  require_oauth_only: boolean;
+  require_privacy_set: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface AdminGroup extends Group {
@@ -486,26 +481,26 @@ export interface UpdateApiKeyRequest {
 }
 
 export interface CreateGroupRequest {
-  name: string
-  description?: string | null
-  platform?: GroupPlatform
-  rate_multiplier?: number
-  is_exclusive?: boolean
-  subscription_type?: SubscriptionType
-  daily_limit_usd?: number | null
-  weekly_limit_usd?: number | null
-  monthly_limit_usd?: number | null
-  image_price_1k?: number | null
-  image_price_2k?: number | null
-  image_price_4k?: number | null
-  claude_code_only?: boolean
-  fallback_group_id?: number | null
-  fallback_group_id_on_invalid_request?: number | null
-  mcp_xml_inject?: boolean
-  simulate_claude_max_enabled?: boolean
-  supported_model_scopes?: string[]
-  require_oauth_only?: boolean
-  require_privacy_set?: boolean
+  name: string;
+  description?: string | null;
+  platform?: GroupPlatform;
+  rate_multiplier?: number;
+  is_exclusive?: boolean;
+  subscription_type?: SubscriptionType;
+  daily_limit_usd?: number | null;
+  weekly_limit_usd?: number | null;
+  monthly_limit_usd?: number | null;
+  image_price_1k?: number | null;
+  image_price_2k?: number | null;
+  image_price_4k?: number | null;
+  claude_code_only?: boolean;
+  fallback_group_id?: number | null;
+  fallback_group_id_on_invalid_request?: number | null;
+  mcp_xml_inject?: boolean;
+  simulate_claude_max_enabled?: boolean;
+  supported_model_scopes?: string[];
+  require_oauth_only?: boolean;
+  require_privacy_set?: boolean;
   // 从指定分组复制账号
   copy_accounts_from_group_ids?: number[];
   // 用户账号每日亲和性（仅 anthropic 平台使用）
@@ -513,49 +508,43 @@ export interface CreateGroupRequest {
 }
 
 export interface UpdateGroupRequest {
-  name?: string
-  description?: string | null
-  platform?: GroupPlatform
-  rate_multiplier?: number
-  is_exclusive?: boolean
-  status?: 'active' | 'inactive'
-  subscription_type?: SubscriptionType
-  daily_limit_usd?: number | null
-  weekly_limit_usd?: number | null
-  monthly_limit_usd?: number | null
-  image_price_1k?: number | null
-  image_price_2k?: number | null
-  image_price_4k?: number | null
-  claude_code_only?: boolean
-  fallback_group_id?: number | null
-  fallback_group_id_on_invalid_request?: number | null
-  mcp_xml_inject?: boolean
-  simulate_claude_max_enabled?: boolean
-  supported_model_scopes?: string[]
-  require_oauth_only?: boolean
-  require_privacy_set?: boolean
-  copy_accounts_from_group_ids?: number[]
+  name?: string;
+  description?: string | null;
+  platform?: GroupPlatform;
+  rate_multiplier?: number;
+  is_exclusive?: boolean;
+  status?: "active" | "inactive";
+  subscription_type?: SubscriptionType;
+  daily_limit_usd?: number | null;
+  weekly_limit_usd?: number | null;
+  monthly_limit_usd?: number | null;
+  image_price_1k?: number | null;
+  image_price_2k?: number | null;
+  image_price_4k?: number | null;
+  claude_code_only?: boolean;
+  fallback_group_id?: number | null;
+  fallback_group_id_on_invalid_request?: number | null;
+  mcp_xml_inject?: boolean;
+  simulate_claude_max_enabled?: boolean;
+  supported_model_scopes?: string[];
+  require_oauth_only?: boolean;
+  require_privacy_set?: boolean;
+  copy_accounts_from_group_ids?: number[];
   // 用户账号每日亲和性（仅 anthropic 平台使用）
   user_account_affinity_enabled?: boolean;
 }
 
 // ==================== Account & Proxy Types ====================
 
-export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity'
-export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock'
-export type OAuthAddMethod = 'oauth' | 'setup-token'
-export type ProxyProtocol = 'http' | 'https' | 'socks5' | 'socks5h'
-export type AccountPlatform =
-  | "anthropic"
-  | "openai"
-  | "gemini"
-  | "antigravity"
+export type AccountPlatform = "anthropic" | "openai" | "gemini" | "antigravity";
 export type AccountType =
   | "oauth"
   | "setup-token"
   | "apikey"
   | "upstream"
   | "bedrock";
+export type OAuthAddMethod = "oauth" | "setup-token";
+export type ProxyProtocol = "http" | "https" | "socks5" | "socks5h";
 
 // Claude Model type (returned by /v1/models and account models API)
 export interface ClaudeModel {
@@ -1065,9 +1054,9 @@ export interface UsageLog {
   cache_ttl_overridden: boolean;
 
   // 计费模式
-  billing_mode?: string | null
+  billing_mode?: string | null;
 
-  created_at: string
+  created_at: string;
 
   user?: User;
   api_key?: ApiKey;
@@ -1081,8 +1070,8 @@ export interface UsageLogAccountSummary {
 }
 
 export interface AdminUsageLog extends UsageLog {
-  upstream_model?: string | null
-  model_mapping_chain?: string | null
+  upstream_model?: string | null;
+  model_mapping_chain?: string | null;
 
   // 账号计费倍率（仅管理员可见）
   account_rate_multiplier?: number | null;
