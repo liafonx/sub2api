@@ -1,6 +1,6 @@
 # Active Fork Patches
 
-This file lists the **7 patches currently applied** to the `main` branch.
+This file lists the **8 patches currently applied** to the `main` branch.
 For full history and removed/superseded patches, see [FORK_CHANGELOG.md](FORK_CHANGELOG.md).
 
 > **During upstream merges:** check each patch's key files for conflicts.
@@ -139,6 +139,31 @@ grep -r "costModal\|CostModal" frontend/src/
 **Verify:**
 ```bash
 grep -n "blur\|backdrop" frontend/src/components/layout/AuthLayout.vue
+```
+
+---
+
+## Patch 21 — User-Account Daily Affinity
+
+**Purpose:** Pin each user to the same Anthropic account for the entire day. Affinity resets at a configurable UTC hour (default midnight). Backed by Redis with atomic Lua scripts; integrates as a super-sticky layer before session lookup; propagates `AffinityBound` to enable yellow quota zone access.
+
+**Upstream conflict risk:** HIGH — touches gateway_service, gateway_handler, ent schema, config, and admin DTOs.
+
+| Layer | Key Files |
+|-------|-----------|
+| Backend | `service/user_affinity.go`, `repository/user_affinity_cache.go` |
+| Gateway | `service/gateway_service.go`, `handler/gateway_handler*.go` |
+| Schema | `ent/schema/group.go`, `migrations/082_add_group_user_account_affinity.sql` |
+| Config | `config/config.go` (`affinity_reset_hour`) |
+| Admin | `handler/admin/group_handler.go`, `handler/dto/types.go`, `handler/dto/mappers.go` |
+| DI | `wire_gen.go` |
+| Frontend | `views/admin/GroupsView.vue`, `types/index.ts`, `i18n/locales/` |
+
+**Verify:**
+```bash
+grep -rn "UserAffinity\|user_affinity\|AffinityBound\|AffinityReset" backend/internal/
+grep -n "affinity_reset_hour" backend/internal/config/config.go
+grep -n "user_account_affinity_enabled" frontend/src/views/admin/GroupsView.vue
 ```
 
 ---
