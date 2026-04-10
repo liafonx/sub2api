@@ -8256,6 +8256,7 @@ type GroupMutation struct {
 	addsort_order                           *int
 	allow_messages_dispatch                 *bool
 	default_mapped_model                    *string
+	user_account_affinity_enabled           *bool
 	clearedFields                           map[string]struct{}
 	api_keys                                map[int64]struct{}
 	removedapi_keys                         map[int64]struct{}
@@ -10072,6 +10073,42 @@ func (m *GroupMutation) ResetDefaultMappedModel() {
 	m.default_mapped_model = nil
 }
 
+// SetUserAccountAffinityEnabled sets the "user_account_affinity_enabled" field.
+func (m *GroupMutation) SetUserAccountAffinityEnabled(b bool) {
+	m.user_account_affinity_enabled = &b
+}
+
+// UserAccountAffinityEnabled returns the value of the "user_account_affinity_enabled" field in the mutation.
+func (m *GroupMutation) UserAccountAffinityEnabled() (r bool, exists bool) {
+	v := m.user_account_affinity_enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUserAccountAffinityEnabled returns the old "user_account_affinity_enabled" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldUserAccountAffinityEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUserAccountAffinityEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUserAccountAffinityEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUserAccountAffinityEnabled: %w", err)
+	}
+	return oldValue.UserAccountAffinityEnabled, nil
+}
+
+// ResetUserAccountAffinityEnabled resets all changes to the "user_account_affinity_enabled" field.
+func (m *GroupMutation) ResetUserAccountAffinityEnabled() {
+	m.user_account_affinity_enabled = nil
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by ids.
 func (m *GroupMutation) AddAPIKeyIDs(ids ...int64) {
 	if m.api_keys == nil {
@@ -10430,7 +10467,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 32)
+	fields := make([]string, 0, 33)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -10527,6 +10564,9 @@ func (m *GroupMutation) Fields() []string {
 	if m.default_mapped_model != nil {
 		fields = append(fields, group.FieldDefaultMappedModel)
 	}
+	if m.user_account_affinity_enabled != nil {
+		fields = append(fields, group.FieldUserAccountAffinityEnabled)
+	}
 	return fields
 }
 
@@ -10599,6 +10639,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.AllowMessagesDispatch()
 	case group.FieldDefaultMappedModel:
 		return m.DefaultMappedModel()
+	case group.FieldUserAccountAffinityEnabled:
+		return m.UserAccountAffinityEnabled()
 	}
 	return nil, false
 }
@@ -10672,6 +10714,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldAllowMessagesDispatch(ctx)
 	case group.FieldDefaultMappedModel:
 		return m.OldDefaultMappedModel(ctx)
+	case group.FieldUserAccountAffinityEnabled:
+		return m.OldUserAccountAffinityEnabled(ctx)
 	}
 	return nil, fmt.Errorf("unknown Group field %s", name)
 }
@@ -10904,6 +10948,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetDefaultMappedModel(v)
+		return nil
+	case group.FieldUserAccountAffinityEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUserAccountAffinityEnabled(v)
 		return nil
 	}
 	return fmt.Errorf("unknown Group field %s", name)
@@ -11337,6 +11388,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldDefaultMappedModel:
 		m.ResetDefaultMappedModel()
+		return nil
+	case group.FieldUserAccountAffinityEnabled:
+		m.ResetUserAccountAffinityEnabled()
 		return nil
 	}
 	return fmt.Errorf("unknown Group field %s", name)

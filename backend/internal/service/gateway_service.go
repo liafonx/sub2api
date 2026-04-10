@@ -469,10 +469,11 @@ type AccountWaitPlan struct {
 }
 
 type AccountSelectionResult struct {
-	Account     *Account
-	Acquired    bool
-	ReleaseFunc func()
-	WaitPlan    *AccountWaitPlan // nil means no wait allowed
+	Account       *Account
+	Acquired      bool
+	ReleaseFunc   func()
+	WaitPlan      *AccountWaitPlan // nil means no wait allowed
+	AffinityBound bool             // true when account was resolved via or newly bound to user affinity
 }
 
 // ClaudeUsage 表示Claude API返回的usage信息
@@ -560,6 +561,7 @@ type GatewayService struct {
 	sessionLimitCache     SessionLimitCache // 会话数量限制缓存（仅 Anthropic OAuth/SetupToken）
 	rpmCache              RPMCache          // RPM 计数缓存（仅 Anthropic OAuth/SetupToken）
 	userQuotaChecker      UserQuotaChecker  // per-user quota allocation (Anthropic OAuth/SetupToken only)
+	userAffinityCache     UserAffinityCache // per-user daily account affinity (Anthropic only, optional)
 	peakCache             PeakUsageCache    // peak usage tracker (optional, injected post-construction)
 	userGroupRateResolver *userGroupRateResolver
 	userGroupRateCache    *gocache.Cache
@@ -663,6 +665,24 @@ func (s *GatewayService) SetUserQuotaChecker(checker UserQuotaChecker) {
 // after the GatewayService is constructed.
 func (s *GatewayService) SetPeakUsageCache(cache PeakUsageCache) {
 	s.peakCache = cache
+}
+
+// SetUserAffinityCache sets the per-user daily account affinity cache.
+// Called during application startup after the GatewayService is constructed.
+func (s *GatewayService) SetUserAffinityCache(cache UserAffinityCache) {
+	s.userAffinityCache = cache
+}
+
+// maybeBindUserAffinity binds user→account affinity when a new account is selected.
+// No-op when userID is 0, affinity is disabled, or the cache is unavailable.
+func (s *GatewayService) maybeBindUserAffinity(ctx context.Context, groupID *int64, userID int64, accountID int64, cfg config.GatewaySchedulingConfig) {
+	if userID <= 0 || s.userAffinityCache == nil {
+		return
+	}
+	ttl := TimeUntilNextResetHour(time.Now(), cfg.AffinityResetHour)
+	gid := derefGroupID(groupID)
+	_ = s.userAffinityCache.SetAffinity(ctx, gid, userID, accountID, ttl)
+	_ = s.userAffinityCache.IncrAffinityCount(ctx, gid, accountID, ttl)
 }
 
 // updatePeakAsync updates a peak value if count > current stored value (best-effort, non-blocking).
@@ -1314,11 +1334,46 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	ctx = s.withGroupContext(ctx, group)
 
 	var stickyAccountID int64
-	if prefetch := prefetchedStickyAccountIDFromContext(ctx, groupID); prefetch > 0 {
-		stickyAccountID = prefetch
-	} else if sessionHash != "" && s.cache != nil {
-		if accountID, err := s.cache.GetSessionAccountID(ctx, derefGroupID(groupID), sessionHash); err == nil {
-			stickyAccountID = accountID
+
+	// User affinity resolution (Anthropic only, when group has affinity enabled).
+	// Must run before the sticky session lookup so affinity can override stickyAccountID.
+	var affinityUserID int64
+	var affinityResolved bool
+	if s.userAffinityCache != nil && group != nil &&
+		group.UserAccountAffinityEnabled && group.Platform == PlatformAnthropic {
+		if uid, ok := ctx.Value(ctxkey.UserID).(int64); ok && uid > 0 {
+			affinityUserID = uid
+			if affinityAccountID, afErr := s.userAffinityCache.GetAffinity(ctx, derefGroupID(groupID), uid); afErr == nil && affinityAccountID > 0 {
+				_, isExcl := excludedIDs[affinityAccountID] // nil-map read is safe in Go
+				if !isExcl {
+					if afAccount, afErr := s.getSchedulableAccount(ctx, affinityAccountID); afErr == nil && afAccount != nil &&
+						s.isAccountSchedulableForSelection(afAccount) &&
+						s.isAccountSchedulableForWindowCost(ctx, afAccount, true) {
+						// Valid affinity — set sticky account ID and pre-populate Redis
+						// so the legacy (non-load-aware) path also picks it up.
+						affinityResolved = true
+						stickyAccountID = affinityAccountID
+						if sessionHash != "" && s.cache != nil {
+							_ = s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, affinityAccountID, stickySessionTTL)
+						}
+					} else {
+						// Account invalid or in window-cost Red zone — clear the affinity binding.
+						_ = s.userAffinityCache.DeleteAffinity(ctx, derefGroupID(groupID), uid)
+						_ = s.userAffinityCache.DecrAffinityCount(ctx, derefGroupID(groupID), affinityAccountID)
+					}
+				}
+			}
+		}
+	}
+
+	// Sticky session lookup (skipped when affinity already set stickyAccountID).
+	if stickyAccountID == 0 {
+		if prefetch := prefetchedStickyAccountIDFromContext(ctx, groupID); prefetch > 0 {
+			stickyAccountID = prefetch
+		} else if sessionHash != "" && s.cache != nil {
+			if accountID, err := s.cache.GetSessionAccountID(ctx, derefGroupID(groupID), sessionHash); err == nil {
+				stickyAccountID = accountID
+			}
 		}
 	}
 
@@ -1622,10 +1677,16 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 						if s.debugModelRoutingEnabled() {
 							logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] routed select: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), item.account.ID)
 						}
+						affinityBound := affinityResolved
+						if !affinityResolved && group != nil && group.UserAccountAffinityEnabled && affinityUserID > 0 {
+							s.maybeBindUserAffinity(ctx, groupID, affinityUserID, item.account.ID, cfg)
+							affinityBound = true
+						}
 						return &AccountSelectionResult{
-							Account:     item.account,
-							Acquired:    true,
-							ReleaseFunc: result.ReleaseFunc,
+							Account:       item.account,
+							Acquired:      true,
+							ReleaseFunc:   result.ReleaseFunc,
+							AffinityBound: affinityBound,
 						}, nil
 					}
 				}
@@ -1684,9 +1745,10 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 							result.ReleaseFunc() // 释放槽位，继续到 Layer 2
 						} else {
 							return &AccountSelectionResult{
-								Account:     account,
-								Acquired:    true,
-								ReleaseFunc: result.ReleaseFunc,
+								Account:       account,
+								Acquired:      true,
+								ReleaseFunc:   result.ReleaseFunc,
+								AffinityBound: affinityResolved,
 							}, nil
 						}
 					}
@@ -1707,6 +1769,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 									Timeout:        cfg.StickySessionWaitTimeout,
 									MaxWaiting:     cfg.StickySessionMaxWaiting,
 								},
+								AffinityBound: affinityResolved,
 							}, nil
 						}
 					}
@@ -1767,6 +1830,12 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	loadMap, err := s.concurrencyService.GetAccountsLoadBatch(ctx, accountLoads)
 	if err != nil {
 		if result, ok := s.tryAcquireByLegacyOrder(ctx, candidates, groupID, sessionHash, preferOAuth); ok {
+			if !affinityResolved && group != nil && group.UserAccountAffinityEnabled && affinityUserID > 0 && result.Account != nil {
+				s.maybeBindUserAffinity(ctx, groupID, affinityUserID, result.Account.ID, cfg)
+				result.AffinityBound = true
+			} else if affinityResolved {
+				result.AffinityBound = true
+			}
 			return result, nil
 		}
 	} else {
@@ -1805,10 +1874,16 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 					if sessionHash != "" && s.cache != nil {
 						_ = s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, selected.account.ID, stickySessionTTL)
 					}
+					affinityBoundL2 := affinityResolved
+					if !affinityResolved && group != nil && group.UserAccountAffinityEnabled && affinityUserID > 0 {
+						s.maybeBindUserAffinity(ctx, groupID, affinityUserID, selected.account.ID, cfg)
+						affinityBoundL2 = true
+					}
 					return &AccountSelectionResult{
-						Account:     selected.account,
-						Acquired:    true,
-						ReleaseFunc: result.ReleaseFunc,
+						Account:       selected.account,
+						Acquired:      true,
+						ReleaseFunc:   result.ReleaseFunc,
+						AffinityBound: affinityBoundL2,
 					}, nil
 				}
 			}

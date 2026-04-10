@@ -754,6 +754,51 @@
           </div>
         </div>
 
+        <!-- 用户账号每日亲和性（仅 anthropic 平台） -->
+        <div v-if="createForm.platform === 'anthropic'" class="border-t pt-4">
+          <div class="mb-1.5 flex items-center gap-1">
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t('admin.groups.userAccountAffinity.title') }}
+            </label>
+            <div class="group relative inline-flex">
+              <Icon
+                name="questionCircle"
+                size="sm"
+                :stroke-width="2"
+                class="cursor-help text-gray-400 transition-colors hover:text-primary-500 dark:text-gray-500 dark:hover:text-primary-400"
+              />
+              <div class="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-72 opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:opacity-100">
+                <div class="rounded-lg bg-gray-900 p-3 text-white shadow-lg dark:bg-gray-800">
+                  <p class="text-xs leading-relaxed text-gray-300">
+                    {{ t('admin.groups.userAccountAffinity.tooltip') }}
+                  </p>
+                  <div class="absolute -bottom-1.5 left-3 h-3 w-3 rotate-45 bg-gray-900 dark:bg-gray-800"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <button
+              type="button"
+              @click="createForm.user_account_affinity_enabled = !createForm.user_account_affinity_enabled"
+              :class="[
+                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                createForm.user_account_affinity_enabled ? 'bg-primary-500' : 'bg-gray-300 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                  createForm.user_account_affinity_enabled ? 'translate-x-6' : 'translate-x-1'
+                ]"
+              />
+            </button>
+            <span class="text-sm text-gray-500 dark:text-gray-400">
+              {{ createForm.user_account_affinity_enabled ? t('admin.groups.userAccountAffinity.enabled') : t('admin.groups.userAccountAffinity.disabled') }}
+            </span>
+          </div>
+        </div>
+
         <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
         <div v-if="createForm.platform === 'openai'" class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4">
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">{{ t('admin.groups.openaiMessages.title') }}</h4>
@@ -1489,6 +1534,51 @@
           </div>
         </div>
 
+        <!-- 用户账号每日亲和性（仅 anthropic 平台） -->
+        <div v-if="editForm.platform === 'anthropic'" class="border-t pt-4">
+          <div class="mb-1.5 flex items-center gap-1">
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t('admin.groups.userAccountAffinity.title') }}
+            </label>
+            <div class="group relative inline-flex">
+              <Icon
+                name="questionCircle"
+                size="sm"
+                :stroke-width="2"
+                class="cursor-help text-gray-400 transition-colors hover:text-primary-500 dark:text-gray-500 dark:hover:text-primary-400"
+              />
+              <div class="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-72 opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:opacity-100">
+                <div class="rounded-lg bg-gray-900 p-3 text-white shadow-lg dark:bg-gray-800">
+                  <p class="text-xs leading-relaxed text-gray-300">
+                    {{ t('admin.groups.userAccountAffinity.tooltip') }}
+                  </p>
+                  <div class="absolute -bottom-1.5 left-3 h-3 w-3 rotate-45 bg-gray-900 dark:bg-gray-800"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <button
+              type="button"
+              @click="editForm.user_account_affinity_enabled = !editForm.user_account_affinity_enabled"
+              :class="[
+                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                editForm.user_account_affinity_enabled ? 'bg-primary-500' : 'bg-gray-300 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                  editForm.user_account_affinity_enabled ? 'translate-x-6' : 'translate-x-1'
+                ]"
+              />
+            </button>
+            <span class="text-sm text-gray-500 dark:text-gray-400">
+              {{ editForm.user_account_affinity_enabled ? t('admin.groups.userAccountAffinity.enabled') : t('admin.groups.userAccountAffinity.disabled') }}
+            </span>
+          </div>
+        </div>
+
         <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
         <div v-if="editForm.platform === 'openai'" class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4">
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">{{ t('admin.groups.openaiMessages.title') }}</h4>
@@ -2060,6 +2150,8 @@ const createForm = reactive({
   claude_code_only: false,
   fallback_group_id: null as number | null,
   fallback_group_id_on_invalid_request: null as number | null,
+  // 用户账号每日亲和性（仅 anthropic 平台使用）
+  user_account_affinity_enabled: false,
   // OpenAI Messages 调度配置（仅 openai 平台使用）
   allow_messages_dispatch: false,
   default_mapped_model: 'gpt-5.4',
@@ -2304,6 +2396,8 @@ const editForm = reactive({
   claude_code_only: false,
   fallback_group_id: null as number | null,
   fallback_group_id_on_invalid_request: null as number | null,
+  // 用户账号每日亲和性（仅 anthropic 平台使用）
+  user_account_affinity_enabled: false,
   // OpenAI Messages 调度配置（仅 openai 平台使用）
   allow_messages_dispatch: false,
   default_mapped_model: '',
@@ -2451,6 +2545,7 @@ const closeCreateModal = () => {
   createForm.claude_code_only = false
   createForm.fallback_group_id = null
   createForm.fallback_group_id_on_invalid_request = null
+  createForm.user_account_affinity_enabled = false
   createForm.allow_messages_dispatch = false
   createForm.default_mapped_model = 'gpt-5.4'
   createForm.supported_model_scopes = ['claude', 'gemini_text', 'gemini_image']
@@ -2538,6 +2633,7 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.claude_code_only = group.claude_code_only || false
   editForm.fallback_group_id = group.fallback_group_id
   editForm.fallback_group_id_on_invalid_request = group.fallback_group_id_on_invalid_request
+  editForm.user_account_affinity_enabled = group.user_account_affinity_enabled || false
   editForm.allow_messages_dispatch = group.allow_messages_dispatch || false
   editForm.default_mapped_model = group.default_mapped_model || ''
   editForm.model_routing_enabled = group.model_routing_enabled || false

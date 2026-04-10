@@ -121,6 +121,9 @@ type AdminGroup struct {
 	// OpenAI Messages 调度配置（仅 openai 平台使用）
 	DefaultMappedModel string `json:"default_mapped_model"`
 
+	// 用户账号每日亲和性（仅 anthropic 平台使用）
+	UserAccountAffinityEnabled bool `json:"user_account_affinity_enabled"`
+
 	// 支持的模型系列（仅 antigravity 平台使用）
 	SupportedModelScopes    []string       `json:"supported_model_scopes"`
 	AccountGroups           []AccountGroup `json:"account_groups,omitempty"`

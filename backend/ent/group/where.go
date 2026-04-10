@@ -205,6 +205,11 @@ func DefaultMappedModel(v string) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldDefaultMappedModel, v))
 }
 
+// UserAccountAffinityEnabled applies equality check predicate on the "user_account_affinity_enabled" field. It's identical to UserAccountAffinityEnabledEQ.
+func UserAccountAffinityEnabled(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldUserAccountAffinityEnabled, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldCreatedAt, v))
@@ -1553,6 +1558,16 @@ func DefaultMappedModelEqualFold(v string) predicate.Group {
 // DefaultMappedModelContainsFold applies the ContainsFold predicate on the "default_mapped_model" field.
 func DefaultMappedModelContainsFold(v string) predicate.Group {
 	return predicate.Group(sql.FieldContainsFold(FieldDefaultMappedModel, v))
+}
+
+// UserAccountAffinityEnabledEQ applies the EQ predicate on the "user_account_affinity_enabled" field.
+func UserAccountAffinityEnabledEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldUserAccountAffinityEnabled, v))
+}
+
+// UserAccountAffinityEnabledNEQ applies the NEQ predicate on the "user_account_affinity_enabled" field.
+func UserAccountAffinityEnabledNEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldUserAccountAffinityEnabled, v))
 }
 
 // HasAPIKeys applies the HasEdge predicate on the "api_keys" edge.

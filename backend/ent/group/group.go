@@ -79,6 +79,8 @@ const (
 	FieldAllowMessagesDispatch = "allow_messages_dispatch"
 	// FieldDefaultMappedModel holds the string denoting the default_mapped_model field in the database.
 	FieldDefaultMappedModel = "default_mapped_model"
+	// FieldUserAccountAffinityEnabled holds the string denoting the user_account_affinity_enabled field in the database.
+	FieldUserAccountAffinityEnabled = "user_account_affinity_enabled"
 	// EdgeAPIKeys holds the string denoting the api_keys edge name in mutations.
 	EdgeAPIKeys = "api_keys"
 	// EdgeRedeemCodes holds the string denoting the redeem_codes edge name in mutations.
@@ -186,6 +188,7 @@ var Columns = []string{
 	FieldSortOrder,
 	FieldAllowMessagesDispatch,
 	FieldDefaultMappedModel,
+	FieldUserAccountAffinityEnabled,
 }
 
 var (
@@ -259,6 +262,8 @@ var (
 	DefaultDefaultMappedModel string
 	// DefaultMappedModelValidator is a validator for the "default_mapped_model" field. It is called by the builders before save.
 	DefaultMappedModelValidator func(string) error
+	// DefaultUserAccountAffinityEnabled holds the default value on creation for the "user_account_affinity_enabled" field.
+	DefaultUserAccountAffinityEnabled bool
 )
 
 // OrderOption defines the ordering options for the Group queries.
@@ -417,6 +422,11 @@ func ByAllowMessagesDispatch(opts ...sql.OrderTermOption) OrderOption {
 // ByDefaultMappedModel orders the results by the default_mapped_model field.
 func ByDefaultMappedModel(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDefaultMappedModel, opts...).ToFunc()
+}
+
+// ByUserAccountAffinityEnabled orders the results by the user_account_affinity_enabled field.
+func ByUserAccountAffinityEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUserAccountAffinityEnabled, opts...).ToFunc()
 }
 
 // ByAPIKeysCount orders the results by api_keys count.

@@ -731,6 +731,9 @@ type GatewaySchedulingConfig struct {
 	// 全量重建周期配置
 	// 全量重建周期（秒），0 表示禁用
 	FullRebuildIntervalSeconds int `mapstructure:"full_rebuild_interval_seconds"`
+
+	// 用户账号亲和性每日重置小时（UTC，0-23），默认 0（午夜）
+	AffinityResetHour int `mapstructure:"affinity_reset_hour"`
 }
 
 func (s *ServerConfig) Address() string {
@@ -1442,6 +1445,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.scheduling.outbox_lag_rebuild_failures", 3)
 	viper.SetDefault("gateway.scheduling.outbox_backlog_rebuild_rows", 10000)
 	viper.SetDefault("gateway.scheduling.full_rebuild_interval_seconds", 300)
+	viper.SetDefault("gateway.scheduling.affinity_reset_hour", 0)
 	viper.SetDefault("gateway.usage_record.worker_count", 128)
 	viper.SetDefault("gateway.usage_record.queue_size", 16384)
 	viper.SetDefault("gateway.usage_record.task_timeout_seconds", 5)
@@ -2232,6 +2236,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.Scheduling.FullRebuildIntervalSeconds < 0 {
 		return fmt.Errorf("gateway.scheduling.full_rebuild_interval_seconds must be non-negative")
+	}
+	if c.Gateway.Scheduling.AffinityResetHour < 0 || c.Gateway.Scheduling.AffinityResetHour > 23 {
+		return fmt.Errorf("gateway.scheduling.affinity_reset_hour must be between 0 and 23")
 	}
 	if c.Gateway.Scheduling.OutboxLagWarnSeconds > 0 &&
 		c.Gateway.Scheduling.OutboxLagRebuildSeconds > 0 &&

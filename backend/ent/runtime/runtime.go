@@ -465,6 +465,10 @@ func init() {
 	group.DefaultDefaultMappedModel = groupDescDefaultMappedModel.Default.(string)
 	// group.DefaultMappedModelValidator is a validator for the "default_mapped_model" field. It is called by the builders before save.
 	group.DefaultMappedModelValidator = groupDescDefaultMappedModel.Validators[0].(func(string) error)
+	// groupDescUserAccountAffinityEnabled is the schema descriptor for user_account_affinity_enabled field.
+	groupDescUserAccountAffinityEnabled := groupFields[29].Descriptor()
+	// group.DefaultUserAccountAffinityEnabled holds the default value on creation for the user_account_affinity_enabled field.
+	group.DefaultUserAccountAffinityEnabled = groupDescUserAccountAffinityEnabled.Default.(bool)
 	idempotencyrecordMixin := schema.IdempotencyRecord{}.Mixin()
 	idempotencyrecordMixinFields0 := idempotencyrecordMixin[0].Fields()
 	_ = idempotencyrecordMixinFields0

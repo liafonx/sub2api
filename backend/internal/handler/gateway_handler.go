@@ -278,6 +278,11 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			c.Request = c.Request.WithContext(ctx)
 		}
 	}
+	// 注入用户 ID 到 Context，供账号亲和性（affinity）使用
+	if subject.UserID > 0 {
+		ctx := context.WithValue(c.Request.Context(), ctxkey.UserID, subject.UserID)
+		c.Request = c.Request.WithContext(ctx)
+	}
 	// 判断是否真的绑定了粘性会话：有 sessionKey 且已经绑定到某个账号
 	hasBoundSession := sessionKey != "" && sessionBoundAccountID > 0
 
@@ -314,6 +319,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					}
 					return
 				}
+			}
+			// 亲和性绑定后更新 hasBoundSession，使后续配额检查以"绑定会话"策略处理
+			if selection.AffinityBound {
+				hasBoundSession = true
 			}
 			account := selection.Account
 			setOpsSelectedAccount(c, account.ID, account.Platform)

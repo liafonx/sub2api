@@ -196,6 +196,8 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	gatewayService.SetPricingService(pricingService)
 	gatewayService.SetUserQuotaChecker(userQuotaService)
 	gatewayService.SetPeakUsageCache(peakUsageCache)
+	userAffinityCache := repository.NewUserAffinityCache(redisClient)
+	gatewayService.SetUserAffinityCache(userAffinityCache)
 	// Wire windowLimitGetter: resolves effective limit using dynamic cost tracking
 	service.SetWindowLimitGetter(userQuotaService, func(ctx context.Context, account *service.Account) float64 {
 		return gatewayService.GetEffectiveWindowCostLimit(ctx, account, "5h")

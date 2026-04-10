@@ -61,6 +61,9 @@ type Group struct {
 	AllowMessagesDispatch bool
 	DefaultMappedModel    string
 
+	// 用户账号每日亲和性（仅 anthropic 平台使用）
+	UserAccountAffinityEnabled bool
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 

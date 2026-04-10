@@ -157,6 +157,11 @@ func (Group) Fields() []ent.Field {
 			MaxLen(100).
 			Default("").
 			Comment("默认映射模型 ID，当账号级映射找不到时使用此值"),
+
+		// 用户账号每日亲和性配置 (added by migration 082)
+		field.Bool("user_account_affinity_enabled").
+			Default(false).
+			Comment("是否启用用户账号每日亲和性（仅 anthropic 平台使用）"),
 	}
 }
 

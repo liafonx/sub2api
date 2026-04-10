@@ -653,6 +653,20 @@ func (_u *GroupUpdate) SetNillableDefaultMappedModel(v *string) *GroupUpdate {
 	return _u
 }
 
+// SetUserAccountAffinityEnabled sets the "user_account_affinity_enabled" field.
+func (_u *GroupUpdate) SetUserAccountAffinityEnabled(v bool) *GroupUpdate {
+	_u.mutation.SetUserAccountAffinityEnabled(v)
+	return _u
+}
+
+// SetNillableUserAccountAffinityEnabled sets the "user_account_affinity_enabled" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableUserAccountAffinityEnabled(v *bool) *GroupUpdate {
+	if v != nil {
+		_u.SetUserAccountAffinityEnabled(*v)
+	}
+	return _u
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
 func (_u *GroupUpdate) AddAPIKeyIDs(ids ...int64) *GroupUpdate {
 	_u.mutation.AddAPIKeyIDs(ids...)
@@ -1148,6 +1162,9 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.DefaultMappedModel(); ok {
 		_spec.SetField(group.FieldDefaultMappedModel, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.UserAccountAffinityEnabled(); ok {
+		_spec.SetField(group.FieldUserAccountAffinityEnabled, field.TypeBool, value)
 	}
 	if _u.mutation.APIKeysCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -2081,6 +2098,20 @@ func (_u *GroupUpdateOne) SetNillableDefaultMappedModel(v *string) *GroupUpdateO
 	return _u
 }
 
+// SetUserAccountAffinityEnabled sets the "user_account_affinity_enabled" field.
+func (_u *GroupUpdateOne) SetUserAccountAffinityEnabled(v bool) *GroupUpdateOne {
+	_u.mutation.SetUserAccountAffinityEnabled(v)
+	return _u
+}
+
+// SetNillableUserAccountAffinityEnabled sets the "user_account_affinity_enabled" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableUserAccountAffinityEnabled(v *bool) *GroupUpdateOne {
+	if v != nil {
+		_u.SetUserAccountAffinityEnabled(*v)
+	}
+	return _u
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
 func (_u *GroupUpdateOne) AddAPIKeyIDs(ids ...int64) *GroupUpdateOne {
 	_u.mutation.AddAPIKeyIDs(ids...)
@@ -2606,6 +2637,9 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.DefaultMappedModel(); ok {
 		_spec.SetField(group.FieldDefaultMappedModel, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.UserAccountAffinityEnabled(); ok {
+		_spec.SetField(group.FieldUserAccountAffinityEnabled, field.TypeBool, value)
 	}
 	if _u.mutation.APIKeysCleared() {
 		edge := &sqlgraph.EdgeSpec{

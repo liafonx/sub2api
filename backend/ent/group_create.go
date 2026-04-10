@@ -452,6 +452,20 @@ func (_c *GroupCreate) SetNillableDefaultMappedModel(v *string) *GroupCreate {
 	return _c
 }
 
+// SetUserAccountAffinityEnabled sets the "user_account_affinity_enabled" field.
+func (_c *GroupCreate) SetUserAccountAffinityEnabled(v bool) *GroupCreate {
+	_c.mutation.SetUserAccountAffinityEnabled(v)
+	return _c
+}
+
+// SetNillableUserAccountAffinityEnabled sets the "user_account_affinity_enabled" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableUserAccountAffinityEnabled(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetUserAccountAffinityEnabled(*v)
+	}
+	return _c
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
 func (_c *GroupCreate) AddAPIKeyIDs(ids ...int64) *GroupCreate {
 	_c.mutation.AddAPIKeyIDs(ids...)
@@ -649,6 +663,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultDefaultMappedModel
 		_c.mutation.SetDefaultMappedModel(v)
 	}
+	if _, ok := _c.mutation.UserAccountAffinityEnabled(); !ok {
+		v := group.DefaultUserAccountAffinityEnabled
+		_c.mutation.SetUserAccountAffinityEnabled(v)
+	}
 	return nil
 }
 
@@ -729,6 +747,9 @@ func (_c *GroupCreate) check() error {
 		if err := group.DefaultMappedModelValidator(v); err != nil {
 			return &ValidationError{Name: "default_mapped_model", err: fmt.Errorf(`ent: validator failed for field "Group.default_mapped_model": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.UserAccountAffinityEnabled(); !ok {
+		return &ValidationError{Name: "user_account_affinity_enabled", err: errors.New(`ent: missing required field "Group.user_account_affinity_enabled"`)}
 	}
 	return nil
 }
@@ -884,6 +905,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.DefaultMappedModel(); ok {
 		_spec.SetField(group.FieldDefaultMappedModel, field.TypeString, value)
 		_node.DefaultMappedModel = value
+	}
+	if value, ok := _c.mutation.UserAccountAffinityEnabled(); ok {
+		_spec.SetField(group.FieldUserAccountAffinityEnabled, field.TypeBool, value)
+		_node.UserAccountAffinityEnabled = value
 	}
 	if nodes := _c.mutation.APIKeysIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -1599,6 +1624,18 @@ func (u *GroupUpsert) UpdateDefaultMappedModel() *GroupUpsert {
 	return u
 }
 
+// SetUserAccountAffinityEnabled sets the "user_account_affinity_enabled" field.
+func (u *GroupUpsert) SetUserAccountAffinityEnabled(v bool) *GroupUpsert {
+	u.Set(group.FieldUserAccountAffinityEnabled, v)
+	return u
+}
+
+// UpdateUserAccountAffinityEnabled sets the "user_account_affinity_enabled" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateUserAccountAffinityEnabled() *GroupUpsert {
+	u.SetExcluded(group.FieldUserAccountAffinityEnabled)
+	return u
+}
+
 // UpdateNewValues updates the mutable fields using the new values that were set on create.
 // Using this option is equivalent to using:
 //
@@ -2292,6 +2329,20 @@ func (u *GroupUpsertOne) SetDefaultMappedModel(v string) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateDefaultMappedModel() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateDefaultMappedModel()
+	})
+}
+
+// SetUserAccountAffinityEnabled sets the "user_account_affinity_enabled" field.
+func (u *GroupUpsertOne) SetUserAccountAffinityEnabled(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetUserAccountAffinityEnabled(v)
+	})
+}
+
+// UpdateUserAccountAffinityEnabled sets the "user_account_affinity_enabled" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateUserAccountAffinityEnabled() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateUserAccountAffinityEnabled()
 	})
 }
 
@@ -3154,6 +3205,20 @@ func (u *GroupUpsertBulk) SetDefaultMappedModel(v string) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateDefaultMappedModel() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateDefaultMappedModel()
+	})
+}
+
+// SetUserAccountAffinityEnabled sets the "user_account_affinity_enabled" field.
+func (u *GroupUpsertBulk) SetUserAccountAffinityEnabled(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetUserAccountAffinityEnabled(v)
+	})
+}
+
+// UpdateUserAccountAffinityEnabled sets the "user_account_affinity_enabled" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateUserAccountAffinityEnabled() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateUserAccountAffinityEnabled()
 	})
 }
 

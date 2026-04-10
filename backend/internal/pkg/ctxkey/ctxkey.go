@@ -55,4 +55,7 @@ const (
 
 	// ClaudeCodeVersion stores the extracted Claude Code version from User-Agent (e.g. "2.1.22")
 	ClaudeCodeVersion Key = "ctx_claude_code_version"
+
+	// UserID 标识当前请求的用户 ID（用于用户账号每日亲和性）
+	UserID Key = "ctx_user_id"
 )

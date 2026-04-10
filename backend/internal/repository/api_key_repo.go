@@ -663,6 +663,7 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		SortOrder:                       g.SortOrder,
 		AllowMessagesDispatch:           g.AllowMessagesDispatch,
 		DefaultMappedModel:              g.DefaultMappedModel,
+		UserAccountAffinityEnabled:      g.UserAccountAffinityEnabled,
 		CreatedAt:                       g.CreatedAt,
 		UpdatedAt:                       g.UpdatedAt,
 	}
