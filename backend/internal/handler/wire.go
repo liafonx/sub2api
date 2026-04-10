@@ -34,6 +34,7 @@ func ProvideAdminHandlers(
 	apiKeyHandler *admin.AdminAPIKeyHandler,
 	scheduledTestHandler *admin.ScheduledTestHandler,
 	peakUsageHandler *admin.PeakUsageHandler,
+	channelHandler *admin.ChannelHandler,
 ) *AdminHandlers {
 	return &AdminHandlers{
 		Dashboard:             dashboardHandler,
@@ -61,6 +62,7 @@ func ProvideAdminHandlers(
 		APIKey:                apiKeyHandler,
 		ScheduledTest:         scheduledTestHandler,
 		PeakUsage:             peakUsageHandler,
+		Channel:               channelHandler,
 	}
 }
 
@@ -86,8 +88,6 @@ func ProvideHandlers(
 	adminHandlers *AdminHandlers,
 	gatewayHandler *GatewayHandler,
 	openaiGatewayHandler *OpenAIGatewayHandler,
-	soraGatewayHandler *SoraGatewayHandler,
-	soraClientHandler *SoraClientHandler,
 	settingHandler *SettingHandler,
 	totpHandler *TotpHandler,
 	_ *service.IdempotencyCoordinator,
@@ -104,8 +104,6 @@ func ProvideHandlers(
 		Admin:         adminHandlers,
 		Gateway:       gatewayHandler,
 		OpenAIGateway: openaiGatewayHandler,
-		SoraGateway:   soraGatewayHandler,
-		SoraClient:    soraClientHandler,
 		Setting:       settingHandler,
 		Totp:          totpHandler,
 	}
@@ -123,7 +121,6 @@ var ProviderSet = wire.NewSet(
 	NewAnnouncementHandler,
 	NewGatewayHandler,
 	NewOpenAIGatewayHandler,
-	NewSoraGatewayHandler,
 	NewTotpHandler,
 	ProvideSettingHandler,
 
@@ -153,6 +150,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewAdminAPIKeyHandler,
 	admin.NewScheduledTestHandler,
 	admin.NewPeakUsageHandler,
+	admin.NewChannelHandler,
 
 	// AdminHandlers and Handlers constructors
 	ProvideAdminHandlers,

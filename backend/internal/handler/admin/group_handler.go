@@ -84,7 +84,7 @@ func NewGroupHandler(adminService service.AdminService, dashboardService *servic
 type CreateGroupRequest struct {
 	Name             string             `json:"name" binding:"required"`
 	Description      string             `json:"description"`
-	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity sora"`
+	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity"`
 	RateMultiplier   float64            `json:"rate_multiplier"`
 	IsExclusive      bool               `json:"is_exclusive"`
 	SubscriptionType string             `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
@@ -95,10 +95,6 @@ type CreateGroupRequest struct {
 	ImagePrice1K                    *float64 `json:"image_price_1k"`
 	ImagePrice2K                    *float64 `json:"image_price_2k"`
 	ImagePrice4K                    *float64 `json:"image_price_4k"`
-	SoraImagePrice360               *float64 `json:"sora_image_price_360"`
-	SoraImagePrice540               *float64 `json:"sora_image_price_540"`
-	SoraVideoPricePerRequest        *float64 `json:"sora_video_price_per_request"`
-	SoraVideoPricePerRequestHD      *float64 `json:"sora_video_price_per_request_hd"`
 	ClaudeCodeOnly                  bool     `json:"claude_code_only"`
 	FallbackGroupID                 *int64   `json:"fallback_group_id"`
 	FallbackGroupIDOnInvalidRequest *int64   `json:"fallback_group_id_on_invalid_request"`
@@ -108,10 +104,10 @@ type CreateGroupRequest struct {
 	MCPXMLInject        *bool              `json:"mcp_xml_inject"`
 	// 支持的模型系列（仅 antigravity 平台使用）
 	SupportedModelScopes []string `json:"supported_model_scopes"`
-	// Sora 存储配额
-	SoraStorageQuotaBytes int64 `json:"sora_storage_quota_bytes"`
 	// OpenAI Messages 调度配置（仅 openai 平台使用）
 	AllowMessagesDispatch bool   `json:"allow_messages_dispatch"`
+	RequireOAuthOnly      bool   `json:"require_oauth_only"`
+	RequirePrivacySet     bool   `json:"require_privacy_set"`
 	DefaultMappedModel    string `json:"default_mapped_model"`
 	// 用户账号每日亲和性（仅 anthropic 平台使用）
 	UserAccountAffinityEnabled bool `json:"user_account_affinity_enabled"`
@@ -123,7 +119,7 @@ type CreateGroupRequest struct {
 type UpdateGroupRequest struct {
 	Name             string             `json:"name"`
 	Description      string             `json:"description"`
-	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity sora"`
+	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity"`
 	RateMultiplier   *float64           `json:"rate_multiplier"`
 	IsExclusive      *bool              `json:"is_exclusive"`
 	Status           string             `json:"status" binding:"omitempty,oneof=active inactive"`
@@ -135,10 +131,6 @@ type UpdateGroupRequest struct {
 	ImagePrice1K                    *float64 `json:"image_price_1k"`
 	ImagePrice2K                    *float64 `json:"image_price_2k"`
 	ImagePrice4K                    *float64 `json:"image_price_4k"`
-	SoraImagePrice360               *float64 `json:"sora_image_price_360"`
-	SoraImagePrice540               *float64 `json:"sora_image_price_540"`
-	SoraVideoPricePerRequest        *float64 `json:"sora_video_price_per_request"`
-	SoraVideoPricePerRequestHD      *float64 `json:"sora_video_price_per_request_hd"`
 	ClaudeCodeOnly                  *bool    `json:"claude_code_only"`
 	FallbackGroupID                 *int64   `json:"fallback_group_id"`
 	FallbackGroupIDOnInvalidRequest *int64   `json:"fallback_group_id_on_invalid_request"`
@@ -148,10 +140,10 @@ type UpdateGroupRequest struct {
 	MCPXMLInject        *bool              `json:"mcp_xml_inject"`
 	// 支持的模型系列（仅 antigravity 平台使用）
 	SupportedModelScopes *[]string `json:"supported_model_scopes"`
-	// Sora 存储配额
-	SoraStorageQuotaBytes *int64 `json:"sora_storage_quota_bytes"`
 	// OpenAI Messages 调度配置（仅 openai 平台使用）
 	AllowMessagesDispatch *bool   `json:"allow_messages_dispatch"`
+	RequireOAuthOnly      *bool   `json:"require_oauth_only"`
+	RequirePrivacySet     *bool   `json:"require_privacy_set"`
 	DefaultMappedModel    *string `json:"default_mapped_model"`
 	// 用户账号每日亲和性（仅 anthropic 平台使用）
 	UserAccountAffinityEnabled *bool `json:"user_account_affinity_enabled"`
@@ -258,10 +250,6 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		ImagePrice1K:                    req.ImagePrice1K,
 		ImagePrice2K:                    req.ImagePrice2K,
 		ImagePrice4K:                    req.ImagePrice4K,
-		SoraImagePrice360:               req.SoraImagePrice360,
-		SoraImagePrice540:               req.SoraImagePrice540,
-		SoraVideoPricePerRequest:        req.SoraVideoPricePerRequest,
-		SoraVideoPricePerRequestHD:      req.SoraVideoPricePerRequestHD,
 		ClaudeCodeOnly:                  req.ClaudeCodeOnly,
 		FallbackGroupID:                 req.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: req.FallbackGroupIDOnInvalidRequest,
@@ -269,8 +257,9 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		ModelRoutingEnabled:             req.ModelRoutingEnabled,
 		MCPXMLInject:                    req.MCPXMLInject,
 		SupportedModelScopes:            req.SupportedModelScopes,
-		SoraStorageQuotaBytes:           req.SoraStorageQuotaBytes,
 		AllowMessagesDispatch:           req.AllowMessagesDispatch,
+		RequireOAuthOnly:                req.RequireOAuthOnly,
+		RequirePrivacySet:               req.RequirePrivacySet,
 		DefaultMappedModel:              req.DefaultMappedModel,
 		UserAccountAffinityEnabled:      req.UserAccountAffinityEnabled,
 		CopyAccountsFromGroupIDs:        req.CopyAccountsFromGroupIDs,
@@ -312,10 +301,6 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		ImagePrice1K:                    req.ImagePrice1K,
 		ImagePrice2K:                    req.ImagePrice2K,
 		ImagePrice4K:                    req.ImagePrice4K,
-		SoraImagePrice360:               req.SoraImagePrice360,
-		SoraImagePrice540:               req.SoraImagePrice540,
-		SoraVideoPricePerRequest:        req.SoraVideoPricePerRequest,
-		SoraVideoPricePerRequestHD:      req.SoraVideoPricePerRequestHD,
 		ClaudeCodeOnly:                  req.ClaudeCodeOnly,
 		FallbackGroupID:                 req.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: req.FallbackGroupIDOnInvalidRequest,
@@ -323,8 +308,9 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		ModelRoutingEnabled:             req.ModelRoutingEnabled,
 		MCPXMLInject:                    req.MCPXMLInject,
 		SupportedModelScopes:            req.SupportedModelScopes,
-		SoraStorageQuotaBytes:           req.SoraStorageQuotaBytes,
 		AllowMessagesDispatch:           req.AllowMessagesDispatch,
+		RequireOAuthOnly:                req.RequireOAuthOnly,
+		RequirePrivacySet:               req.RequirePrivacySet,
 		DefaultMappedModel:              req.DefaultMappedModel,
 		UserAccountAffinityEnabled:      req.UserAccountAffinityEnabled,
 		CopyAccountsFromGroupIDs:        req.CopyAccountsFromGroupIDs,

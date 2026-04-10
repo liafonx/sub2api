@@ -85,7 +85,7 @@ func applyCodexOAuthTransform(reqBody map[string]any, isCodexCLI bool, isCompact
 	if v, ok := reqBody["model"].(string); ok {
 		model = v
 	}
-	normalizedModel := normalizeCodexModel(model)
+	normalizedModel := strings.TrimSpace(model)
 	if normalizedModel != "" {
 		if model != normalizedModel {
 			reqBody["model"] = normalizedModel
@@ -273,6 +273,13 @@ func normalizeCodexModel(model string) string {
 	}
 
 	return "gpt-5.1"
+}
+
+func normalizeOpenAIModelForUpstream(account *Account, model string) string {
+	if account == nil || account.Type == AccountTypeOAuth {
+		return normalizeCodexModel(model)
+	}
+	return strings.TrimSpace(model)
 }
 
 func SupportsVerbosity(model string) bool {

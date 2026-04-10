@@ -26,7 +26,15 @@
         </template>
 
         <template #cell-model="{ row }">
-          <div v-if="row.upstream_model && row.upstream_model !== row.model" class="space-y-0.5 text-xs">
+          <div v-if="row.model_mapping_chain && row.model_mapping_chain.includes('→')" class="space-y-0.5 text-xs">
+            <div v-for="(step, i) in row.model_mapping_chain.split('→')" :key="i"
+                 class="break-all"
+                 :class="i === 0 ? 'font-medium text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'"
+                 :style="i > 0 ? `padding-left: ${i * 0.75}rem` : ''">
+              <span v-if="i > 0" class="mr-0.5">↳</span>{{ step }}
+            </div>
+          </div>
+          <div v-else-if="row.upstream_model && row.upstream_model !== row.model" class="space-y-0.5 text-xs">
             <div class="break-all font-medium text-gray-900 dark:text-white">
               {{ row.model }}
             </div>
@@ -69,9 +77,15 @@
           </span>
         </template>
 
+        <template #cell-billing_mode="{ row }">
+          <span class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium" :class="getBillingModeBadgeClass(row.billing_mode)">
+            {{ getBillingModeLabel(row.billing_mode) }}
+          </span>
+        </template>
+
         <template #cell-tokens="{ row }">
-          <!-- 图片生成请求 -->
-          <div v-if="row.image_count > 0" class="flex items-center gap-1.5">
+          <!-- 图片生成请求（仅按次计费时显示图片格式） -->
+          <div v-if="row.image_count > 0 && row.billing_mode === 'image'" class="flex items-center gap-1.5">
             <svg class="h-4 w-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
@@ -148,11 +162,154 @@
     </div>
   </div>
 
+  <!-- Token Tooltip Portal -->
+  <Teleport to="body">
+    <div
+      v-if="tokenTooltipVisible"
+      class="fixed z-[9999] pointer-events-none -translate-y-1/2"
+      :style="{
+        left: tokenTooltipPosition.x + 'px',
+        top: tokenTooltipPosition.y + 'px'
+      }"
+    >
+      <div class="whitespace-nowrap rounded-lg border border-gray-700 bg-gray-900 px-3 py-2.5 text-xs text-white shadow-xl dark:border-gray-600 dark:bg-gray-800">
+        <div class="space-y-1.5">
+          <div>
+            <div class="text-xs font-semibold text-gray-300 mb-1">{{ t('usage.tokenDetails') }}</div>
+            <div v-if="tokenTooltipData && tokenTooltipData.input_tokens > 0" class="flex items-center justify-between gap-4">
+              <span class="text-gray-400">{{ t('admin.usage.inputTokens') }}</span>
+              <span class="font-medium text-white">{{ tokenTooltipData.input_tokens.toLocaleString() }}</span>
+            </div>
+            <div v-if="tokenTooltipData && tokenTooltipData.output_tokens > 0" class="flex items-center justify-between gap-4">
+              <span class="text-gray-400">{{ t('admin.usage.outputTokens') }}</span>
+              <span class="font-medium text-white">{{ tokenTooltipData.output_tokens.toLocaleString() }}</span>
+            </div>
+            <div v-if="tokenTooltipData && tokenTooltipData.cache_creation_tokens > 0">
+              <!-- 有 5m/1h 明细时，展开显示 -->
+              <template v-if="tokenTooltipData.cache_creation_5m_tokens > 0 || tokenTooltipData.cache_creation_1h_tokens > 0">
+                <div v-if="tokenTooltipData.cache_creation_5m_tokens > 0" class="flex items-center justify-between gap-4">
+                  <span class="text-gray-400 flex items-center gap-1.5">
+                    {{ t('admin.usage.cacheCreation5mTokens') }}
+                    <span class="inline-flex items-center rounded px-1 py-px text-[10px] font-medium leading-tight bg-amber-500/20 text-amber-400 ring-1 ring-inset ring-amber-500/30">5m</span>
+                  </span>
+                  <span class="font-medium text-white">{{ tokenTooltipData.cache_creation_5m_tokens.toLocaleString() }}</span>
+                </div>
+                <div v-if="tokenTooltipData.cache_creation_1h_tokens > 0" class="flex items-center justify-between gap-4">
+                  <span class="text-gray-400 flex items-center gap-1.5">
+                    {{ t('admin.usage.cacheCreation1hTokens') }}
+                    <span class="inline-flex items-center rounded px-1 py-px text-[10px] font-medium leading-tight bg-orange-500/20 text-orange-400 ring-1 ring-inset ring-orange-500/30">1h</span>
+                  </span>
+                  <span class="font-medium text-white">{{ tokenTooltipData.cache_creation_1h_tokens.toLocaleString() }}</span>
+                </div>
+              </template>
+              <!-- 无明细时，只显示聚合值 -->
+              <div v-else class="flex items-center justify-between gap-4">
+                <span class="text-gray-400">{{ t('admin.usage.cacheCreationTokens') }}</span>
+                <span class="font-medium text-white">{{ tokenTooltipData.cache_creation_tokens.toLocaleString() }}</span>
+              </div>
+            </div>
+            <div v-if="tokenTooltipData && tokenTooltipData.cache_ttl_overridden" class="flex items-center justify-between gap-4">
+              <span class="text-gray-400 flex items-center gap-1.5">
+                {{ t('usage.cacheTtlOverriddenLabel') }}
+                <span class="inline-flex items-center rounded px-1 py-px text-[10px] font-medium leading-tight bg-rose-500/20 text-rose-400 ring-1 ring-inset ring-rose-500/30">R-{{ tokenTooltipData.cache_creation_1h_tokens > 0 ? '5m' : '1H' }}</span>
+              </span>
+              <span class="font-medium text-rose-400">{{ tokenTooltipData.cache_creation_1h_tokens > 0 ? t('usage.cacheTtlOverridden1h') : t('usage.cacheTtlOverridden5m') }}</span>
+            </div>
+            <div v-if="tokenTooltipData && tokenTooltipData.cache_read_tokens > 0" class="flex items-center justify-between gap-4">
+              <span class="text-gray-400">{{ t('admin.usage.cacheReadTokens') }}</span>
+              <span class="font-medium text-white">{{ tokenTooltipData.cache_read_tokens.toLocaleString() }}</span>
+            </div>
+          </div>
+          <div class="flex items-center justify-between gap-6 border-t border-gray-700 pt-1.5">
+            <span class="text-gray-400">{{ t('usage.totalTokens') }}</span>
+            <span class="font-semibold text-blue-400">{{ ((tokenTooltipData?.input_tokens || 0) + (tokenTooltipData?.output_tokens || 0) + (tokenTooltipData?.cache_creation_tokens || 0) + (tokenTooltipData?.cache_read_tokens || 0)).toLocaleString() }}</span>
+          </div>
+        </div>
+        <div class="absolute right-full top-1/2 h-0 w-0 -translate-y-1/2 border-b-[6px] border-r-[6px] border-t-[6px] border-b-transparent border-r-gray-900 border-t-transparent dark:border-r-gray-800"></div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- Cost Tooltip Portal -->
+  <Teleport to="body">
+    <div
+      v-if="tooltipVisible"
+      class="fixed z-[9999] pointer-events-none -translate-y-1/2"
+      :style="{
+        left: tooltipPosition.x + 'px',
+        top: tooltipPosition.y + 'px'
+      }"
+    >
+      <div class="whitespace-nowrap rounded-lg border border-gray-700 bg-gray-900 px-3 py-2.5 text-xs text-white shadow-xl dark:border-gray-600 dark:bg-gray-800">
+        <div class="space-y-1.5">
+          <!-- Cost Breakdown -->
+          <div class="mb-2 border-b border-gray-700 pb-1.5">
+            <div class="text-xs font-semibold text-gray-300 mb-1">{{ t('usage.costDetails') }}</div>
+            <div v-if="tooltipData && tooltipData.input_cost > 0" class="flex items-center justify-between gap-4">
+              <span class="text-gray-400">{{ t('admin.usage.inputCost') }}</span>
+              <span class="font-medium text-white">${{ tooltipData.input_cost.toFixed(6) }}</span>
+            </div>
+            <div v-if="tooltipData && tooltipData.output_cost > 0" class="flex items-center justify-between gap-4">
+              <span class="text-gray-400">{{ t('admin.usage.outputCost') }}</span>
+              <span class="font-medium text-white">${{ tooltipData.output_cost.toFixed(6) }}</span>
+            </div>
+            <div v-if="tooltipData && tooltipData.input_tokens > 0" class="flex items-center justify-between gap-4">
+              <span class="text-gray-400">{{ t('usage.inputTokenPrice') }}</span>
+              <span class="font-medium text-sky-300">{{ formatTokenPricePerMillion(tooltipData.input_cost, tooltipData.input_tokens) }} {{ t('usage.perMillionTokens') }}</span>
+            </div>
+            <div v-if="tooltipData && tooltipData.output_tokens > 0" class="flex items-center justify-between gap-4">
+              <span class="text-gray-400">{{ t('usage.outputTokenPrice') }}</span>
+              <span class="font-medium text-violet-300">{{ formatTokenPricePerMillion(tooltipData.output_cost, tooltipData.output_tokens) }} {{ t('usage.perMillionTokens') }}</span>
+            </div>
+            <div v-if="tooltipData && tooltipData.cache_creation_cost > 0" class="flex items-center justify-between gap-4">
+              <span class="text-gray-400">{{ t('admin.usage.cacheCreationCost') }}</span>
+              <span class="font-medium text-white">${{ tooltipData.cache_creation_cost.toFixed(6) }}</span>
+            </div>
+            <div v-if="tooltipData && tooltipData.cache_read_cost > 0" class="flex items-center justify-between gap-4">
+              <span class="text-gray-400">{{ t('admin.usage.cacheReadCost') }}</span>
+              <span class="font-medium text-white">${{ tooltipData.cache_read_cost.toFixed(6) }}</span>
+            </div>
+          </div>
+          <!-- Rate and Summary -->
+          <div class="flex items-center justify-between gap-6">
+            <span class="text-gray-400">{{ t('usage.serviceTier') }}</span>
+            <span class="font-semibold text-cyan-300">{{ getUsageServiceTierLabel(tooltipData?.service_tier, t) }}</span>
+          </div>
+          <div class="flex items-center justify-between gap-6">
+            <span class="text-gray-400">{{ t('usage.rate') }}</span>
+            <span class="font-semibold text-blue-400">{{ formatMultiplier(tooltipData?.rate_multiplier || 1) }}x</span>
+          </div>
+          <div class="flex items-center justify-between gap-6">
+            <span class="text-gray-400">{{ t('usage.accountMultiplier') }}</span>
+            <span class="font-semibold text-blue-400">{{ formatMultiplier(tooltipData?.account_rate_multiplier ?? 1) }}x</span>
+          </div>
+          <div class="flex items-center justify-between gap-6">
+            <span class="text-gray-400">{{ t('usage.original') }}</span>
+            <span class="font-medium text-white">${{ tooltipData?.total_cost?.toFixed(6) || '0.000000' }}</span>
+          </div>
+          <div class="flex items-center justify-between gap-6">
+            <span class="text-gray-400">{{ t('usage.userBilled') }}</span>
+            <span class="font-semibold text-green-400">${{ tooltipData?.actual_cost?.toFixed(6) || '0.000000' }}</span>
+          </div>
+          <div class="flex items-center justify-between gap-6 border-t border-gray-700 pt-1.5">
+            <span class="text-gray-400">{{ t('usage.accountBilled') }}</span>
+            <span class="font-semibold text-green-400">
+              ${{ (((tooltipData?.total_cost || 0) * (tooltipData?.account_rate_multiplier ?? 1)) || 0).toFixed(6) }}
+            </span>
+          </div>
+        </div>
+        <div class="absolute right-full top-1/2 h-0 w-0 -translate-y-1/2 border-b-[6px] border-r-[6px] border-t-[6px] border-b-transparent border-r-gray-900 border-t-transparent dark:border-r-gray-800"></div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { formatDateTime, formatReasoningEffort } from '@/utils/format'
+import { formatCacheTokens, formatMultiplier } from '@/utils/formatters'
+import { formatTokenPricePerMillion } from '@/utils/usagePricing'
+import { getUsageServiceTierLabel } from '@/utils/usageServiceTier'
 import { resolveUsageRequestType } from '@/utils/usageRequestType'
 import DataTable from '@/components/common/DataTable.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -181,11 +338,18 @@ const getRequestTypeBadgeClass = (row: AdminUsageLog): string => {
   return 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200'
 }
 
-const formatCacheTokens = (tokens: number): string => {
-  if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`
-  if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}K`
-  return tokens.toString()
+const getBillingModeLabel = (mode: string | null | undefined): string => {
+  if (mode === 'per_request') return t('admin.usage.billingModePerRequest')
+  if (mode === 'image') return t('admin.usage.billingModeImage')
+  return t('admin.usage.billingModeToken')
 }
+
+const getBillingModeBadgeClass = (mode: string | null | undefined): string => {
+  if (mode === 'per_request') return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+  if (mode === 'image') return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+  return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+}
+
 
 const formatUserAgent = (ua: string): string => {
   return ua
