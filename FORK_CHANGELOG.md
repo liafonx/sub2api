@@ -1,10 +1,10 @@
 # Fork Changelog (liafonx/sub2api)
 
-Surviving fork-only patches relative to upstream release `v0.1.105` (`Wei-Shaw/sub2api`).
+Surviving fork-only patches relative to upstream release `v0.1.110` (`Wei-Shaw/sub2api`).
 
 ## Inventory Method
 
-- **Authoritative baseline**: full tree diff of `v0.1.105..main`
+- **Authoritative baseline**: full tree diff of `v0.1.110..main`
 - **Classification rule**: track surviving fork-only behavior and maintenance-relevant compat changes, not raw commit history
 - **Reapply source of truth**: file paths, symbols, config keys, routes, migrations, and verification commands
 - **Non-authoritative metadata**: commit SHAs may be mentioned for context, but they are not required to reapply a patch later
