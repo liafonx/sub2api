@@ -53,6 +53,7 @@ const (
 	defaultUserGroupRateCacheTTL = 30 * time.Second
 	defaultModelsListCacheTTL    = 15 * time.Second
 	postUsageBillingTimeout      = 15 * time.Second
+	staleLimitGuardRatio         = 0.50 // if computed limit < fallback * this ratio, utilization is likely stale
 	debugGatewayBodyEnv          = "SUB2API_DEBUG_GATEWAY_BODY"
 )
 
@@ -2540,7 +2541,7 @@ func computeEffectiveWindowCostLimit(account *Account, windowType WindowType, co
 		// Guard against stale utilization from a previous window: if computed
 		// limit is far below the best-known fallback, the utilization is likely
 		// leftover (high util + low cost = new window with old data).
-		if fallback > 0 && computed < fallback*0.50 {
+		if fallback > 0 && computed < fallback*staleLimitGuardRatio {
 			return fallback
 		}
 		return computed

@@ -184,6 +184,20 @@ func TestGetEffectiveWindowCostLimit(t *testing.T) {
 			want:       60.0, // cost=0 must fall through to manual limit fallback
 		},
 		{
+			name:       "dynamic, stale utilization from previous window triggers safety floor",
+			extra:      map[string]any{"dynamic_cost_enabled": true, "session_window_utilization": 0.36, "derived_5h_limit": 59.80},
+			costInCtx:  0.23,
+			windowType: Window5h,
+			want:       59.80, // 0.23/0.36=0.64 < 59.80*0.50=29.90 → fallback to derived limit
+		},
+		{
+			name:       "dynamic, normal high util is NOT clamped when computed is reasonable",
+			extra:      map[string]any{"dynamic_cost_enabled": true, "session_window_utilization": 0.50, "derived_5h_limit": 60.0},
+			costInCtx:  28.0,
+			windowType: Window5h,
+			want:       56.0, // 28/0.5=56.0 >= 60*0.50=30.0 → use computed
+		},
+		{
 			name:       "7d window, manual limit only",
 			extra:      map[string]any{"window_cost_7d_limit": 200.0},
 			windowType: Window7d,

@@ -1111,6 +1111,10 @@ func (s *RateLimitService) UpdateSessionWindow(ctx context.Context, account *Acc
 		return
 	}
 
+	// Use a detached context so accounting writes survive client disconnects.
+	ctx, cancel := detachedBillingContext(ctx)
+	defer cancel()
+
 	// 检查是否需要初始化时间窗口
 	// 对于 Setup Token 账号，首次成功请求时需要预测时间窗口
 	var windowStart, windowEnd *time.Time
