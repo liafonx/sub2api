@@ -825,6 +825,104 @@ grep "pointer: coarse" frontend/src/components/layout/AuthLayout.vue
 
 ---
 
+### Patch 21: User-Account Daily Affinity (added 2026-04-10)
+
+**Status**: Active on main
+
+**Purpose**: Pins each user to the same Anthropic account for the entire day. Affinity resets at a configurable UTC hour (default midnight). Backed by Redis with atomic Lua scripts; integrates as a super-sticky layer before session lookup; propagates `AffinityBound` to enable yellow quota zone access.
+
+**Enhancement (2026-04-11)**: Fixed `AffinityBound` flag missing from 4 return paths; added `maybeBindUserAffinity` calls to 2 WaitPlan paths; extracted `bindAffinityIfNeeded` helper. Added affinity-aware scoring: new users prefer accounts with fewer existing affinity bindings (uses `GetAffinityUserCounts` from Redis). Fixed zh.ts translations (removed mixed English "Red 费用区", replaced "亲和性" with natural "绑定").
+
+**Files**:
+
+| File | Change |
+|------|--------|
+| `backend/internal/service/user_affinity.go` | **NEW** — `UserAffinityCache` interface, `TimeUntilNextResetHour` |
+| `backend/internal/repository/user_affinity_cache.go` | **NEW** — Redis implementation with Lua scripts (INCR+EXPIRE, floor-at-0 DECR) |
+| `backend/internal/service/gateway_service.go` | MODIFIED — affinity resolution as super-sticky layer; `AffinityBound` on `AccountSelectionResult`; `maybeBindUserAffinity`; `bindAffinityIfNeeded` helper; `filterByMinAffinityCount`; affinity-aware tiebreaker in Layer 1 and Layer 2 |
+| `backend/internal/handler/gateway_handler.go` | MODIFIED — inject `ctxkey.UserID`; propagate `AffinityBound` to `hasBoundSession` |
+| `backend/internal/handler/gateway_handler_anthropic.go` | MODIFIED — same propagation |
+| `backend/ent/schema/group.go` | MODIFIED — `user_account_affinity_enabled` field |
+| `backend/internal/repository/migrations/082_add_group_user_account_affinity.sql` | **NEW** — migration |
+| `backend/internal/config/config.go` | MODIFIED — `AffinityResetHour` field (0-23 validation) |
+| `backend/internal/handler/dto/types.go` | MODIFIED — `UserAccountAffinityEnabled` DTO field |
+| `backend/internal/handler/dto/mappers.go` | MODIFIED — map affinity field |
+| `backend/internal/handler/admin/group_handler.go` | MODIFIED — admin CRUD for affinity toggle |
+| `backend/cmd/server/wire_gen.go` | MODIFIED — wire `NewUserAffinityCache` into `GatewayService` |
+| `frontend/src/views/admin/GroupsView.vue` | MODIFIED — affinity toggle (Anthropic groups only) |
+| `frontend/src/types/index.ts` | MODIFIED — `user_account_affinity_enabled` field |
+| `frontend/src/i18n/locales/en.ts` | MODIFIED — affinity i18n strings |
+| `frontend/src/i18n/locales/zh.ts` | MODIFIED — affinity i18n strings (fixed: "用户每日账号绑定", "费用超限") |
+| `backend/internal/service/scheduler_layered_filter_test.go` | MODIFIED — `TestFilterByMinAffinityCount` (6 subtests) |
+
+**Redis key schema**:
+
+```text
+user_affinity:{groupID}:{userID}    → String (accountID, TTL = time until next reset hour)
+user_affinity_count:{groupID}:{accountID} → String (user count, TTL = time until next reset hour)
+```
+
+**Upstream conflict risk**: HIGH — touches gateway_service, gateway_handler, ent schema, config, and admin DTOs.
+
+**Reapply markers**:
+- `UserAffinityCache`
+- `AffinityBound`
+- `bindAffinityIfNeeded`
+- `filterByMinAffinityCount`
+- `user_account_affinity_enabled`
+- `affinity_reset_hour`
+
+**Verification**:
+
+```bash
+grep -rn "UserAffinity\|user_affinity\|AffinityBound\|AffinityReset" backend/internal/
+grep -n "affinity_reset_hour" backend/internal/config/config.go
+grep -n "user_account_affinity_enabled" frontend/src/views/admin/GroupsView.vue
+grep -n "bindAffinityIfNeeded" backend/internal/service/gateway_service.go
+grep -n "filterByMinAffinityCount" backend/internal/service/gateway_service.go
+```
+
+---
+
+### Patch 22: Per-User RPM Allocation (added 2026-04-10)
+
+**Status**: Active on main
+
+**Purpose**: Splits an account's `base_rpm` equally among active users using a 3-zone model (green/yellow/red). Counters auto-expire (120s TTL), limits computed on-the-fly as `baseRPM / activeCount`. Reuses the active-user sorted set from Patch 3.
+
+**Files**:
+
+| File | Change |
+|------|--------|
+| `backend/internal/service/user_quota_service.go` | MODIFIED — `CheckUserRPM`, `CheckRPMZone`, RPM zone constants |
+| `backend/internal/service/account.go` | MODIFIED — `IsUserRPMEnabled`, `GetBaseRPM` helpers |
+| `backend/internal/service/rpm_cache.go` | **NEW** — RPM cache interface |
+| `backend/internal/repository/rpm_cache.go` | **NEW** — Redis RPM counter implementation |
+| `backend/internal/handler/gateway_handler.go` | MODIFIED — RPM check after account selection |
+| `backend/internal/service/gateway_service.go` | MODIFIED — `IncrementUserRPM` call in request flow |
+| `backend/cmd/server/wire_gen.go` | MODIFIED — wire RPM cache |
+| `backend/internal/handler/dto/types.go` | MODIFIED — `UserRPMEnabled`, `BaseRPM` DTO fields |
+| `frontend/src/components/account/EditAccountModal.vue` | MODIFIED — base_rpm field |
+| `frontend/src/components/account/CreateAccountModal.vue` | MODIFIED — base_rpm field |
+| `frontend/src/types/index.ts` | MODIFIED — `user_rpm_enabled`, `base_rpm` fields |
+
+**Upstream conflict risk**: HIGH — touches gateway handler, account service, user quota service, and DTOs.
+
+**Reapply markers**:
+- `IsUserRPMEnabled`
+- `CheckUserRPM`
+- `CheckRPMZone`
+- `UserAccountRPM`
+
+**Verification**:
+
+```bash
+grep -rn "IsUserRPMEnabled\|user_rpm_enabled\|CheckUserRPM\|UserAccountRPM\|CheckRPMZone" backend/internal/
+grep -rn "userRPMEnabled\|user_rpm_enabled" frontend/src/
+```
+
+---
+
 ## Verification
 
 Run after every upstream merge to confirm patches survived:
@@ -929,6 +1027,20 @@ grep dynamic_cost_enabled frontend/src/types/index.ts
 grep auth-decorative-orbs frontend/src/components/layout/AuthLayout.vue
 grep auth-card frontend/src/components/layout/AuthLayout.vue
 grep "pointer: coarse" frontend/src/components/layout/AuthLayout.vue
+
+# Patch 21: User-account daily affinity
+grep -n "UserAffinityCache" backend/internal/service/user_affinity.go
+ls backend/internal/repository/user_affinity_cache.go
+grep -n "affinity_reset_hour" backend/internal/config/config.go
+grep -n "bindAffinityIfNeeded" backend/internal/service/gateway_service.go
+grep -n "filterByMinAffinityCount" backend/internal/service/gateway_service.go
+grep -n "user_account_affinity_enabled" backend/ent/schema/group.go
+
+# Patch 22: Per-user RPM allocation
+grep -n "IsUserRPMEnabled" backend/internal/service/account.go
+grep -n "CheckUserRPM\|CheckRPMZone" backend/internal/service/user_quota_service.go
+ls backend/internal/service/rpm_cache.go
+ls backend/internal/repository/rpm_cache.go
 
 # utls version
 grep refraction-networking/utls backend/go.mod
