@@ -17,4 +17,10 @@ type RPMCache interface {
 
 	// IncrementUserRPM atomically increments and returns the current minute's RPM count for a user.
 	IncrementUserRPM(ctx context.Context, userID int64) (count int, err error)
+
+	// GetUserAccountRPM returns the current minute's per-user-per-account RPM count.
+	GetUserAccountRPM(ctx context.Context, accountID int64, userID int64) (count int, err error)
+
+	// IncrementUserAccountRPM atomically increments and returns the current minute's per-user-per-account RPM count.
+	IncrementUserAccountRPM(ctx context.Context, accountID int64, userID int64) (count int, err error)
 }

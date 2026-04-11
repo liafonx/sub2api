@@ -202,6 +202,7 @@ type Account struct {
 	// 每用户配额分配（仅 Anthropic OAuth/SetupToken 账号有效）
 	UserQuotaEnabled     *bool `json:"user_quota_enabled,omitempty"`
 	UserQuotaIdleTimeout *int  `json:"user_quota_idle_timeout,omitempty"`
+	UserRPMEnabled       *bool `json:"user_rpm_enabled,omitempty"`
 
 	// 自定义 Base URL 中继转发（仅 Anthropic OAuth/SetupToken 账号有效）
 	CustomBaseURLEnabled *bool   `json:"custom_base_url_enabled,omitempty"`

@@ -1730,23 +1730,23 @@ func (a *Account) GetWindowCostStickyReserve() float64 {
 	return 10.0
 }
 
-// IsUserQuotaEnabled 判断是否启用每用户配额分配
-// 仅适用于 Anthropic OAuth/SetupToken 账号
-func (a *Account) IsUserQuotaEnabled() bool {
-	if !a.IsAnthropicOAuthOrSetupToken() {
-		return false
-	}
+// extraBool reads a boolean flag from Extra, returning false if missing, nil, or non-bool.
+func (a *Account) extraBool(key string) bool {
 	if a.Extra == nil {
 		return false
 	}
-	v, ok := a.Extra["user_quota_enabled"]
+	v, ok := a.Extra[key]
 	if !ok {
 		return false
 	}
-	if b, ok := v.(bool); ok {
-		return b
-	}
-	return false
+	b, ok := v.(bool)
+	return ok && b
+}
+
+// IsUserQuotaEnabled 判断是否启用每用户配额分配
+// 仅适用于 Anthropic OAuth/SetupToken 账号
+func (a *Account) IsUserQuotaEnabled() bool {
+	return a.IsAnthropicOAuthOrSetupToken() && a.extraBool("user_quota_enabled")
 }
 
 // GetUserQuotaIdleTimeout 获取用户配额空闲超时时长，默认 60 秒
@@ -1864,29 +1864,36 @@ func (a *Account) GetRPMStickyBuffer() int {
 	return buffer
 }
 
-// CheckRPMSchedulability 根据当前 RPM 计数检查调度状态
-// 复用 WindowCostSchedulability 三态：Schedulable / StickyOnly / NotSchedulable
-func (a *Account) CheckRPMSchedulability(currentRPM int) WindowCostSchedulability {
-	baseRPM := a.GetBaseRPM()
+// IsUserRPMEnabled 判断是否启用每用户 RPM 分配
+// 仅适用于 Anthropic OAuth/SetupToken 账号
+func (a *Account) IsUserRPMEnabled() bool {
+	return a.IsAnthropicOAuthOrSetupToken() && a.extraBool("user_rpm_enabled")
+}
+
+// CheckRPMZone is a shared helper that evaluates RPM zone (green/yellow/red)
+// given a currentRPM, base limit, buffer, and strategy.
+// Used by both account-level and per-user-level RPM checks.
+func CheckRPMZone(currentRPM, baseRPM, buffer int, strategy string) WindowCostSchedulability {
 	if baseRPM <= 0 {
 		return WindowCostSchedulable
 	}
-
 	if currentRPM < baseRPM {
 		return WindowCostSchedulable
 	}
-
-	strategy := a.GetRPMStrategy()
 	if strategy == "sticky_exempt" {
 		return WindowCostStickyOnly // 粘性豁免无红区
 	}
-
 	// tiered: 黄区 + 红区
-	buffer := a.GetRPMStickyBuffer()
 	if currentRPM < baseRPM+buffer {
 		return WindowCostStickyOnly
 	}
 	return WindowCostNotSchedulable
+}
+
+// CheckRPMSchedulability 根据当前 RPM 计数检查调度状态
+// 复用 WindowCostSchedulability 三态：Schedulable / StickyOnly / NotSchedulable
+func (a *Account) CheckRPMSchedulability(currentRPM int) WindowCostSchedulability {
+	return CheckRPMZone(currentRPM, a.GetBaseRPM(), a.GetRPMStickyBuffer(), a.GetRPMStrategy())
 }
 
 // Deprecated: Use GatewayService.checkWindowZone instead for dynamic cost support.

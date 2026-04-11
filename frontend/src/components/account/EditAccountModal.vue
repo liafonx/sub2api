@@ -1418,6 +1418,38 @@
           </div>
         </div>
 
+        <!-- Per-User RPM -->
+        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+          <div class="mb-3 flex items-center justify-between">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.userRPM.label', 'Per-User RPM') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.quotaControl.userRPM.hint', 'Split account base_rpm equally among active users') }}
+              </p>
+              <p v-if="!rpmEnabled" class="mt-1 text-xs text-amber-500">
+                {{ t('admin.accounts.quotaControl.userRPM.requiresRPM', 'Requires base RPM to be set') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              :disabled="!rpmEnabled"
+              @click="rpmEnabled && (userRPMEnabled = !userRPMEnabled)"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                rpmEnabled ? 'cursor-pointer' : 'cursor-not-allowed opacity-50',
+                userRPMEnabled && rpmEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  userRPMEnabled && rpmEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+        </div>
+
         <!-- Session Limit -->
         <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
           <div class="mb-3 flex items-center justify-between">
@@ -1984,10 +2016,12 @@ const windowCost7dLimit = ref<number | null>(null)
 const windowCost7dStickyReserve = ref<number | null>(null)
 const userQuotaEnabled = ref(false)
 const userQuotaIdleTimeout = ref<number | null>(null)
+const userRPMEnabled = ref(false)
 const sessionLimitEnabled = ref(false)
 const maxSessions = ref<number | null>(null)
 const sessionIdleTimeout = ref<number | null>(null)
 const rpmLimitEnabled = ref(false)
+const rpmEnabled = computed(() => rpmLimitEnabled.value && baseRpm.value != null && baseRpm.value > 0)
 const baseRpm = ref<number | null>(null)
 const rpmStrategy = ref<'tiered' | 'sticky_exempt'>('tiered')
 const rpmStickyBuffer = ref<number | null>(null)
@@ -2622,6 +2656,7 @@ function loadQuotaControlSettings(account: Account) {
   windowCostStickyReserve.value = null
   userQuotaEnabled.value = false
   userQuotaIdleTimeout.value = null
+  userRPMEnabled.value = false
   sessionLimitEnabled.value = false
   maxSessions.value = null
   sessionIdleTimeout.value = null
@@ -2660,6 +2695,10 @@ function loadQuotaControlSettings(account: Account) {
   if (account.user_quota_enabled) {
     userQuotaEnabled.value = true
     userQuotaIdleTimeout.value = account.user_quota_idle_timeout ?? null
+  }
+
+  if (account.user_rpm_enabled) {
+    userRPMEnabled.value = true
   }
 
   if (account.max_sessions != null && account.max_sessions > 0) {
@@ -3117,6 +3156,13 @@ const handleSubmit = async () => {
       } else {
         delete newExtra.user_quota_enabled
         delete newExtra.user_quota_idle_timeout
+      }
+
+      // Per-user RPM
+      if (userRPMEnabled.value && rpmEnabled.value) {
+        newExtra.user_rpm_enabled = true
+      } else {
+        delete newExtra.user_rpm_enabled
       }
 
       // Session limit settings

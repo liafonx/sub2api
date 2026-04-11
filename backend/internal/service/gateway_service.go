@@ -762,6 +762,23 @@ func (s *GatewayService) CheckUserQuotaForAccount(ctx context.Context, account *
 	return s.userQuotaChecker.CheckUserQuota(ctx, account, userID, isSticky)
 }
 
+// CheckUserRPMForAccount checks whether userID is within their per-user RPM allocation on account.
+// Returns (true, "") if RPM quota is not enabled or check passes.
+func (s *GatewayService) CheckUserRPMForAccount(ctx context.Context, account *Account, userID int64, isSticky bool) (bool, string) {
+	if s.userQuotaChecker == nil {
+		return true, ""
+	}
+	return s.userQuotaChecker.CheckUserRPM(ctx, account, userID, isSticky)
+}
+
+// IncrementUserAccountRPM increments the per-user-per-account RPM counter.
+func (s *GatewayService) IncrementUserAccountRPM(ctx context.Context, accountID int64, userID int64) {
+	if s.userQuotaChecker == nil {
+		return
+	}
+	s.userQuotaChecker.IncrementUserAccountRPM(ctx, accountID, userID)
+}
+
 // GenerateSessionHash 从预解析请求计算粘性会话 hash
 func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 	if parsed == nil {
@@ -2519,7 +2536,14 @@ func computeEffectiveWindowCostLimit(account *Account, windowType WindowType, co
 	// utilization produces 0, which is "no signal", not "zero budget". Fall through
 	// to the fallback path so we use the best-known stored/manual limit instead.
 	if utilization >= 0.05 && cost > 0 {
-		return cost / utilization
+		computed := cost / utilization
+		// Guard against stale utilization from a previous window: if computed
+		// limit is far below the best-known fallback, the utilization is likely
+		// leftover (high util + low cost = new window with old data).
+		if fallback > 0 && computed < fallback*0.50 {
+			return fallback
+		}
+		return computed
 	}
 	if utilization >= 0.01 && cost > 0 {
 		computed := cost / utilization

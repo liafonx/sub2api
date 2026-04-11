@@ -35,6 +35,10 @@ type UserQuotaChecker interface {
 	CheckUserQuota(ctx context.Context, account *Account, userID int64, isSticky bool) (allowed bool, reason string)
 	RegisterActivity(ctx context.Context, account *Account, userID int64)
 	IncrementUserCost(ctx context.Context, accountID int64, userID int64, standardCost float64)
+	// CheckUserRPM checks per-user RPM limit for an account. Returns allowed=true when disabled or within limit.
+	CheckUserRPM(ctx context.Context, account *Account, userID int64, isSticky bool) (allowed bool, reason string)
+	// IncrementUserAccountRPM increments the per-user-per-account RPM counter after a successful request.
+	IncrementUserAccountRPM(ctx context.Context, accountID int64, userID int64)
 	// GetDisplayMetaBatch reads per_user_limit and active_count for multiple accounts.
 	GetDisplayMetaBatch(ctx context.Context, accountIDs []int64) (map[int64]QuotaDisplayMeta, error)
 	// GetUserQuotaStatus returns the per-user limit, user's current cost, and active user count for an account.
@@ -83,6 +87,7 @@ type accountQuotaState struct {
 // userQuotaService implements UserQuotaChecker.
 type userQuotaService struct {
 	cache             UserQuotaCache
+	rpmCache          RPMCache
 	windowCostGetter  func(ctx context.Context, account *Account) float64
 	windowLimitGetter func(ctx context.Context, account *Account) float64
 
@@ -92,9 +97,10 @@ type userQuotaService struct {
 
 // NewUserQuotaService creates a new userQuotaService.
 // windowCostGetter returns the current window cost for an account (reuses existing cache logic).
-func NewUserQuotaService(cache UserQuotaCache, windowCostGetter func(ctx context.Context, account *Account) float64) UserQuotaChecker {
+func NewUserQuotaService(cache UserQuotaCache, windowCostGetter func(ctx context.Context, account *Account) float64, rpmCache RPMCache) UserQuotaChecker {
 	return &userQuotaService{
 		cache:            cache,
+		rpmCache:         rpmCache,
 		windowCostGetter: windowCostGetter,
 		activeAccounts:   make(map[int64]*accountQuotaState),
 	}
@@ -106,6 +112,27 @@ func SetWindowLimitGetter(svc UserQuotaChecker, getter func(ctx context.Context,
 	if impl, ok := svc.(*userQuotaService); ok {
 		impl.windowLimitGetter = getter
 	}
+}
+
+// ensureAccountTracked upserts the account in activeAccounts and detects window changes.
+// Pass windowStartMs=0 to skip window-change detection (RPM-only mode).
+// Returns true if a billing window change was detected.
+func (s *userQuotaService) ensureAccountTracked(account *Account, windowStartMs int64) (windowChanged bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, exists := s.activeAccounts[account.ID]
+	if !exists {
+		s.activeAccounts[account.ID] = &accountQuotaState{
+			account:           account,
+			lastWindowStartMs: windowStartMs,
+		}
+		return false
+	}
+	state.account = account
+	if windowStartMs > 0 && state.lastWindowStartMs > 0 && state.lastWindowStartMs != windowStartMs {
+		return true
+	}
+	return false
 }
 
 // StartUserQuotaCleanupTicker starts a background goroutine that evicts idle users
@@ -160,17 +187,32 @@ func (s *userQuotaService) runCleanup(ctx context.Context) {
 			totalRemoved++
 		}
 
-		currentWindowStartMs := account.GetCurrentWindowStartTime().UnixMilli()
-		windowChanged := state.lastWindowStartMs > 0 && currentWindowStartMs != state.lastWindowStartMs
+		quotaEnabled := account.IsUserQuotaEnabled()
 
-		if len(removed) > 0 || windowChanged {
-			if windowChanged {
-				logger.L().Info("user_quota.window_reset_detected",
-					zap.Int64("account_id", account.ID),
-					zap.String("trigger", "cleanup_tick"),
-				)
+		if quotaEnabled {
+			// Cost quota accounts: recalculate on eviction or window change.
+			currentWindowStartMs := account.GetCurrentWindowStartTime().UnixMilli()
+			windowChanged := state.lastWindowStartMs > 0 && currentWindowStartMs != state.lastWindowStartMs
+
+			if len(removed) > 0 || windowChanged {
+				if windowChanged {
+					logger.L().Info("user_quota.window_reset_detected",
+						zap.Int64("account_id", account.ID),
+						zap.String("trigger", "cleanup_tick"),
+					)
+				}
+				s.recalculateQuotas(ctx, account, true, windowChanged)
 			}
-			s.recalculateQuotas(ctx, account, true, windowChanged)
+		} else {
+			// RPM-only accounts: prune from activeAccounts when all users evicted.
+			if len(removed) > 0 {
+				activeCount, cardErr := s.cache.ZCardActive(ctx, account.ID)
+				if cardErr == nil && activeCount == 0 {
+					s.mu.Lock()
+					delete(s.activeAccounts, account.ID)
+					s.mu.Unlock()
+				}
+			}
 		}
 	}
 
@@ -245,7 +287,9 @@ func (s *userQuotaService) CheckUserQuota(ctx context.Context, account *Account,
 // RegisterActivity marks the user as active. Triggers recalculation on first appearance
 // or when the upstream 5h billing window has reset since the last recalculation.
 func (s *userQuotaService) RegisterActivity(ctx context.Context, account *Account, userID int64) {
-	if !account.IsUserQuotaEnabled() {
+	quotaEnabled := account.IsUserQuotaEnabled()
+	rpmEnabled := account.IsUserRPMEnabled()
+	if !quotaEnabled && !rpmEnabled {
 		return
 	}
 
@@ -261,24 +305,24 @@ func (s *userQuotaService) RegisterActivity(ctx context.Context, account *Accoun
 		return
 	}
 
-	currentWindowStartMs := account.GetCurrentWindowStartTime().UnixMilli()
-
-	s.mu.Lock()
-	state, exists := s.activeAccounts[account.ID]
-	windowChanged := false
-	if !exists {
-		state = &accountQuotaState{
-			account:           account,
-			lastWindowStartMs: currentWindowStartMs,
+	// Window tracking and recalculation only needed for cost quota, not RPM-only.
+	if !quotaEnabled {
+		// RPM-only: just track in activeAccounts for cleanup, skip window logic.
+		s.ensureAccountTracked(account, 0)
+		if isNew {
+			activeCount, _ := s.cache.ZCardActive(ctx, account.ID)
+			logger.L().Info("user_quota.user_joined",
+				zap.Int64("account_id", account.ID),
+				zap.Int64("user_id", userID),
+				zap.Int64("active_users", activeCount),
+				zap.String("mode", "rpm_only"),
+			)
 		}
-		s.activeAccounts[account.ID] = state
-	} else {
-		state.account = account
-		if state.lastWindowStartMs > 0 && state.lastWindowStartMs != currentWindowStartMs {
-			windowChanged = true
-		}
+		return
 	}
-	s.mu.Unlock()
+
+	currentWindowStartMs := account.GetCurrentWindowStartTime().UnixMilli()
+	windowChanged := s.ensureAccountTracked(account, currentWindowStartMs)
 
 	if isNew || windowChanged {
 		if windowChanged {
@@ -469,4 +513,99 @@ func (s *userQuotaService) recalculateQuotas(ctx context.Context, account *Accou
 		zap.Float64("per_user_sticky_reserve", perUserStickyReserve),
 	)
 	return newEpoch, activeCount
+}
+
+// CheckUserRPM checks per-user RPM limit for an account.
+// Returns allowed=true when the feature is disabled, Redis errors occur (fail-open),
+// or the user is within their per-user RPM allocation.
+func (s *userQuotaService) CheckUserRPM(ctx context.Context, account *Account, userID int64, isSticky bool) (bool, string) {
+	if !account.IsUserRPMEnabled() {
+		return true, "disabled"
+	}
+	baseRPM := account.GetBaseRPM()
+	if baseRPM <= 0 {
+		return true, "no_base_rpm"
+	}
+
+	activeCount, err := s.cache.ZCardActive(ctx, account.ID)
+	if err != nil {
+		logger.L().Error("user_rpm.redis_error",
+			zap.String("operation", "ZCardActive"),
+			zap.Int64("account_id", account.ID),
+			zap.Int64("user_id", userID),
+			zap.Error(err),
+		)
+		return true, "redis_error"
+	}
+	if activeCount <= 0 {
+		logger.L().Warn("user_rpm.active_count_zero_failopen",
+			zap.Int64("account_id", account.ID),
+			zap.Int64("user_id", userID),
+		)
+		return true, "active_count_zero"
+	}
+
+	userRPM, err := s.rpmCache.GetUserAccountRPM(ctx, account.ID, userID)
+	if err != nil {
+		logger.L().Error("user_rpm.redis_error",
+			zap.String("operation", "GetUserAccountRPM"),
+			zap.Int64("account_id", account.ID),
+			zap.Int64("user_id", userID),
+			zap.Error(err),
+		)
+		return true, "redis_error"
+	}
+
+	perUserBase := baseRPM / int(activeCount)
+	if perUserBase < 1 {
+		perUserBase = 1
+	}
+
+	stickyBuffer := account.GetRPMStickyBuffer()
+	perUserBuffer := 0
+	if stickyBuffer > 0 {
+		perUserBuffer = (stickyBuffer + int(activeCount) - 1) / int(activeCount) // ceil division
+	}
+
+	zone := CheckRPMZone(userRPM, perUserBase, perUserBuffer, account.GetRPMStrategy())
+	switch zone {
+	case WindowCostSchedulable:
+		return true, "green"
+	case WindowCostStickyOnly:
+		if isSticky {
+			return true, "yellow_sticky"
+		}
+		logger.L().Warn("user_rpm.check_blocked",
+			zap.Int64("account_id", account.ID),
+			zap.Int64("user_id", userID),
+			zap.Int("user_rpm", userRPM),
+			zap.Int("per_user_base", perUserBase),
+			zap.String("zone", "yellow_non_sticky"),
+		)
+		return false, "yellow_non_sticky"
+	case WindowCostNotSchedulable:
+		logger.L().Warn("user_rpm.check_blocked",
+			zap.Int64("account_id", account.ID),
+			zap.Int64("user_id", userID),
+			zap.Int("user_rpm", userRPM),
+			zap.Int("per_user_base", perUserBase),
+			zap.String("zone", "red"),
+		)
+		return false, "red"
+	}
+	return true, "unknown"
+}
+
+// IncrementUserAccountRPM increments the per-user-per-account RPM counter.
+func (s *userQuotaService) IncrementUserAccountRPM(ctx context.Context, accountID int64, userID int64) {
+	if s.rpmCache == nil {
+		return
+	}
+	if _, err := s.rpmCache.IncrementUserAccountRPM(ctx, accountID, userID); err != nil {
+		logger.L().Error("user_rpm.increment_failed",
+			zap.Int64("account_id", accountID),
+			zap.Int64("user_id", userID),
+			zap.Error(err),
+		)
+	}
 }

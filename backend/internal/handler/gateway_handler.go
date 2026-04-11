@@ -464,6 +464,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				if err := h.gatewayService.IncrementUserRPM(rpmCtx, apiKey.User.ID); err != nil {
 					reqLog.Warn("gateway.user_rpm_increment_failed", zap.Int64("user_id", apiKey.User.ID), zap.Error(err))
 				}
+				if account.IsUserRPMEnabled() {
+					h.gatewayService.IncrementUserAccountRPM(rpmCtx, account.ID, apiKey.User.ID)
+				}
 			}
 			rpmCancel()
 			if sessionHash != "" {
@@ -630,12 +633,17 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// 账号槽位/等待计数需要在超时或断开时安全回收
 			accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
 
-			// 注册用户活动 + 每用户配额检查（在获取槽位后，仅 Anthropic OAuth/SetupToken 账号）
+			// 注册用户活动 + 每用户配额检查 + 每用户RPM检查（在获取槽位后，仅 Anthropic OAuth/SetupToken 账号）
 			if account.IsAnthropicOAuthOrSetupToken() {
 				h.gatewayService.RegisterUserActivity(c.Request.Context(), account, subject.UserID)
 				if allowed, _ := h.gatewayService.CheckUserQuotaForAccount(c.Request.Context(), account, subject.UserID, hasBoundSession); !allowed {
 					accountReleaseFunc()
 					h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error", "Per-user quota exceeded, please try again later", streamStarted)
+					return
+				}
+				if allowed, _ := h.gatewayService.CheckUserRPMForAccount(c.Request.Context(), account, subject.UserID, hasBoundSession); !allowed {
+					accountReleaseFunc()
+					h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error", "Per-user RPM limit exceeded", streamStarted)
 					return
 				}
 			}
@@ -822,6 +830,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if apiKey.User != nil && apiKey.User.ID > 0 {
 				if err := h.gatewayService.IncrementUserRPM(rpmCtx, apiKey.User.ID); err != nil {
 					reqLog.Warn("gateway.user_rpm_increment_failed", zap.Int64("user_id", apiKey.User.ID), zap.Error(err))
+				}
+				if account.IsUserRPMEnabled() {
+					h.gatewayService.IncrementUserAccountRPM(rpmCtx, account.ID, apiKey.User.ID)
 				}
 			}
 			rpmCancel()

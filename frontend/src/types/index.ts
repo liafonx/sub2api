@@ -720,6 +720,7 @@ export interface Account {
   // 每用户配额分配（仅 Anthropic OAuth/SetupToken 账号有效）
   user_quota_enabled?: boolean;
   user_quota_idle_timeout?: number | null;
+  user_rpm_enabled?: boolean;
 
   // 会话数量控制（仅 Anthropic OAuth/SetupToken 账号有效）
   max_sessions?: number | null;

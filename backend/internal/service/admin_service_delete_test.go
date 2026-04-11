@@ -113,6 +113,14 @@ func (s *userRepoStub) DisableTotp(ctx context.Context, userID int64) error {
 	panic("unexpected DisableTotp call")
 }
 
+func (s *userRepoStub) GetByIDs(ctx context.Context, ids []int64) ([]*User, error) {
+	panic("unexpected GetByIDs call")
+}
+
+func (s *userRepoStub) ListAllIDs(ctx context.Context) ([]int64, error) {
+	panic("unexpected ListAllIDs call")
+}
+
 type groupRepoStub struct {
 	affectedUserIDs []int64
 	deleteErr       error
