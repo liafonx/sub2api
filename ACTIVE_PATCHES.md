@@ -1,6 +1,6 @@
 # Active Fork Patches
 
-This file lists the **8 patches currently applied** to the `main` branch.
+This file lists the **9 patches currently applied** to the `main` branch.
 For full history and removed/superseded patches, see [FORK_CHANGELOG.md](FORK_CHANGELOG.md).
 
 > **During upstream merges:** check each patch's key files for conflicts.
@@ -164,6 +164,28 @@ grep -n "blur\|backdrop" frontend/src/components/layout/AuthLayout.vue
 grep -rn "UserAffinity\|user_affinity\|AffinityBound\|AffinityReset" backend/internal/
 grep -n "affinity_reset_hour" backend/internal/config/config.go
 grep -n "user_account_affinity_enabled" frontend/src/views/admin/GroupsView.vue
+```
+
+---
+
+## Patch 22 — Per-User RPM Allocation
+
+**Purpose:** Split an account's `base_rpm` equally among active users using the 3-zone (green/yellow/red) model. Counters auto-expire (120s TTL), limits computed on-the-fly as `baseRPM / activeCount`. Reuses the active-user sorted set from Patch 3.
+
+**Upstream conflict risk:** HIGH — touches gateway handler, account service, user quota service, and DTOs.
+
+| Layer | Key Files |
+|-------|-----------|
+| Backend | `service/user_quota_service.go`, `service/account.go`, `service/rpm_cache.go`, `repository/rpm_cache.go` |
+| Handler | `handler/gateway_handler.go`, `service/gateway_service.go` |
+| DI | `wire_gen.go` |
+| DTO | `handler/dto/types.go` |
+| Frontend | `components/account/EditAccountModal.vue`, `components/account/CreateAccountModal.vue`, `types/index.ts` |
+
+**Verify:**
+```bash
+grep -rn "IsUserRPMEnabled\|user_rpm_enabled\|CheckUserRPM\|UserAccountRPM\|CheckRPMZone" backend/internal/
+grep -rn "userRPMEnabled\|user_rpm_enabled" frontend/src/
 ```
 
 ---
