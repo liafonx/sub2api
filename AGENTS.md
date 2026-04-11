@@ -1,3 +1,5 @@
+<!-- This file is symlinked as CLAUDE.md. AGENTS.md and CLAUDE.md are the same file. -->
+
 # Sub2API — Agent Guide
 
 > **IMPORTANT**: Before any deploy, service management, or infrastructure work, read `deploy/AGENTS.md` first.
