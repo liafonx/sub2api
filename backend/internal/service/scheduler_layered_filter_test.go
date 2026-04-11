@@ -211,6 +211,69 @@ func TestSelectByLRU(t *testing.T) {
 	})
 }
 
+func TestFilterByMinAffinityCount(t *testing.T) {
+	t.Run("nil counts returns all", func(t *testing.T) {
+		accounts := []accountWithLoad{
+			{account: &Account{ID: 1}, loadInfo: &AccountLoadInfo{}},
+			{account: &Account{ID: 2}, loadInfo: &AccountLoadInfo{}},
+		}
+		result := filterByMinAffinityCount(accounts, nil)
+		require.Len(t, result, 2)
+	})
+
+	t.Run("single account", func(t *testing.T) {
+		accounts := []accountWithLoad{
+			{account: &Account{ID: 1}, loadInfo: &AccountLoadInfo{}},
+		}
+		counts := map[int64]int64{1: 5}
+		result := filterByMinAffinityCount(accounts, counts)
+		require.Len(t, result, 1)
+		require.Equal(t, int64(1), result[0].account.ID)
+	})
+
+	t.Run("filters to min count", func(t *testing.T) {
+		accounts := []accountWithLoad{
+			{account: &Account{ID: 1}, loadInfo: &AccountLoadInfo{}},
+			{account: &Account{ID: 2}, loadInfo: &AccountLoadInfo{}},
+			{account: &Account{ID: 3}, loadInfo: &AccountLoadInfo{}},
+			{account: &Account{ID: 4}, loadInfo: &AccountLoadInfo{}},
+		}
+		counts := map[int64]int64{1: 10, 2: 2, 3: 5, 4: 2}
+		result := filterByMinAffinityCount(accounts, counts)
+		require.Len(t, result, 2)
+		require.Equal(t, int64(2), result[0].account.ID)
+		require.Equal(t, int64(4), result[1].account.ID)
+	})
+
+	t.Run("zero counts for missing keys", func(t *testing.T) {
+		accounts := []accountWithLoad{
+			{account: &Account{ID: 1}, loadInfo: &AccountLoadInfo{}},
+			{account: &Account{ID: 2}, loadInfo: &AccountLoadInfo{}},
+			{account: &Account{ID: 3}, loadInfo: &AccountLoadInfo{}},
+		}
+		// ID 3 not in counts map → defaults to 0
+		counts := map[int64]int64{1: 5, 2: 3}
+		result := filterByMinAffinityCount(accounts, counts)
+		require.Len(t, result, 1)
+		require.Equal(t, int64(3), result[0].account.ID)
+	})
+
+	t.Run("all same count returns all", func(t *testing.T) {
+		accounts := []accountWithLoad{
+			{account: &Account{ID: 1}, loadInfo: &AccountLoadInfo{}},
+			{account: &Account{ID: 2}, loadInfo: &AccountLoadInfo{}},
+		}
+		counts := map[int64]int64{1: 7, 2: 7}
+		result := filterByMinAffinityCount(accounts, counts)
+		require.Len(t, result, 2)
+	})
+
+	t.Run("empty slice", func(t *testing.T) {
+		result := filterByMinAffinityCount(nil, map[int64]int64{1: 5})
+		require.Empty(t, result)
+	})
+}
+
 func TestLayeredFilterIntegration(t *testing.T) {
 	now := time.Now()
 	earlier := now.Add(-1 * time.Hour)

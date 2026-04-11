@@ -680,6 +680,19 @@ func (s *GatewayService) SetUserAffinityCache(cache UserAffinityCache) {
 
 // maybeBindUserAffinity binds user→account affinity when a new account is selected.
 // No-op when userID is 0, affinity is disabled, or the cache is unavailable.
+// bindAffinityIfNeeded returns true if the user already has an affinity binding
+// or was newly bound to accountID on this call.
+func (s *GatewayService) bindAffinityIfNeeded(ctx context.Context, affinityResolved bool, group *Group, groupID *int64, affinityUserID, accountID int64, cfg config.GatewaySchedulingConfig) bool {
+	if affinityResolved {
+		return true
+	}
+	if group != nil && group.UserAccountAffinityEnabled && affinityUserID > 0 {
+		s.maybeBindUserAffinity(ctx, groupID, affinityUserID, accountID, cfg)
+		return true
+	}
+	return false
+}
+
 func (s *GatewayService) maybeBindUserAffinity(ctx context.Context, groupID *int64, userID int64, accountID int64, cfg config.GatewaySchedulingConfig) {
 	if userID <= 0 || s.userAffinityCache == nil {
 		return
@@ -1418,6 +1431,12 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			derefGroupID(groupID), groupPlatform, requestedModel, shortSessionHash(sessionHash), stickyAccountID, cfg.LoadBatchEnabled, s.concurrencyService != nil)
 	}
 
+	// Affinity-aware scoring: when a new user has no existing affinity, use per-account
+	// affinity user counts to spread users evenly across accounts.
+	shouldUseAffinityCounts := !affinityResolved && affinityUserID > 0 &&
+		group != nil && group.UserAccountAffinityEnabled &&
+		s.userAffinityCache != nil
+
 	if s.concurrencyService == nil || !cfg.LoadBatchEnabled {
 		// 复制排除列表，用于会话限制拒绝时的重试
 		localExcluded := make(map[int64]struct{})
@@ -1622,9 +1641,10 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 										logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] routed sticky hit: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), stickyAccountID)
 									}
 									return &AccountSelectionResult{
-										Account:     stickyAccount,
-										Acquired:    true,
-										ReleaseFunc: result.ReleaseFunc,
+										Account:       stickyAccount,
+										Acquired:      true,
+										ReleaseFunc:   result.ReleaseFunc,
+										AffinityBound: affinityResolved,
 									}, nil
 								}
 							}
@@ -1645,6 +1665,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 												Timeout:        cfg.StickySessionWaitTimeout,
 												MaxWaiting:     cfg.StickySessionMaxWaiting,
 											},
+											AffinityBound: affinityResolved,
 										}, nil
 									}
 								} else {
@@ -1721,6 +1742,24 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 				})
 				shuffleWithinSortGroups(routingAvailable)
 
+				// 3.5. Affinity-aware tiebreaker: prefer accounts with fewer affinitied users
+				if shouldUseAffinityCounts && len(routingAvailable) > 1 {
+					routingIDs := make([]int64, len(routingAvailable))
+					for i, item := range routingAvailable {
+						routingIDs[i] = item.account.ID
+					}
+					if affinityCnts, afErr := s.userAffinityCache.GetAffinityUserCounts(ctx, derefGroupID(groupID), routingIDs); afErr == nil {
+						sort.SliceStable(routingAvailable, func(i, j int) bool {
+							a, b := routingAvailable[i], routingAvailable[j]
+							// Only reorder within same priority+loadRate group
+							if a.account.Priority != b.account.Priority || a.loadInfo.LoadRate != b.loadInfo.LoadRate {
+								return false
+							}
+							return affinityCnts[a.account.ID] < affinityCnts[b.account.ID]
+						})
+					}
+				}
+
 				// 4. 尝试获取槽位
 				for _, item := range routingAvailable {
 					result, err := s.tryAcquireAccountSlot(ctx, item.account.ID, item.account.Concurrency)
@@ -1736,16 +1775,11 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 						if s.debugModelRoutingEnabled() {
 							logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] routed select: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), item.account.ID)
 						}
-						affinityBound := affinityResolved
-						if !affinityResolved && group != nil && group.UserAccountAffinityEnabled && affinityUserID > 0 {
-							s.maybeBindUserAffinity(ctx, groupID, affinityUserID, item.account.ID, cfg)
-							affinityBound = true
-						}
 						return &AccountSelectionResult{
 							Account:       item.account,
 							Acquired:      true,
 							ReleaseFunc:   result.ReleaseFunc,
-							AffinityBound: affinityBound,
+							AffinityBound: s.bindAffinityIfNeeded(ctx, affinityResolved, group, groupID, affinityUserID, item.account.ID, cfg),
 						}, nil
 					}
 				}
@@ -1767,6 +1801,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 							Timeout:        cfg.StickySessionWaitTimeout,
 							MaxWaiting:     cfg.StickySessionMaxWaiting,
 						},
+						AffinityBound: s.bindAffinityIfNeeded(ctx, affinityResolved, group, groupID, affinityUserID, item.account.ID, cfg),
 					}, nil
 				}
 				// 所有路由账号会话限制都已满，继续到 Layer 2 回退
@@ -1889,11 +1924,8 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	loadMap, err := s.concurrencyService.GetAccountsLoadBatch(ctx, accountLoads)
 	if err != nil {
 		if result, ok := s.tryAcquireByLegacyOrder(ctx, candidates, groupID, sessionHash, preferOAuth); ok {
-			if !affinityResolved && group != nil && group.UserAccountAffinityEnabled && affinityUserID > 0 && result.Account != nil {
-				s.maybeBindUserAffinity(ctx, groupID, affinityUserID, result.Account.ID, cfg)
-				result.AffinityBound = true
-			} else if affinityResolved {
-				result.AffinityBound = true
+			if result.Account != nil {
+				result.AffinityBound = s.bindAffinityIfNeeded(ctx, affinityResolved, group, groupID, affinityUserID, result.Account.ID, cfg)
 			}
 			return result, nil
 		}
@@ -1912,12 +1944,26 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			}
 		}
 
-		// 分层过滤选择：优先级 → 负载率 → LRU
+		// Hoist affinity count fetch above the retry loop (single Redis pipeline call).
+		var affinityCounts map[int64]int64
+		if shouldUseAffinityCounts && len(available) > 0 {
+			availIDs := make([]int64, len(available))
+			for i, a := range available {
+				availIDs[i] = a.account.ID
+			}
+			affinityCounts, _ = s.userAffinityCache.GetAffinityUserCounts(ctx, derefGroupID(groupID), availIDs)
+		}
+
+		// 分层过滤选择：优先级 → 负载率 → 亲和用户数 → LRU
 		for len(available) > 0 {
 			// 1. 取优先级最小的集合
 			candidates := filterByMinPriority(available)
 			// 2. 取负载率最低的集合
 			candidates = filterByMinLoadRate(candidates)
+			// 2.5. 取亲和用户数最少的集合
+			if len(affinityCounts) > 0 && len(candidates) > 1 {
+				candidates = filterByMinAffinityCount(candidates, affinityCounts)
+			}
 			// 3. LRU 选择最久未用的账号
 			selected := selectByLRU(candidates, preferOAuth)
 			if selected == nil {
@@ -1933,16 +1979,11 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 					if sessionHash != "" && s.cache != nil {
 						_ = s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, selected.account.ID, stickySessionTTL)
 					}
-					affinityBoundL2 := affinityResolved
-					if !affinityResolved && group != nil && group.UserAccountAffinityEnabled && affinityUserID > 0 {
-						s.maybeBindUserAffinity(ctx, groupID, affinityUserID, selected.account.ID, cfg)
-						affinityBoundL2 = true
-					}
 					return &AccountSelectionResult{
 						Account:       selected.account,
 						Acquired:      true,
 						ReleaseFunc:   result.ReleaseFunc,
-						AffinityBound: affinityBoundL2,
+						AffinityBound: s.bindAffinityIfNeeded(ctx, affinityResolved, group, groupID, affinityUserID, selected.account.ID, cfg),
 					}, nil
 				}
 			}
@@ -1974,6 +2015,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 				Timeout:        cfg.FallbackWaitTimeout,
 				MaxWaiting:     cfg.FallbackMaxWaiting,
 			},
+			AffinityBound: s.bindAffinityIfNeeded(ctx, affinityResolved, group, groupID, affinityUserID, acc.ID, cfg),
 		}, nil
 	}
 	return nil, ErrNoAvailableAccounts
@@ -2835,6 +2877,26 @@ func filterByMinLoadRate(accounts []accountWithLoad) []accountWithLoad {
 	result := make([]accountWithLoad, 0, len(accounts))
 	for _, acc := range accounts {
 		if acc.loadInfo.LoadRate == minLoadRate {
+			result = append(result, acc)
+		}
+	}
+	return result
+}
+
+// filterByMinAffinityCount filters to accounts with the fewest affinitied users.
+func filterByMinAffinityCount(accounts []accountWithLoad, counts map[int64]int64) []accountWithLoad {
+	if len(accounts) == 0 {
+		return accounts
+	}
+	minCount := counts[accounts[0].account.ID]
+	for _, acc := range accounts[1:] {
+		if c := counts[acc.account.ID]; c < minCount {
+			minCount = c
+		}
+	}
+	result := make([]accountWithLoad, 0, len(accounts))
+	for _, acc := range accounts {
+		if counts[acc.account.ID] == minCount {
 			result = append(result, acc)
 		}
 	}
