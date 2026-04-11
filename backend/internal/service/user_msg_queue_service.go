@@ -30,6 +30,11 @@ type UserMsgQueueCache interface {
 	ScanLockKeys(ctx context.Context, maxCount int) ([]int64, error)
 }
 
+// ActiveUserCounter provides the count of currently active users for an account.
+type ActiveUserCounter interface {
+	ZCardActive(ctx context.Context, accountID int64) (int64, error)
+}
+
 // QueueLockResult 锁获取结果
 type QueueLockResult struct {
 	Acquired  bool
@@ -39,11 +44,17 @@ type QueueLockResult struct {
 // UserMessageQueueService 用户消息串行队列服务
 // 对真实用户消息实施账号级串行化 + RPM 自适应延迟
 type UserMessageQueueService struct {
-	cache    UserMsgQueueCache
-	rpmCache RPMCache
-	cfg      *config.UserMessageQueueConfig
-	stopCh   chan struct{} // graceful shutdown
-	stopOnce sync.Once     // 确保 Stop() 并发安全
+	cache             UserMsgQueueCache
+	rpmCache          RPMCache
+	cfg               *config.UserMessageQueueConfig
+	activeUserCounter ActiveUserCounter
+	stopCh            chan struct{} // graceful shutdown
+	stopOnce          sync.Once     // 确保 Stop() 并发安全
+}
+
+// SetActiveUserCounter injects an optional ActiveUserCounter for per-user RPM delay.
+func (s *UserMessageQueueService) SetActiveUserCounter(c ActiveUserCounter) {
+	s.activeUserCounter = c
 }
 
 // NewUserMessageQueueService 创建用户消息串行队列服务
@@ -143,7 +154,7 @@ func (s *UserMessageQueueService) Release(ctx context.Context, accountID int64, 
 
 // EnforceDelay 根据 RPM 负载执行自适应延迟
 // 使用 Redis TIME 确保与 releaseLockScript 记录的时间源一致
-func (s *UserMessageQueueService) EnforceDelay(ctx context.Context, accountID int64, baseRPM int) error {
+func (s *UserMessageQueueService) EnforceDelay(ctx context.Context, accountID int64, baseRPM int, userID int64, userRPMEnabled bool) error {
 	if s.cache == nil {
 		return nil
 	}
@@ -158,7 +169,7 @@ func (s *UserMessageQueueService) EnforceDelay(ctx context.Context, accountID in
 		return nil // 没有历史记录，无需延迟
 	}
 
-	delay := s.CalculateRPMAwareDelay(ctx, accountID, baseRPM)
+	delay := s.CalculateRPMAwareDelay(ctx, accountID, baseRPM, userID, userRPMEnabled)
 	if delay <= 0 {
 		return nil
 	}
@@ -197,7 +208,7 @@ func (s *UserMessageQueueService) EnforceDelay(ctx context.Context, accountID in
 // 0.5 ≤ ratio < 0.8 → 线性插值 MinDelay..MaxDelay
 // ratio ≥ 0.8 → MaxDelay
 // 返回值包含 ±15% 随机抖动（anti-detection + 避免惊群效应）
-func (s *UserMessageQueueService) CalculateRPMAwareDelay(ctx context.Context, accountID int64, baseRPM int) time.Duration {
+func (s *UserMessageQueueService) CalculateRPMAwareDelay(ctx context.Context, accountID int64, baseRPM int, userID int64, userRPMEnabled bool) time.Duration {
 	minDelay := time.Duration(s.cfg.MinDelayMs) * time.Millisecond
 	maxDelay := time.Duration(s.cfg.MaxDelayMs) * time.Millisecond
 
@@ -217,27 +228,63 @@ func (s *UserMessageQueueService) CalculateRPMAwareDelay(ctx context.Context, ac
 	if baseRPM <= 0 || s.rpmCache == nil {
 		baseDelay = minDelay
 	} else {
-		currentRPM, err := s.rpmCache.GetRPM(ctx, accountID)
-		if err != nil {
-			logger.LegacyPrintf("service.umq", "GetRPM failed for account %d: %v", accountID, err)
-			baseDelay = minDelay // fail-open
+		// Per-user RPM path: use user's own RPM and per-user share of baseRPM
+		if userRPMEnabled && userID > 0 && s.activeUserCounter != nil {
+			baseDelay = s.calculatePerUserDelay(ctx, accountID, baseRPM, userID, minDelay, maxDelay)
 		} else {
-			ratio := float64(currentRPM) / float64(baseRPM)
-			if ratio < 0.5 {
-				baseDelay = minDelay
-			} else if ratio >= 0.8 {
-				baseDelay = maxDelay
-			} else {
-				// 线性插值: 0.5 → minDelay, 0.8 → maxDelay
-				t := (ratio - 0.5) / 0.3
-				interpolated := float64(minDelay) + t*(float64(maxDelay)-float64(minDelay))
-				baseDelay = time.Duration(math.Round(interpolated))
-			}
+			baseDelay = s.calculateAccountDelay(ctx, accountID, baseRPM, minDelay, maxDelay)
 		}
 	}
 
 	// ±15% 随机抖动
 	return applyJitter(baseDelay, 0.15)
+}
+
+// calculatePerUserDelay computes delay using per-user RPM and per-user base share.
+// Falls through to account-level on any Redis error or zero active count.
+func (s *UserMessageQueueService) calculatePerUserDelay(ctx context.Context, accountID int64, baseRPM int, userID int64, minDelay, maxDelay time.Duration) time.Duration {
+	activeCount, err := s.activeUserCounter.ZCardActive(ctx, accountID)
+	if err != nil || activeCount <= 0 {
+		// fail-open: fall through to account-level
+		return s.calculateAccountDelay(ctx, accountID, baseRPM, minDelay, maxDelay)
+	}
+
+	perUserBase := baseRPM / int(activeCount)
+	if perUserBase < 1 {
+		perUserBase = 1
+	}
+
+	userRPM, err := s.rpmCache.GetUserAccountRPM(ctx, accountID, userID)
+	if err != nil {
+		// fail-open: fall through to account-level
+		return s.calculateAccountDelay(ctx, accountID, baseRPM, minDelay, maxDelay)
+	}
+
+	return s.ratioToDelay(float64(userRPM)/float64(perUserBase), minDelay, maxDelay)
+}
+
+// calculateAccountDelay computes delay using aggregate account RPM (original path).
+func (s *UserMessageQueueService) calculateAccountDelay(ctx context.Context, accountID int64, baseRPM int, minDelay, maxDelay time.Duration) time.Duration {
+	currentRPM, err := s.rpmCache.GetRPM(ctx, accountID)
+	if err != nil {
+		logger.LegacyPrintf("service.umq", "GetRPM failed for account %d: %v", accountID, err)
+		return minDelay // fail-open
+	}
+	return s.ratioToDelay(float64(currentRPM)/float64(baseRPM), minDelay, maxDelay)
+}
+
+// ratioToDelay maps a RPM ratio to a delay using the three-zone linear interpolation.
+func (s *UserMessageQueueService) ratioToDelay(ratio float64, minDelay, maxDelay time.Duration) time.Duration {
+	if ratio < 0.5 {
+		return minDelay
+	}
+	if ratio >= 0.8 {
+		return maxDelay
+	}
+	// 线性插值: 0.5 → minDelay, 0.8 → maxDelay
+	t := (ratio - 0.5) / 0.3
+	interpolated := float64(minDelay) + t*(float64(maxDelay)-float64(minDelay))
+	return time.Duration(math.Round(interpolated))
 }
 
 // StartCleanupWorker 启动孤儿锁清理 worker

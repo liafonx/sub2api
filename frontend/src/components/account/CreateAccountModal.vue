@@ -2004,38 +2004,6 @@
           </div>
         </div>
 
-        <!-- Per-User RPM -->
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
-          <div class="mb-3 flex items-center justify-between">
-            <div>
-              <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.userRPM.label', 'Per-User RPM') }}</label>
-              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {{ t('admin.accounts.quotaControl.userRPM.hint', 'Split account base_rpm equally among active users') }}
-              </p>
-              <p v-if="!rpmEnabled" class="mt-1 text-xs text-amber-500">
-                {{ t('admin.accounts.quotaControl.userRPM.requiresRPM', 'Requires base RPM to be set') }}
-              </p>
-            </div>
-            <button
-              type="button"
-              :disabled="!rpmEnabled"
-              @click="rpmEnabled && (userRPMEnabled = !userRPMEnabled)"
-              :class="[
-                'relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                rpmEnabled ? 'cursor-pointer' : 'cursor-not-allowed opacity-50',
-                userRPMEnabled && rpmEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-              ]"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  userRPMEnabled && rpmEnabled ? 'translate-x-5' : 'translate-x-0'
-                ]"
-              />
-            </button>
-          </div>
-        </div>
-
         <!-- Session Limit -->
         <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
           <div class="mb-3 flex items-center justify-between">
@@ -2181,6 +2149,36 @@
                 :placeholder="t('admin.accounts.quotaControl.rpmLimit.stickyBufferPlaceholder')"
               />
               <p class="input-hint">{{ t('admin.accounts.quotaControl.rpmLimit.stickyBufferHint') }}</p>
+            </div>
+
+            <!-- Per-User RPM (inside RPM Limit) -->
+            <div class="flex items-center justify-between rounded-md bg-gray-50 p-3 dark:bg-dark-700">
+              <div>
+                <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.userRPM.label', 'Per-User RPM') }}</label>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.accounts.quotaControl.userRPM.hint', 'Split account base_rpm equally among active users') }}
+                </p>
+                <p v-if="!rpmEnabled" class="mt-1 text-xs text-amber-500">
+                  {{ t('admin.accounts.quotaControl.userRPM.requiresRPM', 'Requires base RPM to be set') }}
+                </p>
+              </div>
+              <button
+                type="button"
+                :disabled="!rpmEnabled"
+                @click="rpmEnabled && (userRPMEnabled = !userRPMEnabled)"
+                :class="[
+                  'relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                  rpmEnabled ? 'cursor-pointer' : 'cursor-not-allowed opacity-50',
+                  userRPMEnabled && rpmEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                ]"
+              >
+                <span
+                  :class="[
+                    'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                    userRPMEnabled && rpmEnabled ? 'translate-x-5' : 'translate-x-0'
+                  ]"
+                />
+              </button>
             </div>
 
           </div>

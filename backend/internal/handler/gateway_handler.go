@@ -657,7 +657,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				// 串行模式：获取锁 + RPM 延迟 + 释放（当前行为不变）
 				baseRPM := account.GetBaseRPM()
 				release, qErr := h.userMsgQueueHelper.AcquireWithWait(
-					c, account.ID, baseRPM, reqStream, &streamStarted,
+					c, account.ID, baseRPM,
+					subject.UserID, account.IsUserRPMEnabled(),
+					reqStream, &streamStarted,
 					h.cfg.Gateway.UserMessageQueue.WaitTimeout(),
 					reqLog,
 				)
@@ -675,7 +677,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				// 软性限速：仅施加 RPM 自适应延迟，不阻塞并发
 				baseRPM := account.GetBaseRPM()
 				if tErr := h.userMsgQueueHelper.ThrottleWithPing(
-					c, account.ID, baseRPM, reqStream, &streamStarted,
+					c, account.ID, baseRPM,
+					subject.UserID, account.IsUserRPMEnabled(),
+					reqStream, &streamStarted,
 					h.cfg.Gateway.UserMessageQueue.WaitTimeout(),
 					reqLog,
 				); tErr != nil {

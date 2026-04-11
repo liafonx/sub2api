@@ -43,6 +43,8 @@ func (h *UserMsgQueueHelper) AcquireWithWait(
 	c *gin.Context,
 	accountID int64,
 	baseRPM int,
+	userID int64,
+	userRPMEnabled bool,
 	isStream bool,
 	streamStarted *bool,
 	timeout time.Duration,
@@ -59,7 +61,7 @@ func (h *UserMsgQueueHelper) AcquireWithWait(
 
 	if result.Acquired {
 		// 获取成功，执行 RPM 自适应延迟
-		if err := h.queueService.EnforceDelay(ctx, accountID, baseRPM); err != nil {
+		if err := h.queueService.EnforceDelay(ctx, accountID, baseRPM, userID, userRPMEnabled); err != nil {
 			if ctx.Err() != nil {
 				// 延迟期间 context 取消，释放锁
 				bgCtx, bgCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -73,7 +75,7 @@ func (h *UserMsgQueueHelper) AcquireWithWait(
 	}
 
 	// 需要等待：指数退避轮询
-	return h.waitForLockWithPing(c, ctx, accountID, baseRPM, isStream, streamStarted, reqLog)
+	return h.waitForLockWithPing(c, ctx, accountID, baseRPM, userID, userRPMEnabled, isStream, streamStarted, reqLog)
 }
 
 // waitForLockWithPing 等待获取锁，流式请求期间发送 SSE ping
@@ -82,6 +84,8 @@ func (h *UserMsgQueueHelper) waitForLockWithPing(
 	ctx context.Context,
 	accountID int64,
 	baseRPM int,
+	userID int64,
+	userRPMEnabled bool,
 	isStream bool,
 	streamStarted *bool,
 	reqLog *zap.Logger,
@@ -133,7 +137,7 @@ func (h *UserMsgQueueHelper) waitForLockWithPing(
 			}
 			if result.Acquired {
 				// 获取成功，执行 RPM 自适应延迟
-				if delayErr := h.queueService.EnforceDelay(ctx, accountID, baseRPM); delayErr != nil {
+				if delayErr := h.queueService.EnforceDelay(ctx, accountID, baseRPM, userID, userRPMEnabled); delayErr != nil {
 					if ctx.Err() != nil {
 						bgCtx, bgCancel := context.WithTimeout(context.Background(), 5*time.Second)
 						_ = h.queueService.Release(bgCtx, accountID, result.RequestID)
@@ -175,6 +179,8 @@ func (h *UserMsgQueueHelper) ThrottleWithPing(
 	c *gin.Context,
 	accountID int64,
 	baseRPM int,
+	userID int64,
+	userRPMEnabled bool,
 	isStream bool,
 	streamStarted *bool,
 	timeout time.Duration,
@@ -183,7 +189,7 @@ func (h *UserMsgQueueHelper) ThrottleWithPing(
 	ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
 	defer cancel()
 
-	delay := h.queueService.CalculateRPMAwareDelay(ctx, accountID, baseRPM)
+	delay := h.queueService.CalculateRPMAwareDelay(ctx, accountID, baseRPM, userID, userRPMEnabled)
 	if delay <= 0 {
 		return nil
 	}
