@@ -176,7 +176,15 @@ ssh liafonx@Liafonxs-Mac-mini.local 'launchctl bootout gui/$(id -u)/com.sub2api;
 
 This repository is still the `liafonx/sub2api` fork, but current `main` has been reset onto upstream `v0.1.105`. The fork-only runtime patches listed below are preserved in the archived fork snapshot, not guaranteed to exist on current `main`.
 
+**Patch numbering rules for agents:**
+- The **highest patch number currently in use is 23**. Always check `ACTIVE_PATCHES.md` before assigning a new patch number.
+- The next available patch number is **24**.
+- Never reuse a patch number — each patch gets a unique, monotonically increasing integer.
+- Use the patch number in commit message tags: `feat(fork-patch-N): ...`
+- New patches go in both `ACTIVE_PATCHES.md` and `FORK_CHANGELOG.md`.
+
 Authoritative references:
+- **Active patches + current highest number**: **[`ACTIVE_PATCHES.md`](ACTIVE_PATCHES.md)**
 - Current patch catalog: **[`FORK_CHANGELOG.md`](FORK_CHANGELOG.md)**
 - Archived fork code snapshot: `archive/fork-main-pre-clean-migration-2026-03-28`
 - Archived fork tag: `archive-fork-main-pre-clean-migration-2026-03-28`
@@ -200,5 +208,8 @@ Authoritative references:
 | 18 | Zero Cache Read Pricing | `config/config.go`, `service/billing_service.go` | Active on main |
 | 19 | Dynamic Cost Tracking | `service/account.go`, `service/gateway_service.go`, `service/ratelimit_service.go`, `repository/session_limit_cache.go` | Active on main |
 | 20 | Login Page Mobile Blur Fix | `components/layout/AuthLayout.vue` | Active on main |
+| 21 | User-Account Daily Affinity | `service/user_affinity.go`, `repository/user_affinity_cache.go`, `service/gateway_service.go`, `wire_gen.go` | Active on main |
+| 22 | Per-User RPM Allocation | `service/user_quota_service.go`, `service/account.go`, `service/rpm_cache.go`, `repository/rpm_cache.go` | Active on main |
+| 23 | Per-User RPM Cap | `ent/schema/user.go`, `service/user.go`, `handler/gateway_helper.go`, `handler/gateway_handler*.go`, `handler/openai_*.go` | Active on main |
 
-See `FORK_CHANGELOG.md` for verification commands to run after each upstream merge.
+See `ACTIVE_PATCHES.md` for conflict-risk ratings and verify commands. See `FORK_CHANGELOG.md` for full history and verification commands to run after each upstream merge.
