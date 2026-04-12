@@ -1404,7 +1404,7 @@
               />
             </button>
           </div>
-          <div v-if="userQuotaEnabled && windowCostEnabled">
+          <div v-if="(userQuotaEnabled && windowCostEnabled) || (userRPMEnabled && rpmEnabled)">
             <label class="input-label">{{ t('admin.accounts.quotaControl.userQuota.idleTimeout') }}</label>
             <input
               v-model.number="userQuotaIdleTimeout"
@@ -2692,11 +2692,15 @@ function loadQuotaControlSettings(account: Account) {
 
   if (account.user_quota_enabled) {
     userQuotaEnabled.value = true
-    userQuotaIdleTimeout.value = account.user_quota_idle_timeout ?? null
   }
 
   if (account.user_rpm_enabled) {
     userRPMEnabled.value = true
+  }
+
+  // Idle timeout is shared by Per-User Quota and Per-User RPM
+  if (account.user_quota_enabled || account.user_rpm_enabled) {
+    userQuotaIdleTimeout.value = account.user_quota_idle_timeout ?? null
   }
 
   if (account.max_sessions != null && account.max_sessions > 0) {
@@ -3148,12 +3152,8 @@ const handleSubmit = async () => {
       // Per-user quota
       if (userQuotaEnabled.value && windowCostEnabled.value) {
         newExtra.user_quota_enabled = true
-        if (userQuotaIdleTimeout.value != null && userQuotaIdleTimeout.value > 0) {
-          newExtra.user_quota_idle_timeout = userQuotaIdleTimeout.value
-        }
       } else {
         delete newExtra.user_quota_enabled
-        delete newExtra.user_quota_idle_timeout
       }
 
       // Per-user RPM
@@ -3161,6 +3161,15 @@ const handleSubmit = async () => {
         newExtra.user_rpm_enabled = true
       } else {
         delete newExtra.user_rpm_enabled
+      }
+
+      // Idle timeout — shared by Per-User Quota and Per-User RPM
+      if ((userQuotaEnabled.value && windowCostEnabled.value) || (userRPMEnabled.value && rpmEnabled.value)) {
+        if (userQuotaIdleTimeout.value != null && userQuotaIdleTimeout.value > 0) {
+          newExtra.user_quota_idle_timeout = userQuotaIdleTimeout.value
+        }
+      } else {
+        delete newExtra.user_quota_idle_timeout
       }
 
       // Session limit settings

@@ -283,6 +283,14 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		if a.IsUserQuotaEnabled() {
 			enabled := true
 			out.UserQuotaEnabled = &enabled
+		}
+		// 每用户 RPM 分配
+		if a.IsUserRPMEnabled() {
+			enabled := true
+			out.UserRPMEnabled = &enabled
+		}
+		// 用户空闲超时（Per-User Quota 和 Per-User RPM 共用）
+		if a.IsUserQuotaEnabled() || a.IsUserRPMEnabled() {
 			idleTimeout := int(a.GetUserQuotaIdleTimeout().Seconds())
 			out.UserQuotaIdleTimeout = &idleTimeout
 		}

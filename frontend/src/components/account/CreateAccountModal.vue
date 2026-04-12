@@ -1990,7 +1990,7 @@
               />
             </button>
           </div>
-          <div v-if="userQuotaEnabled && windowCostEnabled">
+          <div v-if="(userQuotaEnabled && windowCostEnabled) || (userRPMEnabled && rpmEnabled)">
             <label class="input-label">{{ t('admin.accounts.quotaControl.userQuota.idleTimeout') }}</label>
             <input
               v-model.number="userQuotaIdleTimeout"
@@ -4653,14 +4653,18 @@ const handleAnthropicExchange = async (authCode: string) => {
     // Add per-user quota settings
     if (userQuotaEnabled.value && windowCostEnabled.value) {
       extra.user_quota_enabled = true
-      if (userQuotaIdleTimeout.value != null && userQuotaIdleTimeout.value > 0) {
-        extra.user_quota_idle_timeout = userQuotaIdleTimeout.value
-      }
     }
 
     // Add per-user RPM settings
     if (userRPMEnabled.value && rpmEnabled.value) {
       extra.user_rpm_enabled = true
+    }
+
+    // Idle timeout — shared by Per-User Quota and Per-User RPM
+    if ((userQuotaEnabled.value && windowCostEnabled.value) || (userRPMEnabled.value && rpmEnabled.value)) {
+      if (userQuotaIdleTimeout.value != null && userQuotaIdleTimeout.value > 0) {
+        extra.user_quota_idle_timeout = userQuotaIdleTimeout.value
+      }
     }
 
     // Add session limit settings
@@ -4800,14 +4804,18 @@ const handleCookieAuth = async (sessionKey: string) => {
         // Add per-user quota settings
         if (userQuotaEnabled.value && windowCostEnabled.value) {
           extra.user_quota_enabled = true
-          if (userQuotaIdleTimeout.value != null && userQuotaIdleTimeout.value > 0) {
-            extra.user_quota_idle_timeout = userQuotaIdleTimeout.value
-          }
         }
 
         // Add per-user RPM settings
         if (userRPMEnabled.value && rpmEnabled.value) {
           extra.user_rpm_enabled = true
+        }
+
+        // Idle timeout — shared by Per-User Quota and Per-User RPM
+        if ((userQuotaEnabled.value && windowCostEnabled.value) || (userRPMEnabled.value && rpmEnabled.value)) {
+          if (userQuotaIdleTimeout.value != null && userQuotaIdleTimeout.value > 0) {
+            extra.user_quota_idle_timeout = userQuotaIdleTimeout.value
+          }
         }
 
         // Add session limit settings
