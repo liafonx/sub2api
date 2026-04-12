@@ -95,6 +95,11 @@ func Concurrency(v int) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldConcurrency, v))
 }
 
+// RpmLimit applies equality check predicate on the "rpm_limit" field. It's identical to RpmLimitEQ.
+func RpmLimit(v int) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldRpmLimit, v))
+}
+
 // Status applies equality check predicate on the "status" field. It's identical to StatusEQ.
 func Status(v string) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldStatus, v))
@@ -528,6 +533,46 @@ func ConcurrencyLT(v int) predicate.User {
 // ConcurrencyLTE applies the LTE predicate on the "concurrency" field.
 func ConcurrencyLTE(v int) predicate.User {
 	return predicate.User(sql.FieldLTE(FieldConcurrency, v))
+}
+
+// RpmLimitEQ applies the EQ predicate on the "rpm_limit" field.
+func RpmLimitEQ(v int) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldRpmLimit, v))
+}
+
+// RpmLimitNEQ applies the NEQ predicate on the "rpm_limit" field.
+func RpmLimitNEQ(v int) predicate.User {
+	return predicate.User(sql.FieldNEQ(FieldRpmLimit, v))
+}
+
+// RpmLimitIn applies the In predicate on the "rpm_limit" field.
+func RpmLimitIn(vs ...int) predicate.User {
+	return predicate.User(sql.FieldIn(FieldRpmLimit, vs...))
+}
+
+// RpmLimitNotIn applies the NotIn predicate on the "rpm_limit" field.
+func RpmLimitNotIn(vs ...int) predicate.User {
+	return predicate.User(sql.FieldNotIn(FieldRpmLimit, vs...))
+}
+
+// RpmLimitGT applies the GT predicate on the "rpm_limit" field.
+func RpmLimitGT(v int) predicate.User {
+	return predicate.User(sql.FieldGT(FieldRpmLimit, v))
+}
+
+// RpmLimitGTE applies the GTE predicate on the "rpm_limit" field.
+func RpmLimitGTE(v int) predicate.User {
+	return predicate.User(sql.FieldGTE(FieldRpmLimit, v))
+}
+
+// RpmLimitLT applies the LT predicate on the "rpm_limit" field.
+func RpmLimitLT(v int) predicate.User {
+	return predicate.User(sql.FieldLT(FieldRpmLimit, v))
+}
+
+// RpmLimitLTE applies the LTE predicate on the "rpm_limit" field.
+func RpmLimitLTE(v int) predicate.User {
+	return predicate.User(sql.FieldLTE(FieldRpmLimit, v))
 }
 
 // StatusEQ applies the EQ predicate on the "status" field.

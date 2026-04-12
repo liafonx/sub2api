@@ -33,6 +33,8 @@ type User struct {
 	Balance float64 `json:"balance,omitempty"`
 	// Concurrency holds the value of the "concurrency" field.
 	Concurrency int `json:"concurrency,omitempty"`
+	// RpmLimit holds the value of the "rpm_limit" field.
+	RpmLimit int `json:"rpm_limit,omitempty"`
 	// Status holds the value of the "status" field.
 	Status string `json:"status,omitempty"`
 	// Username holds the value of the "username" field.
@@ -177,7 +179,7 @@ func (*User) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case user.FieldBalance:
 			values[i] = new(sql.NullFloat64)
-		case user.FieldID, user.FieldConcurrency:
+		case user.FieldID, user.FieldConcurrency, user.FieldRpmLimit:
 			values[i] = new(sql.NullInt64)
 		case user.FieldEmail, user.FieldPasswordHash, user.FieldRole, user.FieldStatus, user.FieldUsername, user.FieldNotes, user.FieldTotpSecretEncrypted:
 			values[i] = new(sql.NullString)
@@ -252,6 +254,12 @@ func (_m *User) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field concurrency", values[i])
 			} else if value.Valid {
 				_m.Concurrency = int(value.Int64)
+			}
+		case user.FieldRpmLimit:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field rpm_limit", values[i])
+			} else if value.Valid {
+				_m.RpmLimit = int(value.Int64)
 			}
 		case user.FieldStatus:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -402,6 +410,9 @@ func (_m *User) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("concurrency=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Concurrency))
+	builder.WriteString(", ")
+	builder.WriteString("rpm_limit=")
+	builder.WriteString(fmt.Sprintf("%v", _m.RpmLimit))
 	builder.WriteString(", ")
 	builder.WriteString("status=")
 	builder.WriteString(_m.Status)

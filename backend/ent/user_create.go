@@ -126,6 +126,20 @@ func (_c *UserCreate) SetNillableConcurrency(v *int) *UserCreate {
 	return _c
 }
 
+// SetRpmLimit sets the "rpm_limit" field.
+func (_c *UserCreate) SetRpmLimit(v int) *UserCreate {
+	_c.mutation.SetRpmLimit(v)
+	return _c
+}
+
+// SetNillableRpmLimit sets the "rpm_limit" field if the given value is not nil.
+func (_c *UserCreate) SetNillableRpmLimit(v *int) *UserCreate {
+	if v != nil {
+		_c.SetRpmLimit(*v)
+	}
+	return _c
+}
+
 // SetStatus sets the "status" field.
 func (_c *UserCreate) SetStatus(v string) *UserCreate {
 	_c.mutation.SetStatus(v)
@@ -408,6 +422,10 @@ func (_c *UserCreate) defaults() error {
 		v := user.DefaultConcurrency
 		_c.mutation.SetConcurrency(v)
 	}
+	if _, ok := _c.mutation.RpmLimit(); !ok {
+		v := user.DefaultRpmLimit
+		_c.mutation.SetRpmLimit(v)
+	}
 	if _, ok := _c.mutation.Status(); !ok {
 		v := user.DefaultStatus
 		_c.mutation.SetStatus(v)
@@ -464,6 +482,9 @@ func (_c *UserCreate) check() error {
 	}
 	if _, ok := _c.mutation.Concurrency(); !ok {
 		return &ValidationError{Name: "concurrency", err: errors.New(`ent: missing required field "User.concurrency"`)}
+	}
+	if _, ok := _c.mutation.RpmLimit(); !ok {
+		return &ValidationError{Name: "rpm_limit", err: errors.New(`ent: missing required field "User.rpm_limit"`)}
 	}
 	if _, ok := _c.mutation.Status(); !ok {
 		return &ValidationError{Name: "status", err: errors.New(`ent: missing required field "User.status"`)}
@@ -545,6 +566,10 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Concurrency(); ok {
 		_spec.SetField(user.FieldConcurrency, field.TypeInt, value)
 		_node.Concurrency = value
+	}
+	if value, ok := _c.mutation.RpmLimit(); ok {
+		_spec.SetField(user.FieldRpmLimit, field.TypeInt, value)
+		_node.RpmLimit = value
 	}
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(user.FieldStatus, field.TypeString, value)
@@ -872,6 +897,24 @@ func (u *UserUpsert) AddConcurrency(v int) *UserUpsert {
 	return u
 }
 
+// SetRpmLimit sets the "rpm_limit" field.
+func (u *UserUpsert) SetRpmLimit(v int) *UserUpsert {
+	u.Set(user.FieldRpmLimit, v)
+	return u
+}
+
+// UpdateRpmLimit sets the "rpm_limit" field to the value that was provided on create.
+func (u *UserUpsert) UpdateRpmLimit() *UserUpsert {
+	u.SetExcluded(user.FieldRpmLimit)
+	return u
+}
+
+// AddRpmLimit adds v to the "rpm_limit" field.
+func (u *UserUpsert) AddRpmLimit(v int) *UserUpsert {
+	u.Add(user.FieldRpmLimit, v)
+	return u
+}
+
 // SetStatus sets the "status" field.
 func (u *UserUpsert) SetStatus(v string) *UserUpsert {
 	u.Set(user.FieldStatus, v)
@@ -1117,6 +1160,27 @@ func (u *UserUpsertOne) AddConcurrency(v int) *UserUpsertOne {
 func (u *UserUpsertOne) UpdateConcurrency() *UserUpsertOne {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateConcurrency()
+	})
+}
+
+// SetRpmLimit sets the "rpm_limit" field.
+func (u *UserUpsertOne) SetRpmLimit(v int) *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.SetRpmLimit(v)
+	})
+}
+
+// AddRpmLimit adds v to the "rpm_limit" field.
+func (u *UserUpsertOne) AddRpmLimit(v int) *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.AddRpmLimit(v)
+	})
+}
+
+// UpdateRpmLimit sets the "rpm_limit" field to the value that was provided on create.
+func (u *UserUpsertOne) UpdateRpmLimit() *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateRpmLimit()
 	})
 }
 
@@ -1545,6 +1609,27 @@ func (u *UserUpsertBulk) AddConcurrency(v int) *UserUpsertBulk {
 func (u *UserUpsertBulk) UpdateConcurrency() *UserUpsertBulk {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateConcurrency()
+	})
+}
+
+// SetRpmLimit sets the "rpm_limit" field.
+func (u *UserUpsertBulk) SetRpmLimit(v int) *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.SetRpmLimit(v)
+	})
+}
+
+// AddRpmLimit adds v to the "rpm_limit" field.
+func (u *UserUpsertBulk) AddRpmLimit(v int) *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.AddRpmLimit(v)
+	})
+}
+
+// UpdateRpmLimit sets the "rpm_limit" field to the value that was provided on create.
+func (u *UserUpsertBulk) UpdateRpmLimit() *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateRpmLimit()
 	})
 }
 

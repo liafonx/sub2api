@@ -15,6 +15,7 @@ type User struct {
 	Role          string
 	Balance       float64
 	Concurrency   int
+	RPMLimit      int
 	Status        string
 	AllowedGroups []int64
 	TokenVersion  int64 // Incremented on password change to invalidate existing tokens

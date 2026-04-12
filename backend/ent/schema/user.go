@@ -49,6 +49,8 @@ func (User) Fields() []ent.Field {
 			Default(0),
 		field.Int("concurrency").
 			Default(5),
+		field.Int("rpm_limit").
+			Default(0), // 0 = unlimited; new users get 35 from settings
 		field.String("status").
 			MaxLen(20).
 			Default(domain.StatusActive),

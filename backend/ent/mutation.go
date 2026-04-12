@@ -23544,6 +23544,8 @@ type UserMutation struct {
 	addbalance                    *float64
 	concurrency                   *int
 	addconcurrency                *int
+	rpm_limit                     *int
+	addrpm_limit                  *int
 	status                        *string
 	username                      *string
 	notes                         *string
@@ -24020,6 +24022,62 @@ func (m *UserMutation) AddedConcurrency() (r int, exists bool) {
 func (m *UserMutation) ResetConcurrency() {
 	m.concurrency = nil
 	m.addconcurrency = nil
+}
+
+// SetRpmLimit sets the "rpm_limit" field.
+func (m *UserMutation) SetRpmLimit(i int) {
+	m.rpm_limit = &i
+	m.addrpm_limit = nil
+}
+
+// RpmLimit returns the value of the "rpm_limit" field in the mutation.
+func (m *UserMutation) RpmLimit() (r int, exists bool) {
+	v := m.rpm_limit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRpmLimit returns the old "rpm_limit" field's value of the User entity.
+// If the User object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserMutation) OldRpmLimit(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRpmLimit is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRpmLimit requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRpmLimit: %w", err)
+	}
+	return oldValue.RpmLimit, nil
+}
+
+// AddRpmLimit adds i to the "rpm_limit" field.
+func (m *UserMutation) AddRpmLimit(i int) {
+	if m.addrpm_limit != nil {
+		*m.addrpm_limit += i
+	} else {
+		m.addrpm_limit = &i
+	}
+}
+
+// AddedRpmLimit returns the value that was added to the "rpm_limit" field in this mutation.
+func (m *UserMutation) AddedRpmLimit() (r int, exists bool) {
+	v := m.addrpm_limit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRpmLimit resets all changes to the "rpm_limit" field.
+func (m *UserMutation) ResetRpmLimit() {
+	m.rpm_limit = nil
+	m.addrpm_limit = nil
 }
 
 // SetStatus sets the "status" field.
@@ -24784,7 +24842,7 @@ func (m *UserMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UserMutation) Fields() []string {
-	fields := make([]string, 0, 14)
+	fields := make([]string, 0, 15)
 	if m.created_at != nil {
 		fields = append(fields, user.FieldCreatedAt)
 	}
@@ -24808,6 +24866,9 @@ func (m *UserMutation) Fields() []string {
 	}
 	if m.concurrency != nil {
 		fields = append(fields, user.FieldConcurrency)
+	}
+	if m.rpm_limit != nil {
+		fields = append(fields, user.FieldRpmLimit)
 	}
 	if m.status != nil {
 		fields = append(fields, user.FieldStatus)
@@ -24851,6 +24912,8 @@ func (m *UserMutation) Field(name string) (ent.Value, bool) {
 		return m.Balance()
 	case user.FieldConcurrency:
 		return m.Concurrency()
+	case user.FieldRpmLimit:
+		return m.RpmLimit()
 	case user.FieldStatus:
 		return m.Status()
 	case user.FieldUsername:
@@ -24888,6 +24951,8 @@ func (m *UserMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldBalance(ctx)
 	case user.FieldConcurrency:
 		return m.OldConcurrency(ctx)
+	case user.FieldRpmLimit:
+		return m.OldRpmLimit(ctx)
 	case user.FieldStatus:
 		return m.OldStatus(ctx)
 	case user.FieldUsername:
@@ -24965,6 +25030,13 @@ func (m *UserMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetConcurrency(v)
 		return nil
+	case user.FieldRpmLimit:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRpmLimit(v)
+		return nil
 	case user.FieldStatus:
 		v, ok := value.(string)
 		if !ok {
@@ -25021,6 +25093,9 @@ func (m *UserMutation) AddedFields() []string {
 	if m.addconcurrency != nil {
 		fields = append(fields, user.FieldConcurrency)
 	}
+	if m.addrpm_limit != nil {
+		fields = append(fields, user.FieldRpmLimit)
+	}
 	return fields
 }
 
@@ -25033,6 +25108,8 @@ func (m *UserMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedBalance()
 	case user.FieldConcurrency:
 		return m.AddedConcurrency()
+	case user.FieldRpmLimit:
+		return m.AddedRpmLimit()
 	}
 	return nil, false
 }
@@ -25055,6 +25132,13 @@ func (m *UserMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddConcurrency(v)
+		return nil
+	case user.FieldRpmLimit:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRpmLimit(v)
 		return nil
 	}
 	return fmt.Errorf("unknown User numeric field %s", name)
@@ -25127,6 +25211,9 @@ func (m *UserMutation) ResetField(name string) error {
 		return nil
 	case user.FieldConcurrency:
 		m.ResetConcurrency()
+		return nil
+	case user.FieldRpmLimit:
+		m.ResetRpmLimit()
 		return nil
 	case user.FieldStatus:
 		m.ResetStatus()
