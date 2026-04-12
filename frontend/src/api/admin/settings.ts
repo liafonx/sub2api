@@ -28,6 +28,7 @@ export interface SystemSettings {
   // Default settings
   default_balance: number
   default_concurrency: number
+  default_rpm_limit: number
   default_subscriptions: DefaultSubscriptionSetting[]
   // OEM settings
   site_name: string
@@ -103,6 +104,7 @@ export interface UpdateSettingsRequest {
   totp_enabled?: boolean // TOTP 双因素认证
   default_balance?: number
   default_concurrency?: number
+  default_rpm_limit?: number
   default_subscriptions?: DefaultSubscriptionSetting[]
   site_name?: string
   site_logo?: string
