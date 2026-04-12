@@ -45,6 +45,7 @@ type SystemSettings struct {
 	CustomEndpoints             string // JSON array of custom endpoints
 
 	DefaultConcurrency   int
+	DefaultRPMLimit      int
 	DefaultBalance       float64
 	DefaultSubscriptions []DefaultSubscriptionSetting
 

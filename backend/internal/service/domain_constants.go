@@ -121,6 +121,7 @@ const (
 
 	// 默认配置
 	SettingKeyDefaultConcurrency   = "default_concurrency"   // 新用户默认并发量
+	SettingKeyDefaultRPMLimit      = "default_rpm_limit"     // 新用户默认RPM上限
 	SettingKeyDefaultBalance       = "default_balance"       // 新用户默认余额
 	SettingKeyDefaultSubscriptions = "default_subscriptions" // 新用户默认订阅列表（JSON）
 

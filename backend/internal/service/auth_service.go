@@ -182,9 +182,11 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 	// 获取默认配置
 	defaultBalance := s.cfg.Default.UserBalance
 	defaultConcurrency := s.cfg.Default.UserConcurrency
+	defaultRPMLimit := s.cfg.Default.UserRPMLimit
 	if s.settingService != nil {
 		defaultBalance = s.settingService.GetDefaultBalance(ctx)
 		defaultConcurrency = s.settingService.GetDefaultConcurrency(ctx)
+		defaultRPMLimit = s.settingService.GetDefaultRPMLimit(ctx)
 	}
 
 	// 创建用户
@@ -194,6 +196,7 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 		Role:         RoleUser,
 		Balance:      defaultBalance,
 		Concurrency:  defaultConcurrency,
+		RPMLimit:     defaultRPMLimit,
 		Status:       StatusActive,
 	}
 
@@ -472,9 +475,11 @@ func (s *AuthService) LoginOrRegisterOAuth(ctx context.Context, email, username 
 			// 新用户默认值。
 			defaultBalance := s.cfg.Default.UserBalance
 			defaultConcurrency := s.cfg.Default.UserConcurrency
+			defaultRPMLimit := s.cfg.Default.UserRPMLimit
 			if s.settingService != nil {
 				defaultBalance = s.settingService.GetDefaultBalance(ctx)
 				defaultConcurrency = s.settingService.GetDefaultConcurrency(ctx)
+				defaultRPMLimit = s.settingService.GetDefaultRPMLimit(ctx)
 			}
 
 			newUser := &User{
@@ -484,6 +489,7 @@ func (s *AuthService) LoginOrRegisterOAuth(ctx context.Context, email, username 
 				Role:         RoleUser,
 				Balance:      defaultBalance,
 				Concurrency:  defaultConcurrency,
+				RPMLimit:     defaultRPMLimit,
 				Status:       StatusActive,
 			}
 
@@ -586,9 +592,11 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 
 			defaultBalance := s.cfg.Default.UserBalance
 			defaultConcurrency := s.cfg.Default.UserConcurrency
+			defaultRPMLimit := s.cfg.Default.UserRPMLimit
 			if s.settingService != nil {
 				defaultBalance = s.settingService.GetDefaultBalance(ctx)
 				defaultConcurrency = s.settingService.GetDefaultConcurrency(ctx)
+				defaultRPMLimit = s.settingService.GetDefaultRPMLimit(ctx)
 			}
 
 			newUser := &User{
@@ -598,6 +606,7 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 				Role:         RoleUser,
 				Balance:      defaultBalance,
 				Concurrency:  defaultConcurrency,
+				RPMLimit:     defaultRPMLimit,
 				Status:       StatusActive,
 			}
 

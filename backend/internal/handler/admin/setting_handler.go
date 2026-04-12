@@ -109,6 +109,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		CustomMenuItems:                      dto.ParseCustomMenuItems(settings.CustomMenuItems),
 		CustomEndpoints:                      dto.ParseCustomEndpoints(settings.CustomEndpoints),
 		DefaultConcurrency:                   settings.DefaultConcurrency,
+		DefaultRPMLimit:                      settings.DefaultRPMLimit,
 		DefaultBalance:                       settings.DefaultBalance,
 		DefaultSubscriptions:                 defaultSubscriptions,
 		EnableModelFallback:                  settings.EnableModelFallback,
@@ -180,6 +181,7 @@ type UpdateSettingsRequest struct {
 
 	// 默认配置
 	DefaultConcurrency   int                              `json:"default_concurrency"`
+	DefaultRPMLimit      int                              `json:"default_rpm_limit"`
 	DefaultBalance       float64                          `json:"default_balance"`
 	DefaultSubscriptions []dto.DefaultSubscriptionSetting `json:"default_subscriptions"`
 
@@ -233,6 +235,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	// 验证参数
 	if req.DefaultConcurrency < 1 {
 		req.DefaultConcurrency = 1
+	}
+	if req.DefaultRPMLimit < 0 {
+		req.DefaultRPMLimit = 0
 	}
 	if req.DefaultBalance < 0 {
 		req.DefaultBalance = 0
@@ -567,6 +572,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		CustomMenuItems:                  customMenuJSON,
 		CustomEndpoints:                  customEndpointsJSON,
 		DefaultConcurrency:               req.DefaultConcurrency,
+		DefaultRPMLimit:                  req.DefaultRPMLimit,
 		DefaultBalance:                   req.DefaultBalance,
 		DefaultSubscriptions:             defaultSubscriptions,
 		EnableModelFallback:              req.EnableModelFallback,
@@ -682,6 +688,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		CustomMenuItems:                      dto.ParseCustomMenuItems(updatedSettings.CustomMenuItems),
 		CustomEndpoints:                      dto.ParseCustomEndpoints(updatedSettings.CustomEndpoints),
 		DefaultConcurrency:                   updatedSettings.DefaultConcurrency,
+		DefaultRPMLimit:                      updatedSettings.DefaultRPMLimit,
 		DefaultBalance:                       updatedSettings.DefaultBalance,
 		DefaultSubscriptions:                 updatedDefaultSubscriptions,
 		EnableModelFallback:                  updatedSettings.EnableModelFallback,
@@ -813,6 +820,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.DefaultConcurrency != after.DefaultConcurrency {
 		changed = append(changed, "default_concurrency")
+	}
+	if before.DefaultRPMLimit != after.DefaultRPMLimit {
+		changed = append(changed, "default_rpm_limit")
 	}
 	if before.DefaultBalance != after.DefaultBalance {
 		changed = append(changed, "default_balance")

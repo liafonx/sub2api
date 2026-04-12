@@ -476,6 +476,7 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 
 	// 默认配置
 	updates[SettingKeyDefaultConcurrency] = strconv.Itoa(settings.DefaultConcurrency)
+	updates[SettingKeyDefaultRPMLimit] = strconv.Itoa(settings.DefaultRPMLimit)
 	updates[SettingKeyDefaultBalance] = strconv.FormatFloat(settings.DefaultBalance, 'f', 8, 64)
 	defaultSubsJSON, err := json.Marshal(settings.DefaultSubscriptions)
 	if err != nil {
@@ -781,6 +782,18 @@ func (s *SettingService) GetDefaultConcurrency(ctx context.Context) int {
 	return s.cfg.Default.UserConcurrency
 }
 
+// GetDefaultRPMLimit 获取默认RPM上限
+func (s *SettingService) GetDefaultRPMLimit(ctx context.Context) int {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyDefaultRPMLimit)
+	if err != nil {
+		return s.cfg.Default.UserRPMLimit
+	}
+	if v, err := strconv.Atoi(value); err == nil && v >= 0 {
+		return v
+	}
+	return s.cfg.Default.UserRPMLimit
+}
+
 // GetDefaultBalance 获取默认余额
 func (s *SettingService) GetDefaultBalance(ctx context.Context) float64 {
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyDefaultBalance)
@@ -827,6 +840,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyCustomMenuItems:                  "[]",
 		SettingKeyCustomEndpoints:                  "[]",
 		SettingKeyDefaultConcurrency:               strconv.Itoa(s.cfg.Default.UserConcurrency),
+		SettingKeyDefaultRPMLimit:                  strconv.Itoa(s.cfg.Default.UserRPMLimit),
 		SettingKeyDefaultBalance:                   strconv.FormatFloat(s.cfg.Default.UserBalance, 'f', 8, 64),
 		SettingKeyDefaultSubscriptions:             "[]",
 		SettingKeySMTPPort:                         "587",
@@ -905,6 +919,12 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		result.DefaultConcurrency = concurrency
 	} else {
 		result.DefaultConcurrency = s.cfg.Default.UserConcurrency
+	}
+
+	if rpmLimit, err := strconv.Atoi(settings[SettingKeyDefaultRPMLimit]); err == nil {
+		result.DefaultRPMLimit = rpmLimit
+	} else {
+		result.DefaultRPMLimit = s.cfg.Default.UserRPMLimit
 	}
 
 	// 解析浮点数类型

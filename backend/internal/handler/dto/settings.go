@@ -65,6 +65,7 @@ type SystemSettings struct {
 	CustomEndpoints             []CustomEndpoint `json:"custom_endpoints"`
 
 	DefaultConcurrency   int                          `json:"default_concurrency"`
+	DefaultRPMLimit      int                          `json:"default_rpm_limit"`
 	DefaultBalance       float64                      `json:"default_balance"`
 	DefaultSubscriptions []DefaultSubscriptionSetting `json:"default_subscriptions"`
 
