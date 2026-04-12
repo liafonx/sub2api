@@ -3,10 +3,11 @@ package middleware
 import "github.com/gin-gonic/gin"
 
 // AuthSubject is the minimal authenticated identity stored in gin context.
-// Decision: {UserID int64, Concurrency int}
+// Decision: {UserID int64, Concurrency int, RPMLimit int}
 type AuthSubject struct {
 	UserID      int64
 	Concurrency int
+	RPMLimit    int
 }
 
 func GetAuthSubjectFromContext(c *gin.Context) (AuthSubject, bool) {
