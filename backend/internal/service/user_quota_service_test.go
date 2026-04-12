@@ -79,6 +79,10 @@ func (m *mockRPMCache) GetRPMBatch(_ context.Context, _ []int64) (map[int64]int,
 	return nil, nil
 }
 func (m *mockRPMCache) IncrementUserRPM(_ context.Context, _ int64) (int, error) { return 0, nil }
+func (m *mockRPMCache) GetUserRPM(_ context.Context, _ int64) (int, error)       { return 0, nil }
+func (m *mockRPMCache) GetUserRPMBatch(_ context.Context, _ []int64) (map[int64]int, error) {
+	return nil, nil
+}
 func (m *mockRPMCache) GetUserAccountRPM(_ context.Context, accountID int64, userID int64) (int, error) {
 	if m.rpmErr != nil {
 		return 0, m.rpmErr

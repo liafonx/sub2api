@@ -182,3 +182,40 @@ func (c *RPMCacheImpl) IncrementUserRPM(ctx context.Context, userID int64) (int,
 	}
 	return count, nil
 }
+
+// GetUserRPM returns the current minute's RPM count for a user.
+func (c *RPMCacheImpl) GetUserRPM(ctx context.Context, userID int64) (int, error) {
+	minuteTS, err := c.currentMinuteTS(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("user rpm get: %w", err)
+	}
+	key := fmt.Sprintf("user_rpm:%d:%d", userID, minuteTS)
+	return c.getByMinuteKey(ctx, key)
+}
+
+// GetUserRPMBatch returns the current minute's RPM counts for multiple users using pipeline.
+func (c *RPMCacheImpl) GetUserRPMBatch(ctx context.Context, userIDs []int64) (map[int64]int, error) {
+	if len(userIDs) == 0 {
+		return nil, nil
+	}
+	minuteTS, err := c.currentMinuteTS(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("user rpm batch get: %w", err)
+	}
+	pipe := c.rdb.Pipeline()
+	cmds := make([]*redis.StringCmd, len(userIDs))
+	for i, uid := range userIDs {
+		key := fmt.Sprintf("user_rpm:%d:%d", uid, minuteTS)
+		cmds[i] = pipe.Get(ctx, key)
+	}
+	_, _ = pipe.Exec(ctx) // ignore pipeline error; individual cmds checked below
+
+	result := make(map[int64]int, len(userIDs))
+	for i, uid := range userIDs {
+		if val, err := cmds[i].Int(); err == nil {
+			result[uid] = val
+		}
+		// redis.Nil or other errors → 0 (not in map, treated as 0 by caller)
+	}
+	return result, nil
+}
