@@ -35,6 +35,7 @@ type OpenAIGatewayHandler struct {
 	concurrencyHelper       *ConcurrencyHelper
 	maxAccountSwitches      int
 	cfg                     *config.Config
+	rpmCache                service.RPMCache
 }
 
 func resolveOpenAIForwardDefaultMappedModel(apiKey *service.APIKey, fallbackModel string) string {
@@ -56,6 +57,7 @@ func NewOpenAIGatewayHandler(
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
 	errorPassthroughService *service.ErrorPassthroughService,
 	cfg *config.Config,
+	rpmCache service.RPMCache,
 ) *OpenAIGatewayHandler {
 	pingInterval := time.Duration(0)
 	maxAccountSwitches := 3
@@ -74,6 +76,7 @@ func NewOpenAIGatewayHandler(
 		concurrencyHelper:       NewConcurrencyHelper(concurrencyService, SSEPingFormatComment, pingInterval),
 		maxAccountSwitches:      maxAccountSwitches,
 		cfg:                     cfg,
+		rpmCache:                rpmCache,
 	}
 }
 

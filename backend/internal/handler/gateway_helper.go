@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"go.uber.org/zap"
 
 	"github.com/gin-gonic/gin"
 )
@@ -374,6 +375,29 @@ func (h *ConcurrencyHelper) waitForSlotWithPingTimeout(c *gin.Context, slotType 
 // AcquireAccountSlotWithWaitTimeout acquires an account slot with a custom timeout (keeps SSE ping).
 func (h *ConcurrencyHelper) AcquireAccountSlotWithWaitTimeout(c *gin.Context, accountID int64, maxConcurrency int, timeout time.Duration, isStream bool, streamStarted *bool) (func(), error) {
 	return h.waitForSlotWithPingTimeout(c, "account", accountID, maxConcurrency, timeout, isStream, streamStarted, true)
+}
+
+// checkUserRPMLimit checks whether the user has exceeded their per-user RPM limit.
+// Returns true if the request should be rejected (429).
+// Fail-open: returns false on Redis errors.
+func checkUserRPMLimit(ctx context.Context, rpmCache service.RPMCache, userID int64, rpmLimit int, logger *zap.Logger) bool {
+	if rpmLimit <= 0 || rpmCache == nil {
+		return false // 0 = unlimited, or no cache available
+	}
+	currentRPM, err := rpmCache.GetUserRPM(ctx, userID)
+	if err != nil {
+		logger.Warn("gateway.user_rpm_check_failed", zap.Int64("user_id", userID), zap.Error(err))
+		return false // fail-open
+	}
+	if currentRPM >= rpmLimit {
+		logger.Info("gateway.user_rpm_limit_exceeded",
+			zap.Int64("user_id", userID),
+			zap.Int("current_rpm", currentRPM),
+			zap.Int("rpm_limit", rpmLimit),
+		)
+		return true
+	}
+	return false
 }
 
 // nextBackoff 计算下一次退避时间

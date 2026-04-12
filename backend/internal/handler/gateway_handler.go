@@ -51,6 +51,7 @@ type GatewayHandler struct {
 	maxAccountSwitchesGemini  int
 	cfg                       *config.Config
 	settingService            *service.SettingService
+	rpmCache                  service.RPMCache
 }
 
 // NewGatewayHandler creates a new GatewayHandler
@@ -68,6 +69,7 @@ func NewGatewayHandler(
 	userMsgQueueService *service.UserMessageQueueService,
 	cfg *config.Config,
 	settingService *service.SettingService,
+	rpmCache service.RPMCache,
 ) *GatewayHandler {
 	pingInterval := time.Duration(0)
 	maxAccountSwitches := 10
@@ -104,6 +106,7 @@ func NewGatewayHandler(
 		maxAccountSwitchesGemini:  maxAccountSwitchesGemini,
 		cfg:                       cfg,
 		settingService:            settingService,
+		rpmCache:                  rpmCache,
 	}
 }
 
