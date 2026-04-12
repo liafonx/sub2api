@@ -9,6 +9,7 @@ type User struct {
 	Role          string    `json:"role"`
 	Balance       float64   `json:"balance"`
 	Concurrency   int       `json:"concurrency"`
+	RPMLimit      int       `json:"rpm_limit"`
 	Status        string    `json:"status"`
 	AllowedGroups []int64   `json:"allowed_groups"`
 	CreatedAt     time.Time `json:"created_at"`

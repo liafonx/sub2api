@@ -110,7 +110,6 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	concurrencyCache := repository.ProvideConcurrencyCache(redisClient, configConfig)
 	peakUsageCache := repository.NewPeakUsageCache(redisClient)
 	concurrencyService := service.ProvideConcurrencyService(concurrencyCache, peakUsageCache, accountRepository, configConfig)
-	adminUserHandler := admin.NewUserHandler(adminService, concurrencyService)
 	claudeOAuthClient := repository.NewClaudeOAuthClient()
 	oAuthService := service.NewOAuthService(proxyRepository, claudeOAuthClient)
 	openAIOAuthClient := repository.NewOpenAIOAuthClient()
@@ -148,6 +147,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	crsSyncService := service.NewCRSSyncService(accountRepository, proxyRepository, oAuthService, openAIOAuthService, geminiOAuthService, configConfig)
 	sessionLimitCache := repository.ProvideSessionLimitCache(redisClient, configConfig)
 	rpmCache := repository.NewRPMCache(redisClient)
+	adminUserHandler := admin.NewUserHandler(adminService, concurrencyService, rpmCache)
 	userQuotaCache := repository.NewUserQuotaCache(redisClient)
 	userQuotaService := service.NewUserQuotaService(userQuotaCache, func(ctx context.Context, account *service.Account) float64 {
 		if !account.HasWindowCostControl() {

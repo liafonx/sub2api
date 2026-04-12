@@ -12,23 +12,26 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// UserWithConcurrency wraps AdminUser with current concurrency info
+// UserWithConcurrency wraps AdminUser with current concurrency and RPM info
 type UserWithConcurrency struct {
 	dto.AdminUser
 	CurrentConcurrency int `json:"current_concurrency"`
+	CurrentRPM         int `json:"current_rpm"`
 }
 
 // UserHandler handles admin user management
 type UserHandler struct {
 	adminService       service.AdminService
 	concurrencyService *service.ConcurrencyService
+	rpmCache           service.RPMCache
 }
 
 // NewUserHandler creates a new admin user handler
-func NewUserHandler(adminService service.AdminService, concurrencyService *service.ConcurrencyService) *UserHandler {
+func NewUserHandler(adminService service.AdminService, concurrencyService *service.ConcurrencyService, rpmCache service.RPMCache) *UserHandler {
 	return &UserHandler{
 		adminService:       adminService,
 		concurrencyService: concurrencyService,
+		rpmCache:           rpmCache,
 	}
 }
 
@@ -40,6 +43,7 @@ type CreateUserRequest struct {
 	Notes         string  `json:"notes"`
 	Balance       float64 `json:"balance"`
 	Concurrency   int     `json:"concurrency"`
+	RPMLimit      int     `json:"rpm_limit"`
 	AllowedGroups []int64 `json:"allowed_groups"`
 }
 
@@ -52,6 +56,7 @@ type UpdateUserRequest struct {
 	Notes         *string  `json:"notes"`
 	Balance       *float64 `json:"balance"`
 	Concurrency   *int     `json:"concurrency"`
+	RPMLimit      *int     `json:"rpm_limit"`
 	Status        string   `json:"status" binding:"omitempty,oneof=active disabled"`
 	AllowedGroups *[]int64 `json:"allowed_groups"`
 	// GroupRates 用户专属分组倍率配置
@@ -115,7 +120,17 @@ func (h *UserHandler) List(c *gin.Context) {
 		loadInfo, _ = h.concurrencyService.GetUsersLoadBatch(c.Request.Context(), usersConcurrency)
 	}
 
-	// Build response with concurrency info
+	// Batch get current RPM
+	var rpmInfo map[int64]int
+	if len(users) > 0 && h.rpmCache != nil {
+		userIDs := make([]int64, len(users))
+		for i := range users {
+			userIDs[i] = users[i].ID
+		}
+		rpmInfo, _ = h.rpmCache.GetUserRPMBatch(c.Request.Context(), userIDs)
+	}
+
+	// Build response with concurrency and RPM info
 	out := make([]UserWithConcurrency, len(users))
 	for i := range users {
 		out[i] = UserWithConcurrency{
@@ -123,6 +138,9 @@ func (h *UserHandler) List(c *gin.Context) {
 		}
 		if info := loadInfo[users[i].ID]; info != nil {
 			out[i].CurrentConcurrency = info.CurrentConcurrency
+		}
+		if rpm, ok := rpmInfo[users[i].ID]; ok {
+			out[i].CurrentRPM = rpm
 		}
 	}
 
@@ -186,6 +204,7 @@ func (h *UserHandler) Create(c *gin.Context) {
 		Notes:         req.Notes,
 		Balance:       req.Balance,
 		Concurrency:   req.Concurrency,
+		RPMLimit:      req.RPMLimit,
 		AllowedGroups: req.AllowedGroups,
 	})
 	if err != nil {
@@ -219,6 +238,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 		Notes:         req.Notes,
 		Balance:       req.Balance,
 		Concurrency:   req.Concurrency,
+		RPMLimit:      req.RPMLimit,
 		Status:        req.Status,
 		AllowedGroups: req.AllowedGroups,
 		GroupRates:    req.GroupRates,
