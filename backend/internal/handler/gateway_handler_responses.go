@@ -105,6 +105,12 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 
+	// Per-user RPM cap check (before wait queue to avoid wasting concurrency slots)
+	if checkUserRPMLimit(c.Request.Context(), h.rpmCache, subject.UserID, subject.RPMLimit, reqLog) {
+		h.errorResponse(c, http.StatusTooManyRequests, "rate_limit_error", "User RPM limit exceeded, please retry later")
+		return
+	}
+
 	// 1. Acquire user concurrency slot
 	maxWait := service.CalculateMaxWait(subject.Concurrency)
 	canWait, err := h.concurrencyHelper.IncrementWaitCount(c.Request.Context(), subject.UserID, maxWait)
@@ -254,6 +260,21 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			)
 			return
 		}
+
+		// RPM 計数递增（Forward 成功后）
+		rpmCtx, rpmCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := h.gatewayService.IncrementAccountRPM(rpmCtx, account.ID); err != nil {
+			reqLog.Warn("gateway.rpm_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+		}
+		if apiKey.User != nil && apiKey.User.ID > 0 {
+			if err := h.gatewayService.IncrementUserRPM(rpmCtx, apiKey.User.ID); err != nil {
+				reqLog.Warn("gateway.user_rpm_increment_failed", zap.Int64("user_id", apiKey.User.ID), zap.Error(err))
+			}
+			if account.IsUserRPMEnabled() {
+				h.gatewayService.IncrementUserAccountRPM(rpmCtx, account.ID, apiKey.User.ID)
+			}
+		}
+		rpmCancel()
 
 		// 6. Record usage
 		userAgent := c.GetHeader("User-Agent")

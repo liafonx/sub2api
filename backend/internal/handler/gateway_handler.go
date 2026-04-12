@@ -203,6 +203,12 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	// 获取订阅信息（可能为nil）- 提前获取用于后续检查
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 
+	// Per-user RPM cap check (before wait queue to avoid wasting concurrency slots)
+	if checkUserRPMLimit(c.Request.Context(), h.rpmCache, subject.UserID, subject.RPMLimit, reqLog) {
+		h.errorResponse(c, http.StatusTooManyRequests, "rate_limit_error", "User RPM limit exceeded, please retry later")
+		return
+	}
+
 	// 0. 检查wait队列是否已满
 	maxWait := service.CalculateMaxWait(subject.Concurrency)
 	canWait, err := h.concurrencyHelper.IncrementWaitCount(c.Request.Context(), subject.UserID, maxWait)
