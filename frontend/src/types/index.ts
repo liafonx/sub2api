@@ -31,6 +31,7 @@ export interface User {
   role: "admin" | "user"; // User role for authorization
   balance: number; // User balance for API usage
   concurrency: number; // Allowed concurrent requests
+  rpm_limit: number; // Per-user RPM cap (0 = unlimited)
   status: "active" | "disabled"; // Account status
   allowed_groups: number[] | null; // Allowed group IDs (null = all non-exclusive groups)
   subscriptions?: UserSubscription[]; // User's active subscriptions
@@ -45,6 +46,8 @@ export interface AdminUser extends User {
   group_rates?: Record<number, number>;
   // 当前并发数（仅管理员列表接口返回）
   current_concurrency?: number;
+  // 当前 RPM（仅管理员列表接口返回）
+  current_rpm?: number;
 }
 
 export interface LoginRequest {
