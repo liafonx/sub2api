@@ -1,6 +1,6 @@
 # Active Fork Patches
 
-This file lists the **9 patches currently applied** (3, 6, 9, 13, 18, 19, 20, 21, 22) to the `main` branch.
+This file lists the **10 patches currently applied** (3, 6, 9, 13, 18, 19, 20, 21, 22, 23) to the `main` branch.
 For full history and removed/superseded patches, see [FORK_CHANGELOG.md](FORK_CHANGELOG.md).
 
 > **During upstream merges:** check each patch's key files for conflicts.
@@ -189,6 +189,36 @@ grep -n "bindAffinityIfNeeded\|filterByMinAffinityCount" backend/internal/servic
 ```bash
 grep -rn "IsUserRPMEnabled\|user_rpm_enabled\|CheckUserRPM\|UserAccountRPM\|CheckRPMZone" backend/internal/
 grep -rn "userRPMEnabled\|user_rpm_enabled" frontend/src/
+```
+
+---
+
+## Patch 23 — Per-User RPM Cap
+
+**Purpose:** Hard per-user RPM limit enforced at the gateway layer. New `rpm_limit` column on User (0 = unlimited). Configurable per-user via admin UI and globally via settings default (default 35 for new users). Pre-request check before concurrency slot acquisition; fail-open on Redis errors.
+
+> **Note:** Git commits for this patch are tagged `fork-patch-21` (plan naming error — Patch 21 was already taken by Daily Affinity). The canonical patch number is 23.
+
+**Upstream conflict risk:** HIGH — touches gateway handlers, ent schema, auth middleware, admin DTOs, and settings.
+
+| Layer | Key Files |
+|-------|-----------|
+| Schema | `ent/schema/user.go`, DB migration: `ALTER TABLE users ADD COLUMN rpm_limit integer NOT NULL DEFAULT 0` |
+| Backend | `service/user.go`, `service/rpm_cache.go`, `repository/rpm_cache.go`, `repository/user_repo.go`, `repository/api_key_repo.go` |
+| Middleware | `server/middleware/auth_subject.go`, `api_key_auth.go`, `api_key_auth_google.go`, `jwt_auth.go`, `admin_auth.go` |
+| Config | `config/config.go` (`user_rpm_limit` default 35), `service/domain_constants.go`, `service/setting_service.go`, `service/settings_view.go` |
+| Handler | `handler/gateway_helper.go` (`checkUserRPMLimit`), `handler/gateway_handler.go`, `handler/gateway_handler_chat_completions.go`, `handler/gateway_handler_responses.go` |
+| Handler | `handler/openai_gateway_handler.go`, `handler/openai_chat_completions.go` |
+| Admin | `handler/admin/user_handler.go`, `handler/dto/types.go`, `handler/dto/mappers.go`, `service/admin_service.go` |
+| DI | `wire_gen.go` |
+| Frontend | `components/user/UserRPMCell.vue`, `components/admin/user/UserCreateModal.vue`, `components/admin/user/UserEditModal.vue` |
+| Frontend | `views/admin/UsersView.vue`, `views/admin/SettingsView.vue`, `views/user/ProfileView.vue` |
+| i18n | `i18n/locales/en.ts`, `i18n/locales/zh.ts` |
+
+**Verify:**
+```bash
+grep -rn "RPMLimit\|rpm_limit\|checkUserRPMLimit\|GetUserRPM" backend/internal/
+grep -rn "UserRPMCell\|rpmLimit\|rpm_limit" frontend/src/
 ```
 
 ---

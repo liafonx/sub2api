@@ -923,6 +923,70 @@ grep -rn "userRPMEnabled\|user_rpm_enabled" frontend/src/
 
 ---
 
+### Patch 23: Per-User RPM Cap (added 2026-04-12)
+
+**Status**: Active on main
+
+> **Note:** Git commits tagged `fork-patch-21` (plan naming error — that number was already taken by Patch 21/Daily Affinity). Canonical number is 23.
+
+**Purpose**: Hard per-user RPM cap enforced at the gateway layer. New `rpm_limit` column on User (0 = unlimited). Pre-request check before concurrency slot acquisition, fail-open on Redis errors. Default 35 req/min for new users (configurable globally via settings). Admin UI shows current RPM / limit badge, create/edit modals expose the field, and user profile shows a StatCard.
+
+**Files**:
+
+| File | Change |
+|------|--------|
+| `backend/ent/schema/user.go` | MODIFIED — `rpm_limit` field, default 0 |
+| `backend/internal/service/user.go` | MODIFIED — `RPMLimit int` on service User struct |
+| `backend/internal/repository/api_key_repo.go` | MODIFIED — map `RpmLimit` in `userEntityToService` |
+| `backend/internal/repository/user_repo.go` | MODIFIED — `SetRpmLimit` in Create/Update builders |
+| `backend/internal/server/middleware/auth_subject.go` | MODIFIED — `RPMLimit int` on AuthSubject |
+| `backend/internal/server/middleware/api_key_auth.go` | MODIFIED — populate `RPMLimit` (2 locations) |
+| `backend/internal/server/middleware/api_key_auth_google.go` | MODIFIED — populate `RPMLimit` (2 locations) |
+| `backend/internal/server/middleware/jwt_auth.go` | MODIFIED — populate `RPMLimit` |
+| `backend/internal/server/middleware/admin_auth.go` | MODIFIED — populate `RPMLimit` (2 locations) |
+| `backend/internal/service/rpm_cache.go` | MODIFIED — add `GetUserRPM`, `GetUserRPMBatch` to interface |
+| `backend/internal/repository/rpm_cache.go` | MODIFIED — implement `GetUserRPM`, `GetUserRPMBatch` |
+| `backend/internal/config/config.go` | MODIFIED — `UserRPMLimit int` in DefaultConfig, viper default 35 |
+| `backend/internal/service/domain_constants.go` | MODIFIED — `SettingKeyDefaultRPMLimit` |
+| `backend/internal/service/setting_service.go` | MODIFIED — `GetDefaultRPMLimit`, save/load/parse/defaults |
+| `backend/internal/service/settings_view.go` | MODIFIED — `DefaultRPMLimit int` on SystemSettings |
+| `backend/internal/service/auth_service.go` | MODIFIED — set `RPMLimit` on new user creation (3 paths) |
+| `backend/internal/handler/dto/settings.go` | MODIFIED — `DefaultRPMLimit` in settings DTO |
+| `backend/internal/handler/admin/setting_handler.go` | MODIFIED — request/response/validation/audit for `DefaultRPMLimit` |
+| `backend/internal/handler/gateway_helper.go` | MODIFIED — `checkUserRPMLimit` helper (fail-open) |
+| `backend/internal/handler/gateway_handler.go` | MODIFIED — `rpmCache` field, RPM pre-check in Messages |
+| `backend/internal/handler/gateway_handler_chat_completions.go` | MODIFIED — RPM pre-check + post-increment |
+| `backend/internal/handler/gateway_handler_responses.go` | MODIFIED — RPM pre-check + post-increment |
+| `backend/internal/handler/openai_gateway_handler.go` | MODIFIED — `rpmCache` field, RPM enforcement in Responses/Messages/WebSocket |
+| `backend/internal/handler/openai_chat_completions.go` | MODIFIED — RPM pre-check + post-increment |
+| `backend/internal/service/admin_service.go` | MODIFIED — `RPMLimit` in CreateUserInput/UpdateUserInput |
+| `backend/internal/handler/admin/user_handler.go` | MODIFIED — `rpmCache` field, `CurrentRPM` in List, CRUD fields |
+| `backend/internal/handler/dto/types.go` | MODIFIED — `RPMLimit`, `CurrentRPM` fields |
+| `backend/internal/handler/dto/mappers.go` | MODIFIED — map `RPMLimit` |
+| `backend/cmd/server/wire_gen.go` | MODIFIED — pass `rpmCache` to gateway + admin user handlers |
+| `frontend/src/types/index.ts` | MODIFIED — `rpm_limit`, `current_rpm` |
+| `frontend/src/components/user/UserRPMCell.vue` | **NEW** — RPM badge (current/max, 3-color) |
+| `frontend/src/components/admin/user/UserCreateModal.vue` | MODIFIED — `rpm_limit` input, default 35 |
+| `frontend/src/components/admin/user/UserEditModal.vue` | MODIFIED — `rpm_limit` input |
+| `frontend/src/views/admin/UsersView.vue` | MODIFIED — `rpm_limit` column + `UserRPMCell` (hidden by default) |
+| `frontend/src/views/admin/SettingsView.vue` | MODIFIED — `default_rpm_limit` input |
+| `frontend/src/views/user/ProfileView.vue` | MODIFIED — RPM limit StatCard |
+| `frontend/src/i18n/locales/en.ts` | MODIFIED — RPM i18n keys |
+| `frontend/src/i18n/locales/zh.ts` | MODIFIED — RPM i18n keys |
+
+**DB migration required** (not auto-applied):
+```sql
+ALTER TABLE users ADD COLUMN IF NOT EXISTS rpm_limit integer NOT NULL DEFAULT 0;
+```
+
+**Verify**:
+```bash
+grep -rn "RPMLimit\|rpm_limit\|checkUserRPMLimit\|GetUserRPM" backend/internal/
+grep -rn "UserRPMCell\|rpmLimit\|rpm_limit" frontend/src/
+```
+
+---
+
 ## Verification
 
 Run after every upstream merge to confirm patches survived:
