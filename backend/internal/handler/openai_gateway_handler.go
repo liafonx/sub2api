@@ -207,6 +207,12 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
 
+	// Per-user RPM cap check
+	if checkUserRPMLimit(c.Request.Context(), h.rpmCache, subject.UserID, subject.RPMLimit, reqLog) {
+		h.errorResponse(c, http.StatusTooManyRequests, "rate_limit_exceeded", "User RPM limit exceeded, please retry later")
+		return
+	}
+
 	userReleaseFunc, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, reqStream, &streamStarted, reqLog)
 	if !acquired {
 		return
@@ -370,6 +376,13 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		} else {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, nil)
 		}
+
+		// RPM counter increment
+		rpmCtx, rpmCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if _, err := h.rpmCache.IncrementUserRPM(rpmCtx, subject.UserID); err != nil {
+			reqLog.Warn("openai.user_rpm_increment_failed", zap.Int64("user_id", subject.UserID), zap.Error(err))
+		}
+		rpmCancel()
 
 		// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
 		userAgent := c.GetHeader("User-Agent")
@@ -574,6 +587,12 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
 
+	// Per-user RPM cap check
+	if checkUserRPMLimit(c.Request.Context(), h.rpmCache, subject.UserID, subject.RPMLimit, reqLog) {
+		h.anthropicErrorResponse(c, http.StatusTooManyRequests, "rate_limit_exceeded", "User RPM limit exceeded, please retry later")
+		return
+	}
+
 	userReleaseFunc, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, reqStream, &streamStarted, reqLog)
 	if !acquired {
 		return
@@ -761,6 +780,13 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		} else {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, nil)
 		}
+
+		// RPM counter increment
+		rpmCtx, rpmCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if _, err := h.rpmCache.IncrementUserRPM(rpmCtx, subject.UserID); err != nil {
+			reqLog.Warn("openai_messages.user_rpm_increment_failed", zap.Int64("user_id", subject.UserID), zap.Error(err))
+		}
+		rpmCancel()
 
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
@@ -1053,6 +1079,13 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	if !h.ensureResponsesDependencies(c, reqLog) {
 		return
 	}
+
+	// Per-user RPM cap check (before WebSocket upgrade so we can return HTTP 429)
+	if checkUserRPMLimit(c.Request.Context(), h.rpmCache, subject.UserID, subject.RPMLimit, reqLog) {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": gin.H{"type": "rate_limit_exceeded", "message": "User RPM limit exceeded, please retry later"}})
+		return
+	}
+
 	reqLog.Info("openai.websocket_ingress_started")
 	clientIP := ip.GetClientIP(c)
 	userAgent := strings.TrimSpace(c.GetHeader("User-Agent"))
@@ -1270,6 +1303,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(ctx, account.ID, result.ResponseHeaders)
 			}
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, result.FirstTokenMs)
+			// RPM counter increment (per-turn)
+			rpmCtx, rpmCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if _, err := h.rpmCache.IncrementUserRPM(rpmCtx, subject.UserID); err != nil {
+				reqLog.Warn("openai_ws.user_rpm_increment_failed", zap.Int64("user_id", subject.UserID), zap.Error(err))
+			}
+			rpmCancel()
 			h.submitUsageRecordTask(func(taskCtx context.Context) {
 				if err := h.gatewayService.RecordUsage(taskCtx, &service.OpenAIRecordUsageInput{
 					Result:             result,

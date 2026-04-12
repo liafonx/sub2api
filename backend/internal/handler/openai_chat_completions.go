@@ -91,6 +91,12 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
 
+	// Per-user RPM cap check
+	if checkUserRPMLimit(c.Request.Context(), h.rpmCache, subject.UserID, subject.RPMLimit, reqLog) {
+		h.errorResponse(c, http.StatusTooManyRequests, "rate_limit_exceeded", "User RPM limit exceeded, please retry later")
+		return
+	}
+
 	userReleaseFunc, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, reqStream, &streamStarted, reqLog)
 	if !acquired {
 		return
@@ -258,6 +264,13 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		} else {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, nil)
 		}
+
+		// RPM counter increment
+		rpmCtx, rpmCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if _, err := h.rpmCache.IncrementUserRPM(rpmCtx, subject.UserID); err != nil {
+			reqLog.Warn("openai_chat_completions.user_rpm_increment_failed", zap.Int64("user_id", subject.UserID), zap.Error(err))
+		}
+		rpmCancel()
 
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
