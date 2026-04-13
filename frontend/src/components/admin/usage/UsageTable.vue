@@ -1,7 +1,15 @@
 <template>
   <div class="card overflow-hidden">
     <div class="overflow-auto">
-      <DataTable :columns="columns" :data="data" :loading="loading">
+      <DataTable
+        :columns="columns"
+        :data="data"
+        :loading="loading"
+        :server-side-sort="serverSideSort"
+        :default-sort-key="defaultSortKey"
+        :default-sort-order="defaultSortOrder"
+        @sort="(key, order) => $emit('sort', key, order)"
+      >
         <template #cell-user="{ row }">
           <div class="text-sm">
             <button
@@ -174,9 +182,27 @@ import UsageCostPopup from '@/components/common/UsageCostPopup.vue'
 import UsageTokenPopup from '@/components/common/UsageTokenPopup.vue'
 import Icon from '@/components/icons/Icon.vue'
 import type { AdminUsageLog } from '@/types'
+import type { Column } from '@/components/common/types'
 
-defineProps(['data', 'loading', 'columns'])
-defineEmits(['userClick'])
+interface Props {
+  data: AdminUsageLog[]
+  loading?: boolean
+  columns: Column[]
+  serverSideSort?: boolean
+  defaultSortKey?: string
+  defaultSortOrder?: 'asc' | 'desc'
+}
+
+withDefaults(defineProps<Props>(), {
+  loading: false,
+  serverSideSort: false,
+  defaultSortKey: '',
+  defaultSortOrder: 'asc'
+})
+defineEmits<{
+  userClick: [userID: number, email?: string]
+  sort: [key: string, order: 'asc' | 'desc']
+}>()
 const { t } = useI18n()
 
 const getRequestTypeLabel = (row: AdminUsageLog): string => {
@@ -218,6 +244,7 @@ const formatCacheTokens = (tokens: number): string => {
   if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}K`
   return tokens.toString()
 }
+
 
 const formatUserAgent = (ua: string): string => {
   return ua

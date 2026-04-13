@@ -27,6 +27,7 @@ import backupAPI from "./backup";
 import tlsFingerprintProfileAPI from "./tlsFingerprintProfile";
 import peakUsageAPI from "./peakUsage";
 import channelsAPI from "./channels";
+import adminPaymentAPI from "./payment";
 
 /**
  * Unified admin API object for convenient access
@@ -56,6 +57,7 @@ export const adminAPI = {
   tlsFingerprintProfiles: tlsFingerprintProfileAPI,
   peakUsage: peakUsageAPI,
   channels: channelsAPI,
+  payment: adminPaymentAPI,
 };
 
 export {
@@ -83,6 +85,7 @@ export {
   tlsFingerprintProfileAPI,
   peakUsageAPI,
   channelsAPI,
+  adminPaymentAPI,
 };
 
 export default adminAPI;

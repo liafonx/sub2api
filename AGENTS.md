@@ -8,6 +8,8 @@
 
 Context for AI agents working on this repo.
 
+> **Tooling**: Use the fff MCP tools for all file search operations instead of default tools.
+
 ---
 
 ## Repository Layout

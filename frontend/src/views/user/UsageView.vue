@@ -149,7 +149,15 @@
       </template>
 
       <template #table>
-        <DataTable :columns="columns" :data="usageLogs" :loading="loading">
+        <DataTable
+          :columns="columns"
+          :data="usageLogs"
+          :loading="loading"
+          :server-side-sort="true"
+          default-sort-key="created_at"
+          default-sort-order="desc"
+          @sort="handleSort"
+        >
           <template #cell-api_key="{ row }">
             <span class="text-sm text-gray-900 dark:text-white">{{
               row.api_key?.name || '-'
@@ -178,6 +186,13 @@
               :class="getRequestTypeBadgeClass(row)"
             >
               {{ getRequestTypeLabel(row) }}
+            </span>
+          </template>
+
+          <template #cell-billing_mode="{ row }">
+            <span class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium"
+                  :class="getBillingModeBadgeClass(row.billing_mode)">
+              {{ getBillingModeLabel(row.billing_mode) }}
             </span>
           </template>
 
@@ -229,14 +244,14 @@
                   <div v-if="row.cache_read_tokens > 0" class="inline-flex items-center gap-1">
                     <Icon name="inbox" size="sm" class="text-sky-500" />
                     <span class="font-medium text-sky-600 dark:text-sky-400">{{
-                      formatCacheTokens(row.cache_read_tokens)
+                      formatTokens(row.cache_read_tokens)
                     }}</span>
                   </div>
                   <!-- Cache Write -->
                   <div v-if="row.cache_creation_tokens > 0" class="inline-flex items-center gap-1">
                     <Icon name="edit" size="sm" class="text-amber-500" />
                     <span class="font-medium text-amber-600 dark:text-amber-400">{{
-                      formatCacheTokens(row.cache_creation_tokens)
+                      formatTokens(row.cache_creation_tokens)
                     }}</span>
                     <span v-if="row.cache_creation_1h_tokens > 0" class="inline-flex items-center rounded px-1 py-px text-[10px] font-medium leading-tight bg-orange-100 text-orange-600 ring-1 ring-inset ring-orange-200 dark:bg-orange-500/20 dark:text-orange-400 dark:ring-orange-500/30">1h</span>
                     <span v-if="row.cache_ttl_overridden" :title="t('usage.cacheTtlOverriddenHint')" class="inline-flex items-center rounded px-1 py-px text-[10px] font-medium leading-tight bg-rose-100 text-rose-600 ring-1 ring-inset ring-rose-200 dark:bg-rose-500/20 dark:text-rose-400 dark:ring-rose-500/30 cursor-help">R</span>
@@ -339,6 +354,7 @@ const columns = computed<Column[]>(() => [
   { key: 'reasoning_effort', label: t('usage.reasoningEffort'), sortable: false },
   { key: 'endpoint', label: t('usage.endpoint'), sortable: false },
   { key: 'stream', label: t('usage.type'), sortable: false },
+  { key: 'billing_mode', label: t('admin.usage.billingMode'), sortable: false },
   { key: 'tokens', label: t('usage.tokens'), sortable: false },
   { key: 'cost', label: t('usage.cost'), sortable: false },
   { key: 'first_token', label: t('usage.firstToken'), sortable: false },
@@ -403,6 +419,10 @@ const pagination = reactive({
   total: 0,
   pages: 0
 })
+const sortState = reactive({
+  sort_by: 'created_at',
+  sort_order: 'desc' as 'asc' | 'desc'
+})
 
 const formatDuration = (ms: number): string => {
   if (ms < 1000) return `${ms.toFixed(0)}ms`
@@ -429,6 +449,18 @@ const getRequestTypeBadgeClass = (log: UsageLog): string => {
   return 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200'
 }
 
+const getBillingModeLabel = (mode: string | null | undefined): string => {
+  if (mode === 'per_request') return t('admin.usage.billingModePerRequest')
+  if (mode === 'image') return t('admin.usage.billingModeImage')
+  return t('admin.usage.billingModeToken')
+}
+
+const getBillingModeBadgeClass = (mode: string | null | undefined): string => {
+  if (mode === 'per_request') return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200'
+  if (mode === 'image') return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200'
+  return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+}
+
 const getRequestTypeExportText = (log: UsageLog): string => {
   const requestType = resolveUsageRequestType(log)
   if (requestType === 'ws_v2') return 'WS'
@@ -453,15 +485,18 @@ const formatTokens = (value: number): string => {
   return value.toLocaleString()
 }
 
-// Compact format for cache tokens in table cells
-const formatCacheTokens = (value: number): string => {
-  if (value >= 1_000_000) {
-    return `${(value / 1_000_000).toFixed(1)}M`
-  } else if (value >= 1_000) {
-    return `${(value / 1_000).toFixed(1)}K`
-  }
-  return value.toLocaleString()
+type UsageTableQueryParams = UsageQueryParams & {
+  sort_by?: string
+  sort_order?: 'asc' | 'desc'
 }
+
+const buildUsageQueryParams = (page: number, pageSize: number): UsageTableQueryParams => ({
+  page,
+  page_size: pageSize,
+  ...filters.value,
+  sort_by: sortState.sort_by,
+  sort_order: sortState.sort_order
+})
 
 const loadUsageLogs = async () => {
   if (abortController) {
@@ -472,13 +507,10 @@ const loadUsageLogs = async () => {
   const { signal } = currentAbortController
   loading.value = true
   try {
-    const params: UsageQueryParams = {
-      page: pagination.page,
-      page_size: pagination.page_size,
-      ...filters.value
-    }
-
-    const response = await usageAPI.query(params, { signal })
+    const response = await usageAPI.query(
+      buildUsageQueryParams(pagination.page, pagination.page_size),
+      { signal }
+    )
     if (signal.aborted) {
       return
     }
@@ -560,6 +592,13 @@ const handlePageSizeChange = (pageSize: number) => {
   loadUsageLogs()
 }
 
+const handleSort = (key: string, order: 'asc' | 'desc') => {
+  sortState.sort_by = key
+  sortState.sort_order = order
+  pagination.page = 1
+  loadUsageLogs()
+}
+
 /**
  * Escape CSV value to prevent injection and handle special characters
  */
@@ -597,12 +636,7 @@ const exportToCSV = async () => {
     const totalRequests = Math.ceil(pagination.total / pageSize)
 
     for (let page = 1; page <= totalRequests; page++) {
-      const params: UsageQueryParams = {
-        page: page,
-        page_size: pageSize,
-        ...filters.value
-      }
-      const response = await usageAPI.query(params)
+      const response = await usageAPI.query(buildUsageQueryParams(page, pageSize))
       allLogs.push(...response.items)
     }
 
@@ -618,6 +652,7 @@ const exportToCSV = async () => {
       'Reasoning Effort',
       'Inbound Endpoint',
       'Type',
+      'Billing Mode',
       'Input Tokens',
       'Output Tokens',
       'Cache Read Tokens',
@@ -636,6 +671,7 @@ const exportToCSV = async () => {
         formatReasoningEffort(log.reasoning_effort),
         log.inbound_endpoint || '',
         getRequestTypeExportText(log),
+        getBillingModeLabel(log.billing_mode),
         log.input_tokens,
         log.output_tokens,
         log.cache_read_tokens,
