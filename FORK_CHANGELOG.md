@@ -1,6 +1,14 @@
 # Fork Changelog (liafonx/sub2api)
 
-Surviving fork-only patches relative to upstream release `v0.1.110` (`Wei-Shaw/sub2api`).
+Surviving fork-only patches relative to upstream release `v0.1.112` (`Wei-Shaw/sub2api`).
+
+**Upstream baseline history:**
+- 2026-04-13 — merged `v0.1.112` (commit `b1052902`): payment system v2 (EasyPay/Stripe/Wxpay/Alipay), subscription plans, major refactors of gateway/billing/scheduling. All 10 patches re-verified. Notable fixes during merge:
+  - Patch 9: added `s.cfg != nil` nil guard on `isModelSupportedByAccount` provider routing check (caught by `TestDiagnoseSelectionFailure_ModelRateLimitedDetail`).
+  - Patch 21: selection results re-homed onto upstream's new `newSelectionResult()` helper with `AffinityBound` set post-construction.
+  - Patch 23: new forward-only migration `103_add_user_rpm_limit.sql` authored.
+  - `handler.AdminHandlers` + `ProvideAdminHandlers` gained `PeakUsage *admin.PeakUsageHandler` wiring.
+- 2026-03-28 — reset to `v0.1.110` baseline (prior baseline).
 
 ## Inventory Method
 
@@ -338,7 +346,7 @@ grep cc-probe backend/internal/server/routes/admin.go
 
 ### Patch 9: Provider Routing (added 2026-03-25)
 
-**Status**: Active on main
+**Status**: Active on main (nil guard added during v0.1.112 merge 2026-04-13)
 
 **Purpose**: Optionally rejects requests where the model's `litellm_provider` does not match the account's platform. Prevents e.g. OpenAI models being routed to Anthropic accounts. Off by default (`enforce_provider_routing: false`).
 
@@ -927,7 +935,7 @@ grep -rn "userRPMEnabled\|user_rpm_enabled" frontend/src/
 
 ### Patch 23: Per-User RPM Cap (added 2026-04-12)
 
-**Status**: Active on main
+**Status**: Active on main (migration `103_add_user_rpm_limit.sql` added during v0.1.112 merge 2026-04-13)
 
 > **Note:** Git commits tagged `fork-patch-21` (plan naming error — that number was already taken by Patch 21/Daily Affinity). Canonical number is 23.
 

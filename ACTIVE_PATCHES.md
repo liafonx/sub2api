@@ -3,6 +3,8 @@
 This file lists the **10 patches currently applied** (3, 6, 9, 13, 18, 19, 20, 21, 22, 23) to the `main` branch.
 For full history and removed/superseded patches, see [FORK_CHANGELOG.md](FORK_CHANGELOG.md).
 
+> **Baseline:** Merged upstream `v0.1.112` on 2026-04-13 (merge commit `b1052902`). All 10 patches re-verified and deployed to Mac Mini + VPS.
+
 > **During upstream merges:** check each patch's key files for conflicts.
 > See the `merge-upstream` skill for the full merge workflow.
 
