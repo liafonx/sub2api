@@ -147,6 +147,8 @@ grep -n "blur\|backdrop" frontend/src/components/layout/AuthLayout.vue
 
 **Purpose:** Pin each user to the same Anthropic account for the entire day. Affinity resets at a configurable UTC hour (default midnight). Backed by Redis with atomic Lua scripts; integrates as a super-sticky layer before session lookup; propagates `AffinityBound` to enable yellow quota zone access. Affinity-aware scoring spreads new users across accounts by preferring accounts with fewer existing bindings.
 
+> **Bugfix 2026-04-13:** `APIKeyAuthGroupSnapshot` was missing `UserAccountAffinityEnabled`, making the feature a silent no-op since ship. Fixed in `api_key_auth_cache.go` and `api_key_auth_cache_impl.go`. After deploy, restart sub2api to flush stale cached snapshots.
+
 **Upstream conflict risk:** HIGH — touches gateway_service, gateway_handler, ent schema, config, and admin DTOs.
 
 | Layer | Key Files |

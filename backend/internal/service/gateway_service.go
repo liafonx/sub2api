@@ -699,8 +699,12 @@ func (s *GatewayService) maybeBindUserAffinity(ctx context.Context, groupID *int
 	}
 	ttl := TimeUntilNextResetHour(time.Now(), cfg.AffinityResetHour)
 	gid := derefGroupID(groupID)
-	_ = s.userAffinityCache.SetAffinity(ctx, gid, userID, accountID, ttl)
-	_ = s.userAffinityCache.IncrAffinityCount(ctx, gid, accountID, ttl)
+	if err := s.userAffinityCache.SetAffinity(ctx, gid, userID, accountID, ttl); err != nil {
+		slog.Warn("affinity.set_failed", "group_id", gid, "user_id", userID, "account_id", accountID, "err", err)
+	}
+	if err := s.userAffinityCache.IncrAffinityCount(ctx, gid, accountID, ttl); err != nil {
+		slog.Warn("affinity.incr_count_failed", "group_id", gid, "account_id", accountID, "err", err)
+	}
 }
 
 // updatePeakAsync updates a peak value if count > current stored value (best-effort, non-blocking).
@@ -1644,7 +1648,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 										Account:       stickyAccount,
 										Acquired:      true,
 										ReleaseFunc:   result.ReleaseFunc,
-										AffinityBound: affinityResolved,
+										AffinityBound: s.bindAffinityIfNeeded(ctx, affinityResolved, group, groupID, affinityUserID, stickyAccountID, cfg),
 									}, nil
 								}
 							}
@@ -1665,7 +1669,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 												Timeout:        cfg.StickySessionWaitTimeout,
 												MaxWaiting:     cfg.StickySessionMaxWaiting,
 											},
-											AffinityBound: affinityResolved,
+											AffinityBound: s.bindAffinityIfNeeded(ctx, affinityResolved, group, groupID, affinityUserID, stickyAccountID, cfg),
 										}, nil
 									}
 								} else {
@@ -1842,7 +1846,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 								Account:       account,
 								Acquired:      true,
 								ReleaseFunc:   result.ReleaseFunc,
-								AffinityBound: affinityResolved,
+								AffinityBound: s.bindAffinityIfNeeded(ctx, affinityResolved, group, groupID, affinityUserID, accountID, cfg),
 							}, nil
 						}
 					}
@@ -1863,7 +1867,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 									Timeout:        cfg.StickySessionWaitTimeout,
 									MaxWaiting:     cfg.StickySessionMaxWaiting,
 								},
-								AffinityBound: affinityResolved,
+								AffinityBound: s.bindAffinityIfNeeded(ctx, affinityResolved, group, groupID, affinityUserID, accountID, cfg),
 							}, nil
 						}
 					}

@@ -833,6 +833,8 @@ grep "pointer: coarse" frontend/src/components/layout/AuthLayout.vue
 
 **Enhancement (2026-04-11)**: Fixed `AffinityBound` flag missing from 4 return paths; added `maybeBindUserAffinity` calls to 2 WaitPlan paths; extracted `bindAffinityIfNeeded` helper. Added affinity-aware scoring: new users prefer accounts with fewer existing affinity bindings (uses `GetAffinityUserCounts` from Redis). Fixed zh.ts translations (removed mixed English "Red 费用区", replaced "亲和性" with natural "绑定").
 
+**Bugfix (2026-04-13)**: Patch 21 was a **silent no-op in production** since ship. Root cause: `APIKeyAuthGroupSnapshot` in `service/api_key_auth_cache.go` was missing the `UserAccountAffinityEnabled` field, so the auth middleware always rehydrated the group with `UserAccountAffinityEnabled=false`. This caused both the affinity guard in `SelectAccountWithLoadAwareness` (line ~1387) and the `bindAffinityIfNeeded` helper (line ~689) to be skipped unconditionally — no `user_affinity:*` keys were ever written in Redis for any user. Fixed by: (1) adding `UserAccountAffinityEnabled bool` to `APIKeyAuthGroupSnapshot`; (2) copying the field in `apiKeyToSnapshot` and `snapshotToAPIKey`; (3) calling `bindAffinityIfNeeded` (instead of hardcoding `affinityResolved`) in Layer 1 model-routing sticky and Layer 1.5 sticky return paths; (4) logging Redis errors in `maybeBindUserAffinity` instead of silent `_ =` discard. **After deploy, the auth cache must be invalidated** (restart sub2api or wait for TTL expiry) so stale snapshots with `false` are replaced.
+
 **Files**:
 
 | File | Change |
