@@ -230,6 +230,8 @@ grep "pointer: coarse" frontend/src/components/layout/AuthLayout.vue
 grep -n bindAffinityIfNeeded backend/internal/service/gateway_service.go
 grep -n filterByMinAffinityCount backend/internal/service/gateway_service.go
 grep -n user_account_affinity_enabled backend/ent/schema/group.go
+grep -n FieldUserAccountAffinityEnabled backend/internal/repository/api_key_repo.go
+grep -n GroupIDs backend/internal/repository/scheduler_cache.go
 
 # Patch 22: Per-user RPM allocation
 grep -n IsUserRPMEnabled backend/internal/service/account.go
