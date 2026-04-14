@@ -55,8 +55,8 @@ sub2api/
 
 ## Branch State
 
-- `main` is intentionally synced to upstream release `v0.1.105`, with only fork-maintenance docs kept on top (`AGENTS.md`, `FORK_CHANGELOG.md`, local ignore rules).
-- `upstream-v0.1.105-clean` is the explicit clean release baseline branch and should match the upstream release content.
+- `main` is at upstream release `v0.1.112` + 10 active fork patches (merged 2026-04-13, commit `b1052902`). Prior baselines: `v0.1.110` (2026-03-28), `v0.1.105` (initial clean reset).
+- `upstream-v0.1.105-clean` is the original clean release baseline branch (preserved for historical reference).
 - The old fork `main` state, including fork-only code, is preserved on:
   - branch: `archive/fork-main-pre-clean-migration-2026-03-28`
   - tag: `archive-fork-main-pre-clean-migration-2026-03-28`
@@ -179,8 +179,8 @@ ssh liafonx@Liafonxs-Mac-mini.local 'launchctl bootout gui/$(id -u)/com.sub2api;
 This repository is still the `liafonx/sub2api` fork, but current `main` has been reset onto upstream `v0.1.105`. The fork-only runtime patches listed below are preserved in the archived fork snapshot, not guaranteed to exist on current `main`.
 
 **Patch numbering rules for agents:**
-- The **highest patch number currently in use is 23**. Always check `ACTIVE_PATCHES.md` before assigning a new patch number.
-- The next available patch number is **24**.
+- The **highest patch number currently in use is 24**. Always check `ACTIVE_PATCHES.md` before assigning a new patch number.
+- The next available patch number is **25**.
 - Never reuse a patch number — each patch gets a unique, monotonically increasing integer.
 - Use the patch number in commit message tags: `feat(fork-patch-N): ...`
 - New patches go in both `ACTIVE_PATCHES.md` and `FORK_CHANGELOG.md`.
@@ -213,5 +213,6 @@ Authoritative references:
 | 21 | User-Account Daily Affinity | `service/user_affinity.go`, `repository/user_affinity_cache.go`, `service/gateway_service.go`, `wire_gen.go` | Active on main |
 | 22 | Per-User RPM Allocation | `service/user_quota_service.go`, `service/account.go`, `service/rpm_cache.go`, `repository/rpm_cache.go` | Active on main |
 | 23 | Per-User RPM Cap | `ent/schema/user.go`, `service/user.go`, `handler/gateway_helper.go`, `handler/gateway_handler*.go`, `handler/openai_*.go` | Active on main |
+| 24 | Change Account Identity | `components/admin/account/ChangeAccountModal.vue`, `AccountActionMenu.vue`, `AccountsView.vue` | Active on main |
 
 See `ACTIVE_PATCHES.md` for conflict-risk ratings and verify commands. See `FORK_CHANGELOG.md` for full history and verification commands to run after each upstream merge.

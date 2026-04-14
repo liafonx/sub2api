@@ -2373,6 +2373,7 @@ export default {
       quotaLimitAmountHint: "Cumulative spending limit. Does not auto-reset.",
       testConnection: "Test Connection",
       reAuthorize: "Re-Authorize",
+      changeAccount: "Change Account",
       refreshToken: "Refresh Token",
       noAccountsYet: "No accounts yet",
       createFirstAccount:
@@ -2976,6 +2977,8 @@ export default {
           quotaLink: "Quota guide",
         },
         oauthType: {
+          googleOneTitle: "Google One",
+          googleOneDesc: "Personal account",
           builtInTitle: "Built-in OAuth (Gemini CLI / Code Assist)",
           builtInDesc:
             "Uses Google built-in client ID. No admin configuration required.",
@@ -3084,6 +3087,12 @@ export default {
       antigravityAccount: "Antigravity Account",
       inputMethod: "Input Method",
       reAuthorizedSuccess: "Account re-authorized successfully",
+      // Change Account Modal
+      changeAccountTitle: "Change Account Identity",
+      changeAccountConfirm: "Change Account",
+      changeAccountSuccess: "Account identity changed successfully",
+      changeAccountFailed: "Failed to change account identity",
+      changeAccountNameLabel: "Account Name",
       // Test Modal
       testAccountConnection: "Test Account Connection",
       account: "Account",

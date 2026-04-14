@@ -1,7 +1,7 @@
 <template>
   <BaseDialog
     :show="show"
-    :title="t('admin.accounts.reAuthorizeAccount')"
+    :title="t('admin.accounts.changeAccountTitle')"
     width="normal"
     @close="handleClose"
   >
@@ -14,7 +14,7 @@
           <div
             :class="[
               'flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br',
-              isOpenAILike
+              isOpenAI
                 ? 'from-green-500 to-green-600'
                 : isGemini
                   ? 'from-blue-500 to-blue-600'
@@ -42,6 +42,17 @@
             </span>
           </div>
         </div>
+      </div>
+
+      <!-- Account Name -->
+      <div>
+        <label class="input-label">{{ t('admin.accounts.changeAccountNameLabel') }}</label>
+        <input
+          v-model="accountName"
+          type="text"
+          class="input mt-1"
+          :placeholder="t('admin.accounts.changeAccountNameLabel')"
+        />
       </div>
 
       <!-- Add Method Selection (Claude only) -->
@@ -171,7 +182,7 @@
           {{
             currentLoading
               ? t('admin.accounts.oauth.verifying')
-              : t('admin.accounts.oauth.completeAuth')
+              : t('admin.accounts.changeAccountConfirm')
           }}
         </button>
       </div>
@@ -197,8 +208,6 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import OAuthAuthorizationFlow from '@/components/account/OAuthAuthorizationFlow.vue'
 
-// Type for exposed OAuthAuthorizationFlow component
-// Note: defineExpose automatically unwraps refs, so we use the unwrapped types
 interface OAuthFlowExposed {
   authCode: string
   oauthState: string
@@ -216,62 +225,55 @@ interface Props {
 const props = defineProps<Props>()
 const emit = defineEmits<{
   close: []
-  reauthorized: [account: Account]
+  changed: [account: Account]
 }>()
 
 const appStore = useAppStore()
 const { t } = useI18n()
 
-// OAuth composables
 const claudeOAuth = useAccountOAuth()
 const openaiOAuth = useOpenAIOAuth()
 const geminiOAuth = useGeminiOAuth()
 const antigravityOAuth = useAntigravityOAuth()
 
-// Refs
 const oauthFlowRef = ref<OAuthFlowExposed | null>(null)
 
-// State
+const accountName = ref('')
 const addMethod = ref<AddMethod>('oauth')
 const geminiOAuthType = ref<'code_assist' | 'google_one' | 'ai_studio'>('code_assist')
 
-// Computed - check platform
 const isOpenAI = computed(() => props.account?.platform === 'openai')
-const isOpenAILike = computed(() => isOpenAI.value)
 const isGemini = computed(() => props.account?.platform === 'gemini')
 const isAnthropic = computed(() => props.account?.platform === 'anthropic')
 const isAntigravity = computed(() => props.account?.platform === 'antigravity')
 
-// Computed - current OAuth state based on platform
 const currentAuthUrl = computed(() => {
-  if (isOpenAILike.value) return openaiOAuth.authUrl.value
+  if (isOpenAI.value) return openaiOAuth.authUrl.value
   if (isGemini.value) return geminiOAuth.authUrl.value
   if (isAntigravity.value) return antigravityOAuth.authUrl.value
   return claudeOAuth.authUrl.value
 })
 const currentSessionId = computed(() => {
-  if (isOpenAILike.value) return openaiOAuth.sessionId.value
+  if (isOpenAI.value) return openaiOAuth.sessionId.value
   if (isGemini.value) return geminiOAuth.sessionId.value
   if (isAntigravity.value) return antigravityOAuth.sessionId.value
   return claudeOAuth.sessionId.value
 })
 const currentLoading = computed(() => {
-  if (isOpenAILike.value) return openaiOAuth.loading.value
+  if (isOpenAI.value) return openaiOAuth.loading.value
   if (isGemini.value) return geminiOAuth.loading.value
   if (isAntigravity.value) return antigravityOAuth.loading.value
   return claudeOAuth.loading.value
 })
 const currentError = computed(() => {
-  if (isOpenAILike.value) return openaiOAuth.error.value
+  if (isOpenAI.value) return openaiOAuth.error.value
   if (isGemini.value) return geminiOAuth.error.value
   if (isAntigravity.value) return antigravityOAuth.error.value
   return claudeOAuth.error.value
 })
 
-// Computed
 const isManualInputMethod = computed(() => {
-  // OpenAI/Gemini/Antigravity always use manual input (no cookie auth option)
-  return isOpenAILike.value || isGemini.value || isAntigravity.value || oauthFlowRef.value?.inputMethod === 'manual'
+  return isOpenAI.value || isGemini.value || isAntigravity.value || oauthFlowRef.value?.inputMethod === 'manual'
 })
 
 const canExchangeCode = computed(() => {
@@ -281,12 +283,11 @@ const canExchangeCode = computed(() => {
   return authCode.trim() && sessionId && !loading
 })
 
-// Watchers
 watch(
   () => props.show,
   (newVal) => {
     if (newVal && props.account) {
-      // Initialize addMethod based on current account type (Claude only)
+      accountName.value = props.account.name || ''
       if (
         isAnthropic.value &&
         (props.account.type === 'oauth' || props.account.type === 'setup-token')
@@ -308,8 +309,8 @@ watch(
   }
 )
 
-// Methods
 const resetState = () => {
+  accountName.value = ''
   addMethod.value = 'oauth'
   geminiOAuthType.value = 'code_assist'
   claudeOAuth.resetState()
@@ -326,7 +327,7 @@ const handleClose = () => {
 const handleGenerateUrl = async () => {
   if (!props.account) return
 
-  if (isOpenAILike.value) {
+  if (isOpenAI.value) {
     await openaiOAuth.generateAuthUrl(props.account.proxy_id)
   } else if (isGemini.value) {
     const creds = (props.account.credentials || {}) as Record<string, unknown>
@@ -340,14 +341,62 @@ const handleGenerateUrl = async () => {
   }
 }
 
+const NON_AUTH_CREDENTIAL_KEYS = [
+  'temp_unschedulable_enabled',
+  'temp_unschedulable_rules',
+  'model_mapping',
+  'custom_error_codes_enabled',
+  'custom_error_codes',
+  'pool_mode',
+  'pool_mode_retry_count',
+  'intercept_warmup_requests'
+] as const
+
+const mergeCredentials = (newCreds: Record<string, unknown>): Record<string, unknown> => {
+  const oldCreds = (props.account?.credentials as Record<string, unknown>) || {}
+  const merged = { ...newCreds }
+  for (const key of NON_AUTH_CREDENTIAL_KEYS) {
+    if (key in oldCreds && oldCreds[key] != null) {
+      merged[key] = oldCreds[key]
+    }
+  }
+  return merged
+}
+
+const finishUpdate = async (credentials: Record<string, unknown>, type?: string, extra?: Record<string, unknown>) => {
+  if (!props.account) return
+
+  try {
+    const payload: Record<string, unknown> = {
+      name: accountName.value.trim() || props.account.name,
+      credentials: mergeCredentials(credentials)
+    }
+    if (type) payload.type = type
+    if (extra) payload.extra = extra
+
+    await adminAPI.accounts.update(props.account.id, payload as any)
+    const updatedAccount = await adminAPI.accounts.clearError(props.account.id)
+
+    appStore.showSuccess(t('admin.accounts.changeAccountSuccess'))
+    emit('changed', updatedAccount)
+    handleClose()
+  } catch (error: any) {
+    const msg = error.response?.data?.detail || t('admin.accounts.changeAccountFailed')
+    appStore.showError(msg)
+  }
+}
+
+const buildMergedExtra = (oauthKeys: Record<string, unknown>): Record<string, unknown> => {
+  return { ...((props.account?.extra as Record<string, unknown>) || {}), ...oauthKeys }
+}
+
 const handleExchangeCode = async () => {
   if (!props.account) return
 
   const authCode = oauthFlowRef.value?.authCode || ''
   if (!authCode.trim()) return
 
-  if (isOpenAILike.value) {
-    // OpenAI OAuth flow
+  if (isOpenAI.value) {
     const oauthClient = openaiOAuth
     const sessionId = oauthClient.sessionId.value
     if (!sessionId) return
@@ -366,28 +415,17 @@ const handleExchangeCode = async () => {
     )
     if (!tokenInfo) return
 
-    // Build credentials and extra info
     const credentials = oauthClient.buildCredentials(tokenInfo)
-    const extra = oauthClient.buildExtraInfo(tokenInfo)
+    const oauthExtra = oauthClient.buildExtraInfo(tokenInfo)
 
-    try {
-      // Update account with new credentials
-      await adminAPI.accounts.update(props.account.id, {
-        type: 'oauth', // OpenAI OAuth is always 'oauth' type
-        credentials,
-        extra
-      })
-
-      // Clear error status after successful re-authorization
-      const updatedAccount = await adminAPI.accounts.clearError(props.account.id)
-
-      appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
-      emit('reauthorized', updatedAccount)
-      handleClose()
-    } catch (error: any) {
-      oauthClient.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
-      appStore.showError(oauthClient.error.value)
+    // Merge extra but exclude privacy_mode to preserve admin-set value
+    let mergedExtra: Record<string, unknown> | undefined
+    if (oauthExtra) {
+      const { privacy_mode: _, ...oauthKeys } = oauthExtra
+      mergedExtra = buildMergedExtra(oauthKeys)
     }
+
+    await finishUpdate(credentials, 'oauth', mergedExtra)
   } else if (isGemini.value) {
     const sessionId = geminiOAuth.sessionId.value
     if (!sessionId) return
@@ -408,21 +446,9 @@ const handleExchangeCode = async () => {
 
     const credentials = geminiOAuth.buildCredentials(tokenInfo)
 
-    try {
-      await adminAPI.accounts.update(props.account.id, {
-        type: 'oauth',
-        credentials
-      })
-      const updatedAccount = await adminAPI.accounts.clearError(props.account.id)
-      appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
-      emit('reauthorized', updatedAccount)
-      handleClose()
-    } catch (error: any) {
-      geminiOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
-      appStore.showError(geminiOAuth.error.value)
-    }
+    // Gemini has no email — keep current name
+    await finishUpdate(credentials, 'oauth')
   } else if (isAntigravity.value) {
-    // Antigravity OAuth flow
     const sessionId = antigravityOAuth.sessionId.value
     if (!sessionId) return
 
@@ -440,21 +466,10 @@ const handleExchangeCode = async () => {
 
     const credentials = antigravityOAuth.buildCredentials(tokenInfo)
 
-    try {
-      await adminAPI.accounts.update(props.account.id, {
-        type: 'oauth',
-        credentials
-      })
-      const updatedAccount = await adminAPI.accounts.clearError(props.account.id)
-      appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
-      emit('reauthorized', updatedAccount)
-      handleClose()
-    } catch (error: any) {
-      antigravityOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
-      appStore.showError(antigravityOAuth.error.value)
-    }
+    // Antigravity has no oauth-specific extra keys
+    await finishUpdate(credentials, 'oauth')
   } else {
-    // Claude OAuth flow
+    // Anthropic (Claude) OAuth flow
     const sessionId = claudeOAuth.sessionId.value
     if (!sessionId) return
 
@@ -474,21 +489,11 @@ const handleExchangeCode = async () => {
         ...proxyConfig
       })
 
-      const extra = claudeOAuth.buildExtraInfo(tokenInfo)
+      const oauthExtra = claudeOAuth.buildExtraInfo(tokenInfo)
 
-      // Update account with new credentials and type
-      await adminAPI.accounts.update(props.account.id, {
-        type: addMethod.value, // Update type based on selected method
-        credentials: tokenInfo,
-        extra
-      })
+      const mergedExtra = oauthExtra ? buildMergedExtra(oauthExtra) : undefined
 
-      // Clear error status after successful re-authorization
-      const updatedAccount = await adminAPI.accounts.clearError(props.account.id)
-
-      appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
-      emit('reauthorized', updatedAccount)
-      handleClose()
+      await finishUpdate(tokenInfo, addMethod.value, mergedExtra)
     } catch (error: any) {
       claudeOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
       appStore.showError(claudeOAuth.error.value)
@@ -499,7 +504,7 @@ const handleExchangeCode = async () => {
 }
 
 const handleCookieAuth = async (sessionKey: string) => {
-  if (!props.account || isOpenAILike.value) return
+  if (!props.account || isOpenAI.value) return
 
   claudeOAuth.loading.value = true
   claudeOAuth.error.value = ''
@@ -517,24 +522,15 @@ const handleCookieAuth = async (sessionKey: string) => {
       ...proxyConfig
     })
 
-    const extra = claudeOAuth.buildExtraInfo(tokenInfo)
+    const oauthExtra = claudeOAuth.buildExtraInfo(tokenInfo)
 
-    // Update account with new credentials and type
-    await adminAPI.accounts.update(props.account.id, {
-      type: addMethod.value, // Update type based on selected method
-      credentials: tokenInfo,
-      extra
-    })
+    const mergedExtra = oauthExtra ? buildMergedExtra(oauthExtra) : undefined
 
-    // Clear error status after successful re-authorization
-    const updatedAccount = await adminAPI.accounts.clearError(props.account.id)
-
-    appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
-    emit('reauthorized', updatedAccount)
-    handleClose()
+    await finishUpdate(tokenInfo, addMethod.value, mergedExtra)
   } catch (error: any) {
     claudeOAuth.error.value =
       error.response?.data?.detail || t('admin.accounts.oauth.cookieAuthFailed')
+    appStore.showError(claudeOAuth.error.value)
   } finally {
     claudeOAuth.loading.value = false
   }

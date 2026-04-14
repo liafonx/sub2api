@@ -2274,6 +2274,7 @@ export default {
       quotaLimitAmountHint: "累计消费上限，不会自动重置。",
       testConnection: "测试连接",
       reAuthorize: "重新授权",
+      changeAccount: "更换账号",
       refreshToken: "刷新令牌",
       noAccountsYet: "暂无账号",
       createFirstAccount: "添加 AI 平台账号以开始使用 API 网关。",
@@ -2987,6 +2988,8 @@ export default {
           quotaLink: "配额说明",
         },
         oauthType: {
+          googleOneTitle: "Google One",
+          googleOneDesc: "个人账号",
           builtInTitle: "内置授权（Gemini CLI / Code Assist）",
           builtInDesc: "使用 Google 内置客户端 ID，无需管理员配置。",
           builtInRequirement: "需要 GCP 项目并填写 Project ID。",
@@ -3092,6 +3095,12 @@ export default {
       antigravityAccount: "Antigravity 账号",
       inputMethod: "输入方式",
       reAuthorizedSuccess: "账号重新授权成功",
+      // Change Account Modal
+      changeAccountTitle: "更换账号身份",
+      changeAccountConfirm: "更换账号",
+      changeAccountSuccess: "账号身份更换成功",
+      changeAccountFailed: "账号身份更换失败",
+      changeAccountNameLabel: "账号名称",
       // Test Modal
       testAccountConnection: "测试账号连接",
       account: "账号",

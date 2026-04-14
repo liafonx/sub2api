@@ -997,6 +997,31 @@ grep -rn "UserRPMCell\|rpmLimit\|rpm_limit" frontend/src/
 
 ---
 
+### Patch 24: Change Account Identity (added 2026-04-14)
+
+**Status**: Active on main
+
+**Purpose**: Add a "Change account" action to the admin Account Management "More" menu that swaps OAuth credentials + name on an existing account while preserving all other settings (scheduling, quotas, groups, proxy, etc.). Only for `oauth` and `setup-token` account types. Frontend-only change with no backend modifications.
+
+**Files**:
+
+| File | Change |
+|------|--------|
+| `frontend/src/components/admin/account/ChangeAccountModal.vue` | **NEW** — modal for identity swap (OAuth flow + name editing + client-side extra merge) |
+| `frontend/src/components/admin/account/AccountActionMenu.vue` | MODIFIED — add "Change account" menu item + `change-account` emit |
+| `frontend/src/views/admin/AccountsView.vue` | MODIFIED — wire `ChangeAccountModal` (import, refs, isAnyModalOpen, syncAccountRefs, handlers, template) |
+| `frontend/src/i18n/locales/en.ts` | MODIFIED — change account i18n keys |
+| `frontend/src/i18n/locales/zh.ts` | MODIFIED — change account i18n keys |
+
+**Key design detail**: The backend's `UpdateAccount` replaces `extra` wholesale when non-nil. The modal performs client-side merge: `{ ...account.extra, ...oauthSpecificKeys }` to preserve scheduling/quota settings. For OpenAI, `privacy_mode` is excluded from the merge to preserve admin-set values. For Gemini/Antigravity, `extra` is omitted entirely from the payload.
+
+**Verify**:
+```bash
+grep -rn "ChangeAccountModal\|changeAccount\|change-account" frontend/src/
+```
+
+---
+
 ## Verification
 
 Run after every upstream merge to confirm patches survived:
@@ -1115,6 +1140,11 @@ grep -n "IsUserRPMEnabled" backend/internal/service/account.go
 grep -n "CheckUserRPM\|CheckRPMZone" backend/internal/service/user_quota_service.go
 ls backend/internal/service/rpm_cache.go
 ls backend/internal/repository/rpm_cache.go
+
+# Patch 24: Change account identity
+ls frontend/src/components/admin/account/ChangeAccountModal.vue
+grep -n "change-account" frontend/src/components/admin/account/AccountActionMenu.vue
+grep -n "ChangeAccountModal\|changeAccountAcc\|showChangeAccount" frontend/src/views/admin/AccountsView.vue
 
 # utls version
 grep refraction-networking/utls backend/go.mod

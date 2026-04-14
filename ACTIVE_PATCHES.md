@@ -1,6 +1,6 @@
 # Active Fork Patches
 
-This file lists the **10 patches currently applied** (3, 6, 9, 13, 18, 19, 20, 21, 22, 23) to the `main` branch.
+This file lists the **11 patches currently applied** (3, 6, 9, 13, 18, 19, 20, 21, 22, 23, 24) to the `main` branch.
 For full history and removed/superseded patches, see [FORK_CHANGELOG.md](FORK_CHANGELOG.md).
 
 > **Baseline:** Merged upstream `v0.1.112` on 2026-04-13 (merge commit `b1052902`). All 10 patches re-verified and deployed to Mac Mini + VPS.
@@ -223,6 +223,24 @@ grep -rn "userRPMEnabled\|user_rpm_enabled" frontend/src/
 ```bash
 grep -rn "RPMLimit\|rpm_limit\|checkUserRPMLimit\|GetUserRPM" backend/internal/
 grep -rn "UserRPMCell\|rpmLimit\|rpm_limit" frontend/src/
+```
+
+---
+
+## Patch 24 — Change Account Identity
+
+**Purpose:** Add a "Change account" action to the admin More menu that swaps OAuth identity (credentials + name) on an existing account while preserving all settings. Frontend-only.
+
+**Upstream conflict risk:** LOW — purely additive frontend component + minor wiring in AccountsView.
+
+| Layer | Key Files |
+|-------|-----------|
+| Frontend | `components/admin/account/ChangeAccountModal.vue`, `components/admin/account/AccountActionMenu.vue` |
+| Frontend | `views/admin/AccountsView.vue`, `i18n/locales/en.ts`, `i18n/locales/zh.ts` |
+
+**Verify:**
+```bash
+grep -rn "ChangeAccountModal\|changeAccount\|change-account" frontend/src/
 ```
 
 ---
