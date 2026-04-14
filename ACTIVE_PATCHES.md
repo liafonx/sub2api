@@ -151,6 +151,8 @@ grep -n "blur\|backdrop" frontend/src/components/layout/AuthLayout.vue
 
 > **Bugfix 2026-04-13:** `APIKeyAuthGroupSnapshot` was missing `UserAccountAffinityEnabled`, making the feature a silent no-op since ship. Fixed in `api_key_auth_cache.go` and `api_key_auth_cache_impl.go`. After deploy, restart sub2api to flush stale cached snapshots.
 
+> **Bugfix 2026-04-14:** `isAccountInGroup` returned false in Layer 1.5 for affinity-resolved accounts because the scheduler snapshot metadata cache (`sched:meta:`) omitted `GroupIDs`. This caused sticky sessions to fall through to Layer 2 and ping-pong between accounts. Fixed by adding `GroupIDs` to `buildSchedulerMetadataAccount` and updating `isAccountInGroup` to check both `AccountGroups` and `GroupIDs`.
+
 **Upstream conflict risk:** HIGH — touches gateway_service, gateway_handler, ent schema, config, and admin DTOs.
 
 | Layer | Key Files |

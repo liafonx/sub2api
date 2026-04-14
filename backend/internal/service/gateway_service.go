@@ -1403,18 +1403,16 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			if affinityAccountID, afErr := s.userAffinityCache.GetAffinity(ctx, derefGroupID(groupID), uid); afErr == nil && affinityAccountID > 0 {
 				_, isExcl := excludedIDs[affinityAccountID] // nil-map read is safe in Go
 				if !isExcl {
-					if afAccount, afErr := s.getSchedulableAccount(ctx, affinityAccountID); afErr == nil && afAccount != nil &&
-						s.isAccountSchedulableForSelection(afAccount) &&
-						s.isAccountSchedulableForWindowCost(ctx, afAccount, true) {
-						// Valid affinity — set sticky account ID and pre-populate Redis
-						// so the legacy (non-load-aware) path also picks it up.
+					afAccount, afErr := s.getSchedulableAccount(ctx, affinityAccountID)
+					selOK := afAccount != nil && s.isAccountSchedulableForSelection(afAccount)
+					wcOK := selOK && s.isAccountSchedulableForWindowCost(ctx, afAccount, true)
+					if afErr == nil && selOK && wcOK {
 						affinityResolved = true
 						stickyAccountID = affinityAccountID
 						if sessionHash != "" && s.cache != nil {
 							_ = s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, affinityAccountID, stickySessionTTL)
 						}
 					} else {
-						// Account invalid or in window-cost Red zone — clear the affinity binding.
 						_ = s.userAffinityCache.DeleteAffinity(ctx, derefGroupID(groupID), uid)
 						_ = s.userAffinityCache.DecrAffinityCount(ctx, derefGroupID(groupID), affinityAccountID)
 					}
@@ -1820,26 +1818,23 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		if accountID > 0 && !isExcluded(accountID) {
 			account, ok := accountByID[accountID]
 			if ok {
-				// 检查账户是否需要清理粘性会话绑定
-				// Check if the account needs sticky session cleanup
 				clearSticky := shouldClearStickySession(account, requestedModel)
 				if clearSticky {
 					_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 				}
-				if !clearSticky && s.isAccountInGroup(account, groupID) &&
-					s.isAccountAllowedForPlatform(account, platform, useMixed) &&
-					(requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) &&
-					s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) &&
-					s.isAccountSchedulableForQuota(account) &&
-					s.isAccountSchedulableForWindowCost(ctx, account, true) &&
-
-					s.isAccountSchedulableForRPM(ctx, account, true) { // 粘性会话窗口费用+RPM 检查
+				inGroup := s.isAccountInGroup(account, groupID)
+				platformOK := s.isAccountAllowedForPlatform(account, platform, useMixed)
+				modelOK := requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)
+				modelSelOK := s.isAccountSchedulableForModelSelection(ctx, account, requestedModel)
+				quotaOK := s.isAccountSchedulableForQuota(account)
+				wcOK := s.isAccountSchedulableForWindowCost(ctx, account, true)
+				rpmOK := s.isAccountSchedulableForRPM(ctx, account, true)
+				gatePass := !clearSticky && inGroup && platformOK && modelOK && modelSelOK && quotaOK && wcOK && rpmOK
+				if gatePass {
 					result, err := s.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
 					if err == nil && result.Acquired {
-						// 会话数量限制检查
-						// Session count limit check
 						if !s.checkAndRegisterSession(ctx, account, sessionHash) {
-							result.ReleaseFunc() // 释放槽位，继续到 Layer 2
+							result.ReleaseFunc()
 						} else {
 							if s.cache != nil {
 								_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), sessionHash, stickySessionTTL)
@@ -2335,16 +2330,21 @@ func (s *GatewayService) isAccountSchedulableForModelSelection(ctx context.Conte
 
 // isAccountInGroup checks if the account belongs to the specified group.
 // When groupID is nil, returns true only for ungrouped accounts (no group assignments).
+// Checks both AccountGroups (full accounts) and GroupIDs (metadata-only snapshot accounts).
 func (s *GatewayService) isAccountInGroup(account *Account, groupID *int64) bool {
 	if account == nil {
 		return false
 	}
 	if groupID == nil {
-		// 无分组的 API Key 只能使用未分组的账号
-		return len(account.AccountGroups) == 0
+		return len(account.AccountGroups) == 0 && len(account.GroupIDs) == 0
 	}
 	for _, ag := range account.AccountGroups {
 		if ag.GroupID == *groupID {
+			return true
+		}
+	}
+	for _, gid := range account.GroupIDs {
+		if gid == *groupID {
 			return true
 		}
 	}
