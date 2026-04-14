@@ -55,12 +55,12 @@ sub2api/
 
 ## Branch State
 
-- `main` is at upstream release `v0.1.112` + 10 active fork patches (merged 2026-04-13, commit `b1052902`). Prior baselines: `v0.1.110` (2026-03-28), `v0.1.105` (initial clean reset).
+- `main` is at upstream release `v0.1.112` + 11 active fork patches (merged 2026-04-13, commit `b1052902`).
 - `upstream-v0.1.105-clean` is the original clean release baseline branch (preserved for historical reference).
 - The old fork `main` state, including fork-only code, is preserved on:
   - branch: `archive/fork-main-pre-clean-migration-2026-03-28`
   - tag: `archive-fork-main-pre-clean-migration-2026-03-28`
-- If you need to reintroduce a fork patch later, use `FORK_CHANGELOG.md` plus the archived branch/tag as the source of truth. Do not assume current `main` still contains those fork-only runtime changes.
+- If you need to reintroduce a retired fork patch, use the archived branch/tag as the source of truth.
 
 ---
 
@@ -99,59 +99,7 @@ Per-account max concurrent sessions tracked in Redis sorted set. Config in `acco
 ### RPM Limit (upstream)
 Per-account requests-per-minute cap. Tiered or sticky-exempt strategy. Config in `account.Extra["base_rpm"]`.
 
-### Per-User Quota Allocation (fork patch, 2026-03-08)
-
-**Purpose**: Prevents a single heavy user from exhausting an account's 5h window budget. Splits the remaining budget equally among currently active users, with epoch-based recalculation on user join/leave and 1-minute idle timeout.
-
-**Files**:
-
-| File | Role |
-|------|------|
-| `internal/service/user_quota_service.go` | `UserQuotaChecker` + `UserQuotaCache` interfaces; `userQuotaService` implementation |
-| `internal/repository/user_quota_cache.go` | Redis implementation |
-
-**Redis key schema**:
-```
-user_quota:active:{accountID}              → Sorted Set (member=userID, score=lastActivityMs)
-user_quota:cost:{accountID}:{epoch}:{userID} → String (INCRBYFLOAT, 6h TTL)
-user_quota:meta:{accountID}               → Hash (epoch, per_user_limit, per_user_sticky_reserve, active_count, 6h TTL)
-```
-
-**Algorithm (three-zone)**:
-- Green (`userCost < perUserLimit`): allow all
-- Yellow (`userCost < perUserLimit + perUserStickyReserve`): allow only sticky sessions
-- Red (above): block with 429
-
-**Recalculation triggers**: user joins (new `RegisterActivity`), idle cleanup ticker (every 15s removes users idle >60s).
-
-**Enable per account**: set `account.Extra["user_quota_enabled"] = true`. Requires `window_cost_limit > 0`.
-
-**Integration points**:
-- `gateway_handler.go`: `RegisterUserActivity` called after account selection; `CheckUserQuotaForAccount` called before forwarding
-- `gateway_service.go` `RecordUsage`: `IncrementUserCost` called after cost is computed
-- `wire_gen.go`: `NewUserQuotaCache` → `NewUserQuotaService` → `SetUserQuotaChecker` + 15s cleanup ticker
-
-**Frontend**: Toggle in Create/Edit Account modals under "Quota Control" section (Anthropic OAuth/SetupToken accounts only, disabled when Window Cost Limit is off).
-
-### Peak Usage Log (fork patch, 2026-03-25)
-
-**Purpose**: Records per-account peak concurrent usage. Stores the highest observed concurrent request count per account in a rolling window, queryable from the admin UI.
-
-**Files**:
-
-| File | Role |
-|------|------|
-| `internal/service/peak_usage_service.go` | `PeakUsageLogger` interface; service implementation |
-| `internal/service/peak_usage_cache.go` | Cache interface definitions |
-| `internal/repository/peak_usage_cache.go` | Redis implementation |
-| `internal/handler/admin/peak_usage_handler.go` | Admin API handler |
-| `ent/schema/peak_usage.go` | Ent schema for persistence |
-
-### Claude Code Version Detection (fork patch)
-
-**Purpose**: Detects Claude Code client versions from request headers to enable per-version routing or analytics.
-
-**Files**: `internal/service/claude_code_detect_service.go` (or similar)
+See [`ACTIVE_PATCHES.md`](ACTIVE_PATCHES.md) for full details on all fork patches (per-user quota, peak usage, dynamic cost, affinity, RPM, etc.).
 
 ---
 
@@ -176,43 +124,25 @@ ssh liafonx@Liafonxs-Mac-mini.local 'launchctl bootout gui/$(id -u)/com.sub2api;
 
 ## Fork-Only Patches
 
-This repository is still the `liafonx/sub2api` fork, but current `main` has been reset onto upstream `v0.1.105`. The fork-only runtime patches listed below are preserved in the archived fork snapshot, not guaranteed to exist on current `main`.
+See [`ACTIVE_PATCHES.md`](ACTIVE_PATCHES.md) for conflict-risk ratings, verify commands, and full patch details.
 
 **Patch numbering rules for agents:**
 - The **highest patch number currently in use is 24**. Always check `ACTIVE_PATCHES.md` before assigning a new patch number.
 - The next available patch number is **25**.
 - Never reuse a patch number — each patch gets a unique, monotonically increasing integer.
 - Use the patch number in commit message tags: `feat(fork-patch-N): ...`
-- New patches go in both `ACTIVE_PATCHES.md` and `FORK_CHANGELOG.md`.
+- New patches go in **[`ACTIVE_PATCHES.md`](ACTIVE_PATCHES.md)** (the single source of truth for all fork patches).
 
-Authoritative references:
-- **Active patches + current highest number**: **[`ACTIVE_PATCHES.md`](ACTIVE_PATCHES.md)**
-- Current patch catalog: **[`FORK_CHANGELOG.md`](FORK_CHANGELOG.md)**
-- Archived fork code snapshot: `archive/fork-main-pre-clean-migration-2026-03-28`
-- Archived fork tag: `archive-fork-main-pre-clean-migration-2026-03-28`
-
-| # | Patch | Key Files | Status |
-|---|-------|-----------|--------|
-| 1 | TLS Fingerprint Registry Fix | ~~`repository/http_upstream.go`~~ | SUPERSEDED (v0.1.105) |
-| 2 | HTTP/2 Upstream | `pkg/tlsfingerprint/h2_roundtripper.go` | Archived on old fork main |
-| 3 | Per-User Quota Allocation | `service/user_quota_service.go`, `repository/user_quota_cache.go`, `dto/types.go`, `dto/mappers.go` | Active on main |
-| 4 | Full X25519MLKEM768 Support | `pkg/tlsfingerprint/dialer.go` | Archived on old fork main |
-| 5 | TLS Profile Cache Key Fix | `pkg/tlsfingerprint/profile_identity.go`, `repository/http_upstream.go` | Archived on old fork main |
-| 6 | Peak Usage Log | `service/peak_usage_service.go`, `service/peak_usage_cache.go`, `repository/peak_usage_cache.go`, `handler/admin/peak_usage_handler.go` | Active on main |
-| 7 | Claude Code Version Detection | `service/claude_code_version_detect_service.go` | Archived on old fork main |
-| 8 | CC Probe Service | `service/cc_probe_service.go`, `repository/cc_probe_cache.go` | Archived on old fork main |
-| 9 | Provider Routing | `service/provider_routing.go`, `service/pricing_service.go`, `config/config.go` | Active on main |
-| 10 | CC Trait Registry & Validator Enhancements | `service/cc_trait_registry.go`, `service/claude_code_validator.go` | Archived on old fork main |
-| 11 | Surgical Thinking Block Signature Fix | `service/gateway_request.go` | Archived on old fork main |
-| 12 | Probe-Aware Identity Defaults | `service/identity_service.go` | Archived on old fork main |
-| 13 | InfoPopup Tooltip Component | `InfoPopup.vue`, `UsageTable.vue`, `UsageView.vue` | Archived on old fork main |
-| 14 | Scheduled Rate Multiplier | `group_scheduled_rate.go`, ent schema, `group_repo.go`, `gateway_service.go`, `GroupsView.vue` | Archived on old fork main |
-| 18 | Zero Cache Read Pricing | `config/config.go`, `service/billing_service.go` | Active on main |
-| 19 | Dynamic Cost Tracking | `service/account.go`, `service/gateway_service.go`, `service/ratelimit_service.go`, `repository/session_limit_cache.go` | Active on main |
-| 20 | Login Page Mobile Blur Fix | `components/layout/AuthLayout.vue` | Active on main |
-| 21 | User-Account Daily Affinity | `service/user_affinity.go`, `repository/user_affinity_cache.go`, `service/gateway_service.go`, `wire_gen.go` | Active on main |
-| 22 | Per-User RPM Allocation | `service/user_quota_service.go`, `service/account.go`, `service/rpm_cache.go`, `repository/rpm_cache.go` | Active on main |
-| 23 | Per-User RPM Cap | `ent/schema/user.go`, `service/user.go`, `handler/gateway_helper.go`, `handler/gateway_handler*.go`, `handler/openai_*.go` | Active on main |
-| 24 | Change Account Identity | `components/admin/account/ChangeAccountModal.vue`, `AccountActionMenu.vue`, `AccountsView.vue` | Active on main |
-
-See `ACTIVE_PATCHES.md` for conflict-risk ratings and verify commands. See `FORK_CHANGELOG.md` for full history and verification commands to run after each upstream merge.
+| # | Patch | Key Files |
+|---|-------|-----------|
+| 3 | Per-User Quota Allocation | `service/user_quota_service.go`, `repository/user_quota_cache.go`, `dto/types.go`, `dto/mappers.go` |
+| 6 | Peak Usage Log | `service/peak_usage_service.go`, `service/peak_usage_cache.go`, `repository/peak_usage_cache.go`, `handler/admin/peak_usage_handler.go` |
+| 9 | Provider Routing | `service/provider_routing.go`, `service/pricing_service.go`, `config/config.go` |
+| 13 | InfoPopup Tooltip Component | `InfoPopup.vue`, `UsageTable.vue`, `UsageView.vue` |
+| 18 | Zero Cache Read Pricing | `config/config.go`, `service/billing_service.go` |
+| 19 | Dynamic Cost Tracking | `service/account.go`, `service/gateway_service.go`, `service/ratelimit_service.go`, `repository/session_limit_cache.go` |
+| 20 | Login Page Mobile Blur Fix | `components/layout/AuthLayout.vue` |
+| 21 | User-Account Daily Affinity | `service/user_affinity.go`, `repository/user_affinity_cache.go`, `service/gateway_service.go`, `wire_gen.go` |
+| 22 | Per-User RPM Allocation | `service/user_quota_service.go`, `service/account.go`, `service/rpm_cache.go`, `repository/rpm_cache.go` |
+| 23 | Per-User RPM Cap | `ent/schema/user.go`, `service/user.go`, `handler/gateway_helper.go`, `handler/gateway_handler*.go`, `handler/openai_*.go` |
+| 24 | Change Account Identity | `components/admin/account/ChangeAccountModal.vue`, `AccountActionMenu.vue`, `AccountsView.vue` |
