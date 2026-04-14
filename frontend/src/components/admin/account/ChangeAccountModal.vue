@@ -378,6 +378,18 @@ const finishUpdate = async (credentials: Record<string, unknown>, type?: string,
     await adminAPI.accounts.clearError(props.account.id)
     const updatedAccount = await adminAPI.accounts.clearRateLimit(props.account.id)
 
+    // Clear previous identity's usage stats asynchronously
+    try {
+      await adminAPI.usage.createCleanupTask({
+        start_date: '2020-01-01',
+        end_date: new Date().toISOString().slice(0, 10),
+        account_id: props.account.id,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+      })
+    } catch {
+      // Non-critical — usage cleanup is best-effort
+    }
+
     appStore.showSuccess(t('admin.accounts.changeAccountSuccess'))
     emit('changed', updatedAccount)
     handleClose()
