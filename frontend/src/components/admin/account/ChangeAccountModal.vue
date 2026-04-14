@@ -375,7 +375,8 @@ const finishUpdate = async (credentials: Record<string, unknown>, type?: string,
     if (extra) payload.extra = extra
 
     await adminAPI.accounts.update(props.account.id, payload as any)
-    const updatedAccount = await adminAPI.accounts.clearError(props.account.id)
+    await adminAPI.accounts.clearError(props.account.id)
+    const updatedAccount = await adminAPI.accounts.clearRateLimit(props.account.id)
 
     appStore.showSuccess(t('admin.accounts.changeAccountSuccess'))
     emit('changed', updatedAccount)
