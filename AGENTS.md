@@ -145,5 +145,5 @@ See [`ACTIVE_PATCHES.md`](ACTIVE_PATCHES.md) for conflict-risk ratings, verify c
 | 21 | User-Account Daily Affinity | `service/user_affinity.go`, `repository/user_affinity_cache.go`, `service/gateway_service.go`, `wire_gen.go` |
 | 22 | Per-User RPM Allocation | `service/user_quota_service.go`, `service/account.go`, `service/rpm_cache.go`, `repository/rpm_cache.go` |
 | 23 | Per-User RPM Cap | `ent/schema/user.go`, `service/user.go`, `handler/gateway_helper.go`, `handler/gateway_handler*.go`, `handler/openai_*.go` |
-| 24 | Change Account Identity | `components/admin/account/ChangeAccountModal.vue`, `AccountActionMenu.vue`, `AccountsView.vue` |
+| 24 | Change Account Identity | `components/admin/account/ChangeAccountModal.vue`, `AccountActionMenu.vue`, `AccountsView.vue`, `repository/claude_oauth_service.go` (auth/token factory split), `service/oauth_service.go` (exchange timeout) |
 | 25 | Claude Code Fingerprint Hardening | `service/setting_service.go` (GetClaudeCodeUserAgent), `pkg/claude/constants.go`, `service/identity_service.go`, `service/gateway_service.go` (effectiveUA threading + mimic helpers + request-id) |

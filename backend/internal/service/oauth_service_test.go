@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/oauth"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -366,6 +367,43 @@ func TestOAuthService_ExchangeCode_ClientError(t *testing.T) {
 	}
 	if err.Error() != "upstream error: invalid code" {
 		t.Fatalf("错误信息不匹配: got=%q", err.Error())
+	}
+}
+
+func TestOAuthService_ExchangeCode_Timeout(t *testing.T) {
+	t.Parallel()
+
+	client := &mockClaudeOAuthClient{
+		exchangeCodeFunc: func(ctx context.Context, code, codeVerifier, state, proxyURL string, isSetupToken bool) (*oauth.TokenResponse, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}
+
+	svc := NewOAuthService(&mockProxyRepoForOAuth{}, client)
+	svc.exchangeTimeout = 10 * time.Millisecond
+	defer svc.Stop()
+
+	result, err := svc.GenerateAuthURL(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("GenerateAuthURL 返回错误: %v", err)
+	}
+
+	start := time.Now()
+	_, err = svc.ExchangeCode(context.Background(), &ExchangeCodeInput{
+		SessionID: result.SessionID,
+		Code:      "slow-code",
+	})
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("ExchangeCode 应在超时后返回错误")
+	}
+	if err.Error() != context.DeadlineExceeded.Error() {
+		t.Fatalf("错误信息不匹配: got=%q want=%q", err.Error(), context.DeadlineExceeded.Error())
+	}
+	if elapsed > 250*time.Millisecond {
+		t.Fatalf("ExchangeCode 超时返回过慢: %s", elapsed)
 	}
 }
 

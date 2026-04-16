@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -28,6 +29,8 @@ type requestCapture struct {
 	bodyJSON    map[string]any
 	contentType string
 }
+
+var errUnexpectedClientFactory = errors.New("unexpected client factory usage")
 
 func newTestReqClient(rt http.RoundTripper) *req.Client {
 	c := req.C()
@@ -91,7 +94,7 @@ func (s *ClaudeOAuthServiceSuite) TestGetOrganizationUUID() {
 			require.True(s.T(), ok, "type assertion failed")
 			s.client = client
 			s.client.baseURL = "http://in-process"
-			s.client.clientFactory = func(string) (*req.Client, error) { return newTestReqClient(rt), nil }
+			s.client.authClientFactory = func(string) (*req.Client, error) { return newTestReqClient(rt), nil }
 
 			got, err := s.client.GetOrganizationUUID(context.Background(), "sess", "")
 
@@ -169,7 +172,7 @@ func (s *ClaudeOAuthServiceSuite) TestGetAuthorizationCode() {
 			require.True(s.T(), ok, "type assertion failed")
 			s.client = client
 			s.client.baseURL = "http://in-process"
-			s.client.clientFactory = func(string) (*req.Client, error) { return newTestReqClient(rt), nil }
+			s.client.authClientFactory = func(string) (*req.Client, error) { return newTestReqClient(rt), nil }
 
 			code, err := s.client.GetAuthorizationCode(context.Background(), "sess", "org-1", oauth.ScopeInference, "cc", "st", "")
 
@@ -276,7 +279,10 @@ func (s *ClaudeOAuthServiceSuite) TestExchangeCodeForToken() {
 			require.True(s.T(), ok, "type assertion failed")
 			s.client = client
 			s.client.tokenURL = "http://in-process/token"
-			s.client.clientFactory = func(string) (*req.Client, error) { return newTestReqClient(rt), nil }
+			s.client.authClientFactory = func(string) (*req.Client, error) {
+				return nil, errUnexpectedClientFactory
+			}
+			s.client.tokenClientFactory = func(string) (*req.Client, error) { return newTestReqClient(rt), nil }
 
 			resp, err := s.client.ExchangeCodeForToken(context.Background(), tt.code, "ver", "", "", tt.isSetupToken)
 
@@ -372,7 +378,10 @@ func (s *ClaudeOAuthServiceSuite) TestRefreshToken() {
 			require.True(s.T(), ok, "type assertion failed")
 			s.client = client
 			s.client.tokenURL = "http://in-process/token"
-			s.client.clientFactory = func(string) (*req.Client, error) { return newTestReqClient(rt), nil }
+			s.client.authClientFactory = func(string) (*req.Client, error) {
+				return nil, errUnexpectedClientFactory
+			}
+			s.client.tokenClientFactory = func(string) (*req.Client, error) { return newTestReqClient(rt), nil }
 
 			resp, err := s.client.RefreshToken(context.Background(), "rt", "")
 

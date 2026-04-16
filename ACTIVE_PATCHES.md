@@ -177,14 +177,17 @@ Currently **12 active patches** (3, 6, 9, 13, 18, 19, 20, 21, 22, 23, 24, 25).
 
 ## Patch 24 — Change Account Identity
 
-**Purpose:** Add a "Change account" action to the admin More menu that swaps auth identity (credentials + name) on an existing account while preserving all settings. Frontend-only.
+**Purpose:** Add a "Change account" action to the admin More menu that swaps auth identity (credentials + name) on an existing account while preserving all settings. Because the flow re-runs the Claude OAuth handshake against a live account, the backend OAuth client is split into separate browser-facing (`authClientFactory`, Chrome-impersonated) and token (`tokenClientFactory`, plain req with shorter timeout) factories, and `OAuthService.exchangeCodeForToken` is wrapped in a 20s timeout so the change-account UI fails fast instead of hanging on a stalled token endpoint.
 
-**Upstream conflict risk:** LOW — purely additive frontend component + minor wiring in AccountsView.
+**Upstream conflict risk:** MEDIUM — frontend additions are isolated, but the backend split of `claude_oauth_service.go` renames the shared `clientFactory` field and touches every OAuth entry point (`GetOrganizationUUID`, `GetAuthorizationCode`, `ExchangeCodeForToken`, `RefreshToken`), plus adds an `exchangeTimeout` field to `OAuthService`.
 
 | Layer | Key Files |
 |-------|-----------|
 | Frontend | `components/admin/account/ChangeAccountModal.vue`, `components/admin/account/AccountActionMenu.vue` |
 | Frontend | `views/admin/AccountsView.vue`, `i18n/locales/en.ts`, `i18n/locales/zh.ts` |
+| Backend | `repository/claude_oauth_service.go` (split `authClientFactory` / `tokenClientFactory`) |
+| Backend | `service/oauth_service.go` (`exchangeTimeout` guard on `exchangeCodeForToken`) |
+| Tests | `repository/claude_oauth_service_test.go`, `service/oauth_service_test.go` |
 
 ---
 

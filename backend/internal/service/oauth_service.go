@@ -27,17 +27,19 @@ type ClaudeOAuthClient interface {
 
 // OAuthService handles OAuth authentication flows
 type OAuthService struct {
-	sessionStore *oauth.SessionStore
-	proxyRepo    ProxyRepository
-	oauthClient  ClaudeOAuthClient
+	sessionStore    *oauth.SessionStore
+	proxyRepo       ProxyRepository
+	oauthClient     ClaudeOAuthClient
+	exchangeTimeout time.Duration
 }
 
 // NewOAuthService creates a new OAuth service
 func NewOAuthService(proxyRepo ProxyRepository, oauthClient ClaudeOAuthClient) *OAuthService {
 	return &OAuthService{
-		sessionStore: oauth.NewSessionStore(),
-		proxyRepo:    proxyRepo,
-		oauthClient:  oauthClient,
+		sessionStore:    oauth.NewSessionStore(),
+		proxyRepo:       proxyRepo,
+		oauthClient:     oauthClient,
+		exchangeTimeout: 20 * time.Second,
 	}
 }
 
@@ -236,6 +238,12 @@ func (s *OAuthService) getAuthorizationCode(ctx context.Context, sessionKey, org
 
 // exchangeCodeForToken exchanges authorization code for tokens
 func (s *OAuthService) exchangeCodeForToken(ctx context.Context, code, codeVerifier, state, proxyURL string, isSetupToken bool) (*TokenInfo, error) {
+	if s.exchangeTimeout > 0 {
+		timeoutCtx, cancel := context.WithTimeout(ctx, s.exchangeTimeout)
+		defer cancel()
+		ctx = timeoutCtx
+	}
+
 	tokenResp, err := s.oauthClient.ExchangeCodeForToken(ctx, code, codeVerifier, state, proxyURL, isSetupToken)
 	if err != nil {
 		return nil, err
