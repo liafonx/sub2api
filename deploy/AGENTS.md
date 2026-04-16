@@ -26,7 +26,7 @@ Context for AI agents managing the sub2api deployments.
 | Host | `88.151.34.29`, x86_64, Debian Linux |
 | SSH | `liafonx@88.151.34.29` |
 | Role | Testing machine (default deploy target) |
-| Binary | /opt/sub2api/sub2api |
+| Binary | /opt/sub2api/sub2api (owned by `sub2api:sub2api`) |
 | Data/Config dir | /opt/sub2api/ |
 | Config file | /opt/sub2api/config.yaml |
 | Service | systemd `sub2api.service` |
@@ -34,6 +34,18 @@ Context for AI agents managing the sub2api deployments.
 | Caddy config | /etc/caddy/Caddyfile |
 | Caddy sub config | /etc/caddy/sites-available/sub.liafonx.net.caddy |
 | TLS certs | /etc/caddy/certs/sub.liafonx.net/ |
+
+### VPS sudo permissions (`/etc/sudoers.d/sub2api-deploy`)
+
+`liafonx` has passwordless sudo for exactly these four commands (no others):
+
+```
+liafonx ALL=(ALL) NOPASSWD: /bin/systemctl stop sub2api, /bin/systemctl start sub2api, /bin/cp /tmp/sub2api /opt/sub2api/sub2api, /bin/chmod +x /opt/sub2api/sub2api
+```
+
+- `sudo systemctl restart sub2api` — **NOT** NOPASSWD; use `stop` + `start` separately
+- `sudo systemctl status sub2api` — **NOT** NOPASSWD; use `journalctl` instead
+- `journalctl -u sub2api` — no sudo needed (`liafonx` is in `systemd-journal` group)
 
 ## Production Environment (Mac Mini)
 
@@ -174,8 +186,8 @@ sudo systemctl stop sub2api
 sudo cp /tmp/sub2api /opt/sub2api/sub2api
 sudo systemctl start sub2api
 
-# Verify
-sudo journalctl -u sub2api -n 30 --no-pager
+# Verify (journalctl needs no sudo — liafonx is in systemd-journal group)
+journalctl -u sub2api -n 30 --no-pager
 ```
 
 ### 2b. Deploy New Binary (Production / Mac Mini — only when explicitly requested)
@@ -196,17 +208,20 @@ tail -20 /usr/local/var/log/sub2api/sub2api.log
 ### 3. Service Management (VPS Testing)
 
 ```bash
-# Stop
+# Stop (NOPASSWD — no password prompt)
 sudo systemctl stop sub2api
 
-# Start
+# Start (NOPASSWD — no password prompt)
 sudo systemctl start sub2api
 
-# Check status
-sudo systemctl status sub2api
+# Restart — NOT NOPASSWD; use stop + start instead
+sudo systemctl stop sub2api && sudo systemctl start sub2api
 
-# View logs
-sudo journalctl -u sub2api -f
+# Check status — NOT NOPASSWD; use journalctl instead
+journalctl -u sub2api -n 30 --no-pager   # no sudo needed (systemd-journal group)
+
+# View logs (no sudo needed)
+journalctl -u sub2api -f
 ```
 
 ### 3b. Service Management (Mac Mini Production)
