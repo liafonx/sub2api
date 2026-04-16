@@ -3,7 +3,7 @@
 This file is the **single source of truth** for all fork-only patches on `main`.
 Currently **11 active patches** (3, 6, 9, 13, 18, 19, 20, 21, 22, 23, 24).
 
-> **Baseline:** Merged upstream `v0.1.112` on 2026-04-13 (merge commit `b1052902`).
+> **Baseline:** Merged upstream `v0.1.113` on 2026-04-16 (merge commit `fe5f7dd3`).
 
 > **During upstream merges:** check each patch's key files for conflicts.
 > See the `merge-upstream` skill for the full merge workflow.
