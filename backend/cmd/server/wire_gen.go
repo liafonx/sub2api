@@ -172,7 +172,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 			return 0
 		}
 		return stats.StandardCost
-	}, rpmCache)
+	}, rpmCache, accountRepository.GetByIDs)
 	groupCapacityService := service.NewGroupCapacityService(accountRepository, groupRepository, concurrencyService, sessionLimitCache, rpmCache)
 	groupHandler := admin.NewGroupHandler(adminService, dashboardService, groupCapacityService)
 	accountHandler := admin.NewAccountHandler(adminService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, rateLimitService, accountUsageService, accountTestService, concurrencyService, crsSyncService, sessionLimitCache, rpmCache, compositeTokenCacheInvalidator)
@@ -217,6 +217,10 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	// Wire RateLimitService dependencies for dynamic cost tracking
 	rateLimitService.SetSessionLimitCache(sessionLimitCache)
 	rateLimitService.SetUserQuotaChecker(userQuotaService)
+	// Rehydrate user quota state from Redis to recover stale badges after restart.
+	if rehydrateErr := userQuotaService.Rehydrate(context.Background()); rehydrateErr != nil {
+		log.Printf("[Startup] user_quota rehydration warning: %v", rehydrateErr)
+	}
 	service.StartUserQuotaCleanupTicker(context.Background(), userQuotaService, 15*time.Second)
 	peakUsageService := service.ProvidePeakUsageService(client, peakUsageCache, accountRepository, userRepository, timingWheelService)
 	openAITokenProvider := service.ProvideOpenAITokenProvider(accountRepository, geminiTokenCache, openAIOAuthService, oauthRefreshAPI)

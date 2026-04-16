@@ -49,6 +49,14 @@ type mockUserQuotaCache struct {
 	deletedMeta map[int64]bool
 	delMetaErr  error
 
+	// ListTrackedAccountIDs
+	trackedIDs    []int64
+	trackedIDsErr error
+
+	// ForcePurgeAccount
+	purgedAccounts []int64
+	forcePurgeErr  error
+
 	// call tracking
 	calls []string
 }
@@ -309,6 +317,26 @@ func (m *mockUserQuotaCache) GetDisplayMetaBatch(_ context.Context, accountIDs [
 	return result, nil
 }
 
+func (m *mockUserQuotaCache) ListTrackedAccountIDs(_ context.Context) ([]int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.recordCall("ListTrackedAccountIDs")
+	return m.trackedIDs, m.trackedIDsErr
+}
+
+func (m *mockUserQuotaCache) ForcePurgeAccount(_ context.Context, accountID int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.recordCall("ForcePurgeAccount")
+	if m.forcePurgeErr != nil {
+		return m.forcePurgeErr
+	}
+	m.purgedAccounts = append(m.purgedAccounts, accountID)
+	delete(m.activeUsers, accountID)
+	delete(m.meta, accountID)
+	return nil
+}
+
 func costKey(accountID int64, epoch int64, userID int64) string {
 	return fmt.Sprintf("%d:%d:%d", accountID, epoch, userID)
 }
@@ -335,7 +363,7 @@ func enabledExtra(limit float64, reserve float64) map[string]any {
 func TestCheckUserQuota_Disabled(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 
 	allowed, reason := svc.CheckUserQuota(ctx, newTestAccount(1, nil), 10, false)
 	if !allowed || reason != "disabled" {
@@ -349,7 +377,7 @@ func TestCheckUserQuota_Disabled(t *testing.T) {
 func TestCheckUserQuota_NoEpoch(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 	account := newTestAccount(1, enabledExtra(50, 10))
 
 	allowed, reason := svc.CheckUserQuota(ctx, account, 10, false)
@@ -367,7 +395,7 @@ func TestCheckUserQuota_GreenZone(t *testing.T) {
 		perUserStickyReserve: 5,
 		userCost:             9.5,
 	}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 	account := newTestAccount(1, enabledExtra(50, 10))
 
 	allowed, reason := svc.CheckUserQuota(ctx, account, 10, false)
@@ -385,7 +413,7 @@ func TestCheckUserQuota_YellowSticky(t *testing.T) {
 		perUserStickyReserve: 5,
 		userCost:             12,
 	}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 	account := newTestAccount(1, enabledExtra(50, 10))
 
 	allowed, reason := svc.CheckUserQuota(ctx, account, 10, true)
@@ -403,7 +431,7 @@ func TestCheckUserQuota_YellowNonSticky(t *testing.T) {
 		perUserStickyReserve: 5,
 		userCost:             12,
 	}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 	account := newTestAccount(1, enabledExtra(50, 10))
 
 	allowed, reason := svc.CheckUserQuota(ctx, account, 10, false)
@@ -421,7 +449,7 @@ func TestCheckUserQuota_RedZone(t *testing.T) {
 		perUserStickyReserve: 5,
 		userCost:             15,
 	}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 	account := newTestAccount(1, enabledExtra(50, 10))
 
 	allowed, reason := svc.CheckUserQuota(ctx, account, 10, true)
@@ -434,7 +462,7 @@ func TestCheckUserQuota_RedisError_FailOpen(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
 	mock.getQuotaCheckDataErr = errors.New("redis down")
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 	account := newTestAccount(1, enabledExtra(50, 10))
 
 	allowed, reason := svc.CheckUserQuota(ctx, account, 10, false)
@@ -452,7 +480,7 @@ func TestCheckUserQuota_BoundaryExactLimit(t *testing.T) {
 		perUserStickyReserve: 5,
 		userCost:             10,
 	}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 	account := newTestAccount(1, enabledExtra(50, 10))
 
 	allowed, reason := svc.CheckUserQuota(ctx, account, 10, true)
@@ -468,7 +496,7 @@ func TestCheckUserQuota_BoundaryExactLimit(t *testing.T) {
 func TestRegisterActivity_Disabled(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 
 	svc.RegisterActivity(ctx, newTestAccount(1, nil), 10)
 	if len(mock.activeUsers) != 0 {
@@ -479,7 +507,7 @@ func TestRegisterActivity_Disabled(t *testing.T) {
 func TestRegisterActivity_NewUser(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 	account := newTestAccount(1, enabledExtra(50, 10))
 
 	svc.RegisterActivity(ctx, account, 10)
@@ -498,7 +526,7 @@ func TestRegisterActivity_ExistingUser(t *testing.T) {
 	mock := newMock()
 	account := newTestAccount(1, enabledExtra(50, 10))
 	mock.activeUsers[account.ID] = map[int64]int64{10: 1}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 	impl := svc.(*userQuotaService)
 	impl.activeAccounts[account.ID] = &accountQuotaState{account: account, lastWindowStartMs: account.GetCurrentWindowStartTime().UnixMilli()}
 
@@ -516,7 +544,7 @@ func TestRegisterActivity_RedisError(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
 	mock.addErr = errors.New("redis down")
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 	account := newTestAccount(1, enabledExtra(50, 10))
 
 	defer func() {
@@ -540,7 +568,7 @@ func TestIncrementUserCost_Normal(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
 	mock.meta[7] = quotaMetaData{epoch: 5}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 
 	svc.IncrementUserCost(ctx, 7, 9, 2.5)
 
@@ -551,7 +579,7 @@ func TestIncrementUserCost_ZeroCost(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
 	mock.meta[7] = quotaMetaData{epoch: 5}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 
 	svc.IncrementUserCost(ctx, 7, 9, 0)
 
@@ -563,7 +591,7 @@ func TestIncrementUserCost_ZeroCost(t *testing.T) {
 func TestIncrementUserCost_NoEpoch(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 
 	svc.IncrementUserCost(ctx, 7, 9, 2.5)
 
@@ -576,7 +604,7 @@ func TestIncrementUserCost_NegativeCost(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
 	mock.meta[7] = quotaMetaData{epoch: 5}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 
 	svc.IncrementUserCost(ctx, 7, 9, -1)
 
@@ -599,7 +627,7 @@ func TestRecalculate_EqualSplit(t *testing.T) {
 		2: now,
 		3: now,
 	}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 20 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 20 }, &mockRPMCache{}, nil)
 	impl := svc.(*userQuotaService)
 
 	impl.recalculateQuotas(ctx, account, true)
@@ -622,7 +650,7 @@ func TestRecalculate_ZeroRemaining(t *testing.T) {
 		1: now,
 		2: now,
 	}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 80 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 80 }, &mockRPMCache{}, nil)
 	impl := svc.(*userQuotaService)
 
 	impl.recalculateQuotas(ctx, account, true)
@@ -635,7 +663,7 @@ func TestRecalculate_NoActiveUsers(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
 	account := newTestAccount(1, enabledExtra(50, 10))
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 	impl := svc.(*userQuotaService)
 	impl.activeAccounts[account.ID] = &accountQuotaState{account: account}
 
@@ -657,7 +685,7 @@ func TestRecalculate_EpochBump(t *testing.T) {
 	mock.activeUsers[account.ID] = map[int64]int64{1: now}
 	mock.epochCounters[account.ID] = 3
 	mock.meta[account.ID] = quotaMetaData{epoch: 3}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 	impl := svc.(*userQuotaService)
 
 	impl.recalculateQuotas(ctx, account, true)
@@ -676,7 +704,7 @@ func TestRecalculate_StickyReserveSplit(t *testing.T) {
 		1: now,
 		2: now,
 	}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 	impl := svc.(*userQuotaService)
 
 	impl.recalculateQuotas(ctx, account, true)
@@ -702,7 +730,7 @@ func TestCleanup_RemovesIdleUsers(t *testing.T) {
 		1: now.Add(-2 * time.Minute).UnixMilli(),
 		2: now.UnixMilli(),
 	}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 	impl := svc.(*userQuotaService)
 	impl.activeAccounts[account.ID] = &accountQuotaState{
 		account:           account,
@@ -732,7 +760,7 @@ func TestCleanup_NoIdleUsers(t *testing.T) {
 	mock.activeUsers[account.ID] = map[int64]int64{
 		1: time.Now().UnixMilli(),
 	}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 	impl := svc.(*userQuotaService)
 	impl.activeAccounts[account.ID] = &accountQuotaState{
 		account:           account,
@@ -757,7 +785,7 @@ func TestCleanup_AllUsersIdle(t *testing.T) {
 	mock.activeUsers[account.ID] = map[int64]int64{
 		1: time.Now().Add(-2 * time.Minute).UnixMilli(),
 	}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 	impl := svc.(*userQuotaService)
 	impl.activeAccounts[account.ID] = &accountQuotaState{
 		account:           account,
@@ -777,7 +805,7 @@ func TestCleanup_RedisError_Continues(t *testing.T) {
 	mock.remErr = errors.New("redis down")
 	account1 := newTestAccount(1, map[string]any{"window_cost_limit": 50.0})
 	account2 := newTestAccount(2, map[string]any{"window_cost_limit": 50.0})
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 	impl := svc.(*userQuotaService)
 	impl.activeAccounts[account1.ID] = &accountQuotaState{account: account1}
 	impl.activeAccounts[account2.ID] = &accountQuotaState{account: account2}
@@ -808,7 +836,7 @@ func TestNotifyAccountUpdated_ActiveAccount_RecalculatesQuotas(t *testing.T) {
 	mock.epochCounters[account.ID] = 1
 	mock.meta[account.ID] = quotaMetaData{epoch: 1, perUserLimit: 50}
 
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 	impl := svc.(*userQuotaService)
 	impl.activeAccounts[account.ID] = &accountQuotaState{account: account}
 
@@ -829,7 +857,7 @@ func TestNotifyAccountUpdated_InactiveAccount_NoOp(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
 	account := newTestAccount(1, enabledExtra(100, 10))
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 
 	svc.NotifyAccountUpdated(ctx, account)
 
@@ -842,7 +870,7 @@ func TestNotifyAccountUpdated_QuotaDisabled_NoOp(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
 	account := newTestAccount(1, map[string]any{"window_cost_limit": 100.0})
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 	impl := svc.(*userQuotaService)
 	impl.activeAccounts[account.ID] = &accountQuotaState{account: account}
 
@@ -861,7 +889,7 @@ func TestConcurrentRegisterActivity(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
 	account := newTestAccount(1, enabledExtra(50, 10))
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 
 	var wg sync.WaitGroup
 	for userID := int64(1); userID <= 10; userID++ {
@@ -895,7 +923,7 @@ func TestEpochBumpResetsCost(t *testing.T) {
 	// User 1 has $10 cost in epoch 5
 	mock.costs[costKey(account.ID, 5, 1)] = 10.0
 
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 20 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 20 }, &mockRPMCache{}, nil)
 	impl := svc.(*userQuotaService)
 
 	impl.recalculateQuotas(ctx, account, true)
@@ -935,7 +963,7 @@ func TestCostNotCarriedAcrossEpochs(t *testing.T) {
 	mock.epochCounters[account.ID] = 3
 	mock.meta[account.ID] = quotaMetaData{epoch: 3, perUserLimit: 30, activeCount: 1}
 
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 20 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 20 }, &mockRPMCache{}, nil)
 	impl := svc.(*userQuotaService)
 
 	// User 1 accumulates $7 in epoch 3
@@ -974,7 +1002,7 @@ func TestCostNotCarriedAcrossEpochs(t *testing.T) {
 func TestAtomicIncrCost_NoEpoch(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 
 	svc.IncrementUserCost(ctx, 7, 9, 2.5)
 
@@ -987,7 +1015,7 @@ func TestAtomicIncrCost_Normal(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
 	mock.meta[7] = quotaMetaData{epoch: 5}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 
 	svc.IncrementUserCost(ctx, 7, 9, 2.5)
 	assertFloatEqual(t, mock.costs[costKey(7, 5, 9)], 2.5)
@@ -1010,7 +1038,7 @@ func TestBumpEpochAndSetMeta(t *testing.T) {
 	mock.meta[account.ID] = quotaMetaData{epoch: 3}
 
 	// windowCost=10, remaining=40, reserve=10, normalRemaining=30, 2 users → perUserLimit=15
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 10 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 10 }, &mockRPMCache{}, nil)
 	impl := svc.(*userQuotaService)
 
 	impl.recalculateQuotas(ctx, account, true)
@@ -1043,7 +1071,7 @@ func TestWindowResetTriggersRecalc_RegisterActivity(t *testing.T) {
 	mock.epochCounters[account.ID] = 1
 	mock.meta[account.ID] = quotaMetaData{epoch: 1, perUserLimit: 30, activeCount: 1}
 
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 20 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 20 }, &mockRPMCache{}, nil)
 	impl := svc.(*userQuotaService)
 
 	// Simulate state from a previous window
@@ -1092,7 +1120,7 @@ func TestWindowResetTriggersRecalc_Cleanup(t *testing.T) {
 	mock.epochCounters[account.ID] = 1
 	mock.meta[account.ID] = quotaMetaData{epoch: 1, perUserLimit: 30, activeCount: 1}
 
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 20 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 20 }, &mockRPMCache{}, nil)
 	impl := svc.(*userQuotaService)
 
 	// Simulate state from a previous window
@@ -1122,7 +1150,7 @@ func TestRecalculation_UsesCurrentRemaining(t *testing.T) {
 	mock.activeUsers[account.ID] = map[int64]int64{1: now}
 
 	// windowCost=40, remaining=10, reserve clamped to 10, normalRemaining=0, 1 user → perUserLimit=0
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 40 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 40 }, &mockRPMCache{}, nil)
 	impl := svc.(*userQuotaService)
 
 	impl.recalculateQuotas(ctx, account, true)
@@ -1142,7 +1170,7 @@ func TestFullWorkflow_MultiUserJoinSpendJoin(t *testing.T) {
 	// windowCost is mutable so the closure captures the variable by reference
 	windowCost := 20.0
 	account := newTestAccount(1, enabledExtra(50, 10))
-	svc := NewUserQuotaService(mock, func(_ context.Context, _ *Account) float64 { return windowCost }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(_ context.Context, _ *Account) float64 { return windowCost }, &mockRPMCache{}, nil)
 
 	// Step 1: User A (1) joins → first recalculation, remaining=30, reserve=10, normalRemaining=20, perUserLimit=20
 	svc.RegisterActivity(ctx, account, 1)
@@ -1206,7 +1234,7 @@ func TestRecalculate_LimitZero_FailOpen(t *testing.T) {
 	mock.epochCounters[account.ID] = 5
 	mock.meta[account.ID] = quotaMetaData{epoch: 5, perUserLimit: 20, activeCount: 2}
 
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 	impl := svc.(*userQuotaService)
 
 	epoch, activeCount := impl.recalculateQuotas(ctx, account, true)
@@ -1241,7 +1269,7 @@ func TestDelMeta_DoesNotResetEpoch(t *testing.T) {
 	now := time.Now().UnixMilli()
 	mock.activeUsers[account.ID] = map[int64]int64{1: now}
 
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 10 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 10 }, &mockRPMCache{}, nil)
 	impl := svc.(*userQuotaService)
 
 	// First recalculation produces a positive epoch.
@@ -1301,7 +1329,7 @@ func rpmEnabledExtraWithBuffer(baseRPM int, buffer int) map[string]any {
 func TestCheckUserRPM_Disabled(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 	// No user_rpm_enabled flag
 	account := newTestAccount(1, map[string]any{"base_rpm": float64(10)})
 	allowed, reason := svc.CheckUserRPM(ctx, account, 10, false)
@@ -1313,7 +1341,7 @@ func TestCheckUserRPM_Disabled(t *testing.T) {
 func TestCheckUserRPM_NoBaseRPM(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{})
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, nil)
 	account := newTestAccount(1, map[string]any{"user_rpm_enabled": true})
 	allowed, reason := svc.CheckUserRPM(ctx, account, 10, false)
 	if !allowed || reason != "no_base_rpm" {
@@ -1327,7 +1355,7 @@ func TestCheckUserRPM_GreenZone(t *testing.T) {
 	now := time.Now().UnixMilli()
 	mock.activeUsers[1] = map[int64]int64{10: now, 20: now}             // 2 active users
 	rpmMock := &mockRPMCache{userAccountRPM: map[string]int{"1:10": 2}} // user 10 at 2 RPM
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, rpmMock)
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, rpmMock, nil)
 	account := newTestAccount(1, rpmEnabledExtra(10)) // base=10, 2 users => perUser=5
 
 	allowed, reason := svc.CheckUserRPM(ctx, account, 10, false)
@@ -1342,7 +1370,7 @@ func TestCheckUserRPM_YellowSticky(t *testing.T) {
 	now := time.Now().UnixMilli()
 	mock.activeUsers[1] = map[int64]int64{10: now, 20: now}
 	rpmMock := &mockRPMCache{userAccountRPM: map[string]int{"1:10": 5}} // at per-user base
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, rpmMock)
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, rpmMock, nil)
 	account := newTestAccount(1, rpmEnabledExtra(10))
 
 	allowed, reason := svc.CheckUserRPM(ctx, account, 10, true)
@@ -1357,7 +1385,7 @@ func TestCheckUserRPM_YellowNonSticky(t *testing.T) {
 	now := time.Now().UnixMilli()
 	mock.activeUsers[1] = map[int64]int64{10: now, 20: now}
 	rpmMock := &mockRPMCache{userAccountRPM: map[string]int{"1:10": 5}}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, rpmMock)
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, rpmMock, nil)
 	account := newTestAccount(1, rpmEnabledExtra(10))
 
 	allowed, reason := svc.CheckUserRPM(ctx, account, 10, false)
@@ -1373,7 +1401,7 @@ func TestCheckUserRPM_RedZone(t *testing.T) {
 	mock.activeUsers[1] = map[int64]int64{10: now, 20: now}
 	// perUserBase=5, perUserBuffer=ceil(2/2)=1 => red at 5+1=6
 	rpmMock := &mockRPMCache{userAccountRPM: map[string]int{"1:10": 7}}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, rpmMock)
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, rpmMock, nil)
 	account := newTestAccount(1, rpmEnabledExtra(10))
 
 	allowed, reason := svc.CheckUserRPM(ctx, account, 10, true)
@@ -1389,7 +1417,7 @@ func TestCheckUserRPM_StickyExemptStrategy(t *testing.T) {
 	mock.activeUsers[1] = map[int64]int64{10: now}
 	// Single user, base=10, at 15 RPM — above base but sticky_exempt has no red zone
 	rpmMock := &mockRPMCache{userAccountRPM: map[string]int{"1:10": 15}}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, rpmMock)
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, rpmMock, nil)
 	account := newTestAccount(1, rpmEnabledExtraWithStrategy(10, "sticky_exempt"))
 
 	// Non-sticky should be blocked (yellow zone)
@@ -1410,7 +1438,7 @@ func TestCheckUserRPM_FailOpen(t *testing.T) {
 	now := time.Now().UnixMilli()
 	mock.activeUsers[1] = map[int64]int64{10: now}
 	rpmMock := &mockRPMCache{rpmErr: errors.New("redis down")}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, rpmMock)
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, rpmMock, nil)
 	account := newTestAccount(1, rpmEnabledExtra(10))
 
 	allowed, reason := svc.CheckUserRPM(ctx, account, 10, false)
@@ -1424,7 +1452,7 @@ func TestCheckUserRPM_ActiveCountZero(t *testing.T) {
 	mock := newMock()
 	// No active users in sorted set
 	rpmMock := &mockRPMCache{}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, rpmMock)
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, rpmMock, nil)
 	account := newTestAccount(1, rpmEnabledExtra(10))
 
 	allowed, reason := svc.CheckUserRPM(ctx, account, 10, false)
@@ -1439,7 +1467,7 @@ func TestCheckUserRPM_SingleUser(t *testing.T) {
 	now := time.Now().UnixMilli()
 	mock.activeUsers[1] = map[int64]int64{10: now} // single user
 	rpmMock := &mockRPMCache{userAccountRPM: map[string]int{"1:10": 8}}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, rpmMock)
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, rpmMock, nil)
 	account := newTestAccount(1, rpmEnabledExtra(10)) // single user gets full 10
 
 	allowed, reason := svc.CheckUserRPM(ctx, account, 10, false)
@@ -1457,7 +1485,7 @@ func TestCheckUserRPM_BufferCeilDivision(t *testing.T) {
 	// perUserBase = 12/3 = 4, perUserBuffer = ceil(2/3) = 1
 	// yellow zone: 4..4 (base <= rpm < base+buffer=5)
 	rpmMock := &mockRPMCache{userAccountRPM: map[string]int{"1:10": 4}}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, rpmMock)
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, rpmMock, nil)
 	account := newTestAccount(1, rpmEnabledExtraWithBuffer(12, 2))
 
 	allowed, reason := svc.CheckUserRPM(ctx, account, 10, true)
@@ -1477,7 +1505,7 @@ func TestRegisterActivity_RPMOnlyMode(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
 	rpmMock := &mockRPMCache{}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, rpmMock)
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, rpmMock, nil)
 	impl := svc.(*userQuotaService)
 
 	// RPM-only: user_rpm_enabled=true but user_quota_enabled is NOT set
@@ -1506,7 +1534,7 @@ func TestRunCleanup_RPMOnlyAccountPruning(t *testing.T) {
 	ctx := context.Background()
 	mock := newMock()
 	rpmMock := &mockRPMCache{}
-	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, rpmMock)
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, rpmMock, nil)
 	impl := svc.(*userQuotaService)
 
 	account := newTestAccount(1, rpmEnabledExtra(10))
@@ -1616,5 +1644,317 @@ func TestIsUserRPMEnabled(t *testing.T) {
 				t.Fatalf("IsUserRPMEnabled()=%v want %v", got, tc.expected)
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RehydrateActiveAccounts
+// ---------------------------------------------------------------------------
+
+// TestRehydrate_HappyPath: mock reports account 7 tracked (ZCARD=1); resolve returns a
+// quota-enabled account. After rehydration the account is in activeAccounts, so the next
+// cleanup tick runs ZRemIdleUsers against it and evicts the stale user.
+func TestRehydrate_HappyPath(t *testing.T) {
+	ctx := context.Background()
+	mock := newMock()
+	mock.trackedIDs = []int64{7}
+	// Seed a stale user with a score well in the past.
+	mock.activeUsers[7] = map[int64]int64{1: 1000}
+
+	account := newTestAccount(7, enabledExtra(100, 10))
+	resolve := func(_ context.Context, ids []int64) ([]*Account, error) {
+		var result []*Account
+		for _, id := range ids {
+			if id == 7 {
+				result = append(result, account)
+			}
+		}
+		return result, nil
+	}
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 100 }, &mockRPMCache{}, resolve)
+
+	if err := svc.Rehydrate(ctx); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	impl := svc.(*userQuotaService)
+	impl.mu.RLock()
+	_, tracked := impl.activeAccounts[7]
+	impl.mu.RUnlock()
+	if !tracked {
+		t.Fatal("expected account 7 to be in activeAccounts after rehydration")
+	}
+
+	// Advance cutoff well past the stale score so ZRemIdleUsers evicts the user.
+	cutoffFuture := time.Now().UnixMilli() + 9999999
+	mock.mu.Lock()
+	mock.activeUsers[7] = map[int64]int64{1: cutoffFuture - 100} // score < cutoff
+	mock.mu.Unlock()
+
+	// Run one cleanup tick — account is now tracked, so cleanup should fire.
+	impl.runCleanup(ctx)
+
+	mock.mu.Lock()
+	calls := mock.calls
+	mock.mu.Unlock()
+	found := false
+	for _, c := range calls {
+		if c == "ZRemIdleUsers" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected ZRemIdleUsers to be called after rehydration; calls=%v", calls)
+	}
+}
+
+// TestRehydrate_ErrAccountNotFound: resolve returns ErrAccountNotFound → ForcePurgeAccount
+// is called and the account is NOT added to activeAccounts.
+func TestRehydrate_ErrAccountNotFound(t *testing.T) {
+	ctx := context.Background()
+	mock := newMock()
+	mock.trackedIDs = []int64{99}
+
+	// Batch resolver returns empty slice: account 99 absent from DB → purge.
+	resolve := func(_ context.Context, _ []int64) ([]*Account, error) {
+		return nil, nil
+	}
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, resolve)
+	if err := svc.Rehydrate(ctx); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// ForcePurgeAccount must have been called.
+	mock.mu.Lock()
+	purged := mock.purgedAccounts
+	mock.mu.Unlock()
+	if len(purged) != 1 || purged[0] != 99 {
+		t.Fatalf("expected ForcePurgeAccount(99), got %v", purged)
+	}
+
+	impl := svc.(*userQuotaService)
+	impl.mu.RLock()
+	_, tracked := impl.activeAccounts[99]
+	impl.mu.RUnlock()
+	if tracked {
+		t.Fatal("account 99 should NOT be in activeAccounts when not found")
+	}
+}
+
+// TestRehydrate_TransientError: resolve returns a transient error → no purge, account
+// not added. The lazy rescan path (triggered on the next cleanup tick) retries.
+func TestRehydrate_TransientError(t *testing.T) {
+	ctx := context.Background()
+	mock := newMock()
+	mock.trackedIDs = []int64{5}
+
+	// Mutable closure: first call returns error, second returns the account.
+	var resolveErr error = errors.New("dial timeout")
+	account := newTestAccount(5, enabledExtra(50, 5))
+	resolve := func(_ context.Context, ids []int64) ([]*Account, error) {
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		var result []*Account
+		for _, id := range ids {
+			if id == 5 {
+				result = append(result, account)
+			}
+		}
+		return result, nil
+	}
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, resolve)
+
+	if err := svc.Rehydrate(ctx); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// No purge should have occurred.
+	mock.mu.Lock()
+	purged := mock.purgedAccounts
+	mock.mu.Unlock()
+	if len(purged) != 0 {
+		t.Fatalf("expected no purge on transient error, got %v", purged)
+	}
+
+	impl := svc.(*userQuotaService)
+	impl.mu.RLock()
+	_, tracked := impl.activeAccounts[5]
+	impl.mu.RUnlock()
+	if tracked {
+		t.Fatal("account 5 should NOT be added on transient resolve error")
+	}
+
+	// Now simulate a successful retry: clear the error and call Rehydrate again.
+	resolveErr = nil
+	impl.lastRescanAt = time.Time{}
+
+	if err := svc.Rehydrate(ctx); err != nil {
+		t.Fatalf("unexpected error on retry: %v", err)
+	}
+	impl.mu.RLock()
+	_, trackedAfter := impl.activeAccounts[5]
+	impl.mu.RUnlock()
+	if !trackedAfter {
+		t.Fatal("account 5 should be added after successful retry")
+	}
+}
+
+// TestRehydrate_FeatureDisabled: resolve returns an account with both quota and RPM
+// disabled → ForcePurgeAccount is called; account not added.
+func TestRehydrate_FeatureDisabled(t *testing.T) {
+	ctx := context.Background()
+	mock := newMock()
+	mock.trackedIDs = []int64{3}
+
+	// Account with neither quota nor RPM enabled.
+	account := newTestAccount(3, map[string]any{})
+	resolve := func(_ context.Context, ids []int64) ([]*Account, error) {
+		var result []*Account
+		for _, id := range ids {
+			if id == 3 {
+				result = append(result, account)
+			}
+		}
+		return result, nil
+	}
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, resolve)
+	if err := svc.Rehydrate(ctx); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mock.mu.Lock()
+	purged := mock.purgedAccounts
+	mock.mu.Unlock()
+	if len(purged) != 1 || purged[0] != 3 {
+		t.Fatalf("expected ForcePurgeAccount(3), got %v", purged)
+	}
+
+	impl := svc.(*userQuotaService)
+	impl.mu.RLock()
+	_, tracked := impl.activeAccounts[3]
+	impl.mu.RUnlock()
+	if tracked {
+		t.Fatal("disabled account 3 should NOT be in activeAccounts")
+	}
+}
+
+// TestRehydrate_LazyRescanGating: when activeAccounts is non-empty the rescan must not
+// run. When empty and >60 s since last scan, it runs; then it is gated for 60 s.
+func TestRehydrate_LazyRescanGating(t *testing.T) {
+	ctx := context.Background()
+	mock := newMock()
+
+	account := newTestAccount(10, enabledExtra(50, 5))
+	// Batch resolver: returns account 10 when present in the ID list.
+	resolve := func(_ context.Context, ids []int64) ([]*Account, error) {
+		var result []*Account
+		for _, id := range ids {
+			if id == 10 {
+				result = append(result, account)
+			}
+		}
+		return result, nil
+	}
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{}, resolve)
+	impl := svc.(*userQuotaService)
+
+	// -- Case 1: activeAccounts non-empty → rescan must not run.
+	impl.mu.Lock()
+	impl.activeAccounts[10] = &accountQuotaState{account: account}
+	impl.mu.Unlock()
+	mock.trackedIDs = []int64{10}
+	impl.lastRescanAt = time.Time{} // zero → would normally trigger rescan
+
+	// Run cleanup: states is non-empty, so tryRescan must NOT be called.
+	preCalls := len(mock.calls)
+	impl.runCleanup(ctx)
+	mock.mu.Lock()
+	postCalls := len(mock.calls)
+	mock.mu.Unlock()
+	for _, c := range mock.calls[preCalls:postCalls] {
+		if c == "ListTrackedAccountIDs" {
+			t.Fatal("expected no rescan when activeAccounts is non-empty")
+		}
+	}
+
+	// -- Case 2: activeAccounts empty, lastRescanAt zero → rescan runs.
+	impl.mu.Lock()
+	delete(impl.activeAccounts, 10)
+	impl.mu.Unlock()
+	impl.lastRescanAt = time.Time{} // reset to trigger
+
+	impl.runCleanup(ctx)
+	mock.mu.Lock()
+	callsAfter := mock.calls
+	mock.mu.Unlock()
+	found := false
+	for _, c := range callsAfter {
+		if c == "ListTrackedAccountIDs" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected rescan to run when activeAccounts is empty and lastRescanAt is zero")
+	}
+
+	// -- Case 3: rescan just ran → should be gated for 60 s.
+	impl.mu.Lock()
+	delete(impl.activeAccounts, 10)
+	impl.mu.Unlock()
+	mock.mu.Lock()
+	callsBefore := len(mock.calls)
+	mock.mu.Unlock()
+	// lastRescanAt was just set by the previous tryRescan call.
+	impl.runCleanup(ctx)
+	mock.mu.Lock()
+	callsAfterGated := len(mock.calls)
+	mock.mu.Unlock()
+	for _, c := range mock.calls[callsBefore:callsAfterGated] {
+		if c == "ListTrackedAccountIDs" {
+			t.Fatal("rescan must be gated for 60 s after last run")
+		}
+	}
+}
+
+// TestRescanExhausted_ShortCircuits: after an empty scan sets rescanExhausted=true,
+// subsequent cleanup ticks must NOT call ListTrackedAccountIDs even with lastRescanAt zeroed.
+func TestRescanExhausted_ShortCircuits(t *testing.T) {
+	ctx := context.Background()
+	mock := newMock()
+	mock.trackedIDs = []int64{} // empty: no tracked accounts in Redis
+
+	svc := NewUserQuotaService(mock, func(context.Context, *Account) float64 { return 0 }, &mockRPMCache{},
+		func(_ context.Context, _ []int64) ([]*Account, error) { return nil, nil },
+	)
+	impl := svc.(*userQuotaService)
+
+	// First rehydrate: empty scan → sets rescanExhausted.
+	if err := svc.Rehydrate(ctx); err != nil {
+		t.Fatalf("Rehydrate error: %v", err)
+	}
+	if !impl.rescanExhausted {
+		t.Fatal("expected rescanExhausted=true after empty scan")
+	}
+
+	// Reset time gate so only rescanExhausted would block the next rescan.
+	impl.lastRescanAt = time.Time{}
+
+	mock.mu.Lock()
+	before := len(mock.calls)
+	mock.mu.Unlock()
+
+	// Run cleanup: empty activeAccounts → tryRescan fires → blocked by rescanExhausted.
+	impl.runCleanup(ctx)
+
+	mock.mu.Lock()
+	newCalls := mock.calls[before:]
+	mock.mu.Unlock()
+	for _, c := range newCalls {
+		if c == "ListTrackedAccountIDs" {
+			t.Fatal("second scan must be short-circuited by rescanExhausted")
+		}
 	}
 }

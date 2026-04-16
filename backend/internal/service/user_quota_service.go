@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -47,6 +48,10 @@ type UserQuotaChecker interface {
 	// NotifyAccountUpdated refreshes the cached account and recalculates quotas
 	// if the account has active users. Call after admin updates account settings.
 	NotifyAccountUpdated(ctx context.Context, account *Account)
+	// Rehydrate loads leftover user_quota Redis state into the in-memory tracking
+	// map so the cleanup ticker can evict stale users after a restart.
+	// Call synchronously before StartUserQuotaCleanupTicker.
+	Rehydrate(ctx context.Context) error
 }
 
 // UserQuotaCache defines the Redis operations for the user quota plugin.
@@ -76,7 +81,16 @@ type UserQuotaCache interface {
 	// GetDisplayMetaBatch reads per_user_limit and active_count for multiple accounts (Redis pipeline).
 	// Returns map[accountID] → QuotaDisplayMeta. Missing/empty meta is omitted.
 	GetDisplayMetaBatch(ctx context.Context, accountIDs []int64) (map[int64]QuotaDisplayMeta, error)
+	// ListTrackedAccountIDs scans user_quota:active:* and returns accountIDs whose sorted set is non-empty.
+	ListTrackedAccountIDs(ctx context.Context) ([]int64, error)
+	// ForcePurgeAccount hard-deletes user_quota:active:{id} and user_quota:meta:{id}.
+	// Used to clean stale keys for deleted or disabled accounts without relying on score-based eviction.
+	ForcePurgeAccount(ctx context.Context, accountID int64) error
 }
+
+// AccountBatchResolver fetches multiple accounts by ID in a single query.
+// Missing IDs are silently omitted from the result.
+type AccountBatchResolver func(ctx context.Context, ids []int64) ([]*Account, error)
 
 // accountQuotaState holds in-memory state for a single account being tracked by the quota service.
 type accountQuotaState struct {
@@ -90,18 +104,25 @@ type userQuotaService struct {
 	rpmCache          RPMCache
 	windowCostGetter  func(ctx context.Context, account *Account) float64
 	windowLimitGetter func(ctx context.Context, account *Account) float64
+	// resolve fetches accounts in bulk; injected at construction and immutable afterward.
+	resolve AccountBatchResolver
 
-	mu             sync.RWMutex
-	activeAccounts map[int64]*accountQuotaState
+	mu              sync.RWMutex
+	activeAccounts  map[int64]*accountQuotaState
+	rescanExhausted bool // set when a rescan finds no tracked IDs; accessed only from the cleanup goroutine
+
+	lastRescanAt time.Time // tracks when the last lazy rescan ran; accessed only from the cleanup goroutine
 }
 
 // NewUserQuotaService creates a new userQuotaService.
 // windowCostGetter returns the current window cost for an account (reuses existing cache logic).
-func NewUserQuotaService(cache UserQuotaCache, windowCostGetter func(ctx context.Context, account *Account) float64, rpmCache RPMCache) UserQuotaChecker {
+// resolve is used to batch-fetch accounts for rehydration and lazy rescans; pass nil to disable.
+func NewUserQuotaService(cache UserQuotaCache, windowCostGetter func(ctx context.Context, account *Account) float64, rpmCache RPMCache, resolve AccountBatchResolver) UserQuotaChecker {
 	return &userQuotaService{
 		cache:            cache,
 		rpmCache:         rpmCache,
 		windowCostGetter: windowCostGetter,
+		resolve:          resolve,
 		activeAccounts:   make(map[int64]*accountQuotaState),
 	}
 }
@@ -156,6 +177,87 @@ func StartUserQuotaCleanupTicker(ctx context.Context, svc UserQuotaChecker, inte
 	}()
 }
 
+// Rehydrate loads leftover user_quota Redis state into the in-memory tracking map
+// so the cleanup ticker can evict stale users after a restart.
+// Call synchronously before StartUserQuotaCleanupTicker.
+func (s *userQuotaService) Rehydrate(ctx context.Context) error {
+	return s.rehydrateActiveAccounts(ctx)
+}
+
+// rehydrateActiveAccounts scans Redis for stale user_quota state and populates activeAccounts.
+func (s *userQuotaService) rehydrateActiveAccounts(ctx context.Context) error {
+	if s.resolve == nil {
+		return nil
+	}
+	ids, err := s.cache.ListTrackedAccountIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("user_quota.rehydrate: %w", err)
+	}
+	if len(ids) == 0 {
+		s.rescanExhausted = true
+		return nil
+	}
+	accounts, err := s.resolve(ctx, ids)
+	if err != nil {
+		// Transient error — skip; lazy rescan will retry on next tick.
+		logger.L().Warn("user_quota.rehydrate_resolve_error", zap.Error(err))
+		return nil
+	}
+	resolved := make(map[int64]*Account, len(accounts))
+	for _, a := range accounts {
+		resolved[a.ID] = a
+	}
+	added := 0
+	for _, id := range ids {
+		account, ok := resolved[id]
+		if !ok {
+			s.purgeStale(ctx, id, "not_found")
+			continue
+		}
+		if !account.IsUserQuotaEnabled() && !account.IsUserRPMEnabled() {
+			s.purgeStale(ctx, id, "features_disabled")
+			continue
+		}
+		var windowStartMs int64
+		if account.IsUserQuotaEnabled() {
+			windowStartMs = account.GetCurrentWindowStartTime().UnixMilli()
+		}
+		s.ensureAccountTracked(account, windowStartMs)
+		added++
+	}
+	logger.L().Info("user_quota.rehydrated",
+		zap.Int("accounts_tracked", added),
+		zap.Int("accounts_scanned", len(ids)),
+	)
+	return nil
+}
+
+// purgeStale removes Redis quota state for an account that no longer needs tracking.
+func (s *userQuotaService) purgeStale(ctx context.Context, id int64, reason string) {
+	if purgeErr := s.cache.ForcePurgeAccount(ctx, id); purgeErr != nil {
+		logger.L().Warn("user_quota.rehydrate_purge_failed",
+			zap.Int64("account_id", id),
+			zap.String("reason", reason),
+			zap.Error(purgeErr),
+		)
+	}
+}
+
+// tryRescan performs a lazy rescan of Redis to recover accounts missed during startup rehydration.
+// Rate-limited to at most once per 60 s; accessed only from the cleanup goroutine.
+func (s *userQuotaService) tryRescan(ctx context.Context) {
+	if s.resolve == nil || s.rescanExhausted {
+		return
+	}
+	if time.Since(s.lastRescanAt) < 60*time.Second {
+		return
+	}
+	s.lastRescanAt = time.Now()
+	if err := s.rehydrateActiveAccounts(ctx); err != nil {
+		logger.L().Warn("user_quota.rescan_failed", zap.Error(err))
+	}
+}
+
 func (s *userQuotaService) runCleanup(ctx context.Context) {
 	s.mu.RLock()
 	states := make([]*accountQuotaState, 0, len(s.activeAccounts))
@@ -163,6 +265,10 @@ func (s *userQuotaService) runCleanup(ctx context.Context) {
 		states = append(states, state)
 	}
 	s.mu.RUnlock()
+
+	if len(states) == 0 {
+		s.tryRescan(ctx)
+	}
 
 	totalRemoved := 0
 

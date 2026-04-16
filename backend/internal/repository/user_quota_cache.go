@@ -333,6 +333,63 @@ func (c *userQuotaCache) GetDisplayMetaBatch(ctx context.Context, accountIDs []i
 	return result, nil
 }
 
+// ListTrackedAccountIDs scans user_quota:active:* and returns accountIDs whose sorted set is non-empty.
+// Uses SCAN (not KEYS) and pipelines ZCARD checks to avoid blocking Redis.
+func (c *userQuotaCache) ListTrackedAccountIDs(ctx context.Context) ([]int64, error) {
+	pattern := userQuotaActivePrefix + "*"
+	var keys []string
+	var cursor uint64
+	for {
+		batch, next, err := c.rdb.Scan(ctx, cursor, pattern, 200).Result()
+		if err != nil {
+			return nil, fmt.Errorf("ListTrackedAccountIDs scan: %w", err)
+		}
+		keys = append(keys, batch...)
+		cursor = next
+		if cursor == 0 {
+			break
+		}
+	}
+	if len(keys) == 0 {
+		return nil, nil
+	}
+
+	pipe := c.rdb.Pipeline()
+	cardCmds := make([]*redis.IntCmd, len(keys))
+	for i, key := range keys {
+		cardCmds[i] = pipe.ZCard(ctx, key)
+	}
+	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
+		return nil, fmt.Errorf("ListTrackedAccountIDs pipeline: %w", err)
+	}
+
+	prefixLen := len(userQuotaActivePrefix)
+	ids := make([]int64, 0, len(keys))
+	for i, key := range keys {
+		if cardCmds[i].Val() <= 0 {
+			continue
+		}
+		suffix := key[prefixLen:]
+		id, err := strconv.ParseInt(suffix, 10, 64)
+		if err != nil {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+// ForcePurgeAccount hard-deletes user_quota:active:{id} and user_quota:meta:{id} in a single pipeline.
+func (c *userQuotaCache) ForcePurgeAccount(ctx context.Context, accountID int64) error {
+	pipe := c.rdb.Pipeline()
+	pipe.Del(ctx, uqActiveKey(accountID))
+	pipe.Del(ctx, uqMetaKey(accountID))
+	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
+		return fmt.Errorf("ForcePurgeAccount: %w", err)
+	}
+	return nil
+}
+
 // parseHMGetInt64 safely parses an HMGet result value as int64.
 func parseHMGetInt64(v any) int64 {
 	if v == nil {
