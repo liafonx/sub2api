@@ -4741,9 +4741,9 @@ export default {
         title: "Claude Code 设置",
         description: "控制 Claude Code 客户端访问要求",
         minVersion: "最低版本号",
-        minVersionPlaceholder: "例如 2.1.63",
+        minVersionPlaceholder: "例如 2.1.111",
         minVersionHint:
-          "拒绝低于此版本的 Claude Code 客户端请求（semver 格式）。留空则不检查版本。",
+          "拒绝低于此版本的 Claude Code 客户端请求（semver 格式）。同时将 OAuth 账号的出站 User-Agent 设置为 claude-cli/<版本号>。留空则使用内置默认值。",
         maxVersion: "最高版本号",
         maxVersionPlaceholder: "例如 2.5.0",
         maxVersionHint:

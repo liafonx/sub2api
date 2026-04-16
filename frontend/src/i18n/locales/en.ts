@@ -4778,9 +4778,9 @@ export default {
         title: "Claude Code Settings",
         description: "Control Claude Code client access requirements",
         minVersion: "Minimum Version",
-        minVersionPlaceholder: "e.g. 2.1.63",
+        minVersionPlaceholder: "e.g. 2.1.111",
         minVersionHint:
-          "Reject Claude Code clients below this version (semver format). Leave empty to disable version check.",
+          "Reject Claude Code clients below this version (semver format). Also sets the outbound User-Agent to claude-cli/<version> for OAuth accounts. Leave empty to use the built-in default.",
         maxVersion: "Maximum Version",
         maxVersionPlaceholder: "e.g. 2.5.0",
         maxVersionHint:

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/imroc/req/v3"
 	"golang.org/x/sync/singleflight"
@@ -2000,6 +2001,18 @@ func (s *SettingService) IsUngroupedKeySchedulingAllowed(ctx context.Context) bo
 		return false // fail-closed: 查询失败时默认不允许
 	}
 	return value == "true"
+}
+
+// GetClaudeCodeUserAgent returns the outbound User-Agent string derived from the
+// admin-configured min_claude_code_version setting. When the setting is empty,
+// it falls back to the compiled-in claude.DefaultHeaders["User-Agent"] value.
+// Reuses the existing versionBoundsCache (60s TTL) — no additional cache.
+func (s *SettingService) GetClaudeCodeUserAgent(ctx context.Context) string {
+	minV, _ := s.GetClaudeCodeVersionBounds(ctx)
+	if minV == "" {
+		return claude.DefaultHeaders["User-Agent"]
+	}
+	return "claude-cli/" + minV + " (external, cli)"
 }
 
 // GetClaudeCodeVersionBounds 获取 Claude Code 版本号上下限要求

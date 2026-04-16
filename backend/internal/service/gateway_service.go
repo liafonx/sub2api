@@ -6034,6 +6034,12 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		clientHeaders = c.Request.Header
 	}
 
+	// Resolve the effective outbound User-Agent once, used for both body rewrites
+	// (cc_version, metadata.user_id format) and outbound header overrides so they
+	// all reflect the same version. In mimic mode this is the setting-driven value;
+	// for non-mimic (real CC client) traffic fp.UserAgent is used below instead.
+	effectiveUA := s.resolveClaudeCodeUserAgent(ctx)
+
 	// OAuth账号：应用统一指纹和metadata重写（受设置开关控制）
 	var fingerprint *Fingerprint
 	enableFP, enableMPT, enableCCH := true, false, false
@@ -6057,7 +6063,14 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 			if !enableMPT {
 				accountUUID := account.GetExtraString("account_uuid")
 				if accountUUID != "" && fp.ClientID != "" {
-					if newBody, err := s.identityService.RewriteUserIDWithMasking(ctx, body, account, accountUUID, fp.ClientID, fp.UserAgent); err == nil && len(newBody) > 0 {
+					// In mimic mode, use effectiveUA so cc_version / metadata.user_id
+					// format match the outbound User-Agent header rather than the
+					// incoming client's UA.
+					uaForBody := fp.UserAgent
+					if mimicClaudeCode {
+						uaForBody = effectiveUA
+					}
+					if newBody, err := s.identityService.RewriteUserIDWithMasking(ctx, body, account, accountUUID, fp.ClientID, uaForBody); err == nil && len(newBody) > 0 {
 						body = newBody
 					}
 				}
@@ -6067,7 +6080,11 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 
 	// 同步 billing header cc_version 与实际发送的 User-Agent 版本
 	if fingerprint != nil {
-		body = syncBillingHeaderVersion(body, fingerprint.UserAgent)
+		uaForBilling := fingerprint.UserAgent
+		if mimicClaudeCode {
+			uaForBilling = effectiveUA
+		}
+		body = syncBillingHeaderVersion(body, uaForBilling)
 	}
 	// CCH 签名：将 cch=00000 占位符替换为 xxHash64 签名（需在所有 body 修改之后）
 	if enableCCH {
@@ -6110,7 +6127,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
 	if tokenType == "oauth" {
-		applyClaudeOAuthHeaderDefaults(req)
+		applyClaudeOAuthHeaderDefaults(req, effectiveUA)
 	}
 
 	// Build effective drop set: merge static defaults with dynamic beta policy filter rules
@@ -6123,7 +6140,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 			// 非 Claude Code 客户端：按 opencode 的策略处理：
 			// - 强制 Claude Code 指纹相关请求头（尤其是 user-agent/x-stainless/x-app）
 			// - 保留 incoming beta 的同时，确保 OAuth 所需 beta 存在
-			applyClaudeCodeMimicHeaders(req, reqStream)
+			applyClaudeCodeMimicHeaders(req, reqStream, effectiveUA)
 
 			incomingBeta := getHeaderRaw(req.Header, "anthropic-beta")
 			// Claude Code OAuth credentials are scoped to Claude Code.
@@ -6153,6 +6170,12 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 				}
 			}
 		}
+	}
+
+	// In mimic mode, auto-generate x-client-request-id if the client didn't provide one.
+	// Use setHeaderRaw/getHeaderRaw to preserve the lowercase wire casing that real CC uses.
+	if mimicClaudeCode && getHeaderRaw(req.Header, "x-client-request-id") == "" {
+		setHeaderRaw(req.Header, "x-client-request-id", uuid.NewString())
 	}
 
 	// 同步 X-Claude-Code-Session-Id 头：取 body 中已处理的 metadata.user_id 的 session_id 覆盖
@@ -6253,7 +6276,9 @@ func defaultAPIKeyBetaHeader(body []byte) string {
 	return claude.APIKeyBetaHeader
 }
 
-func applyClaudeOAuthHeaderDefaults(req *http.Request) {
+// applyClaudeOAuthHeaderDefaults fills in missing Claude Code default headers.
+// ua is the resolved outbound User-Agent (from resolveClaudeCodeUserAgent).
+func applyClaudeOAuthHeaderDefaults(req *http.Request, ua string) {
 	if req == nil {
 		return
 	}
@@ -6263,6 +6288,10 @@ func applyClaudeOAuthHeaderDefaults(req *http.Request) {
 	for key, value := range claude.DefaultHeaders {
 		if value == "" {
 			continue
+		}
+		// Substitute the effective UA so the fill-missing path is also consistent.
+		if strings.ToLower(key) == "user-agent" {
+			value = ua
 		}
 		if getHeaderRaw(req.Header, key) == "" {
 			setHeaderRaw(req.Header, resolveWireCasing(key), value)
@@ -6583,20 +6612,36 @@ func buildBetaTokenSet(tokens []string) map[string]struct{} {
 
 var defaultDroppedBetasSet = buildBetaTokenSet(claude.DroppedBetas)
 
+// resolveClaudeCodeUserAgent returns the outbound User-Agent for mimic mode.
+// Falls back to the compile-time default when settingService is nil (e.g. in tests
+// that construct a bare &GatewayService{}).
+func (s *GatewayService) resolveClaudeCodeUserAgent(ctx context.Context) string {
+	if s == nil || s.settingService == nil {
+		return claude.DefaultHeaders["User-Agent"]
+	}
+	return s.settingService.GetClaudeCodeUserAgent(ctx)
+}
+
 // applyClaudeCodeMimicHeaders forces "Claude Code-like" request headers.
 // This mirrors opencode-anthropic-auth behavior: do not trust downstream
 // headers when using Claude Code-scoped OAuth credentials.
-func applyClaudeCodeMimicHeaders(req *http.Request, isStream bool) {
+// ua is the resolved outbound User-Agent (from resolveClaudeCodeUserAgent).
+func applyClaudeCodeMimicHeaders(req *http.Request, isStream bool, ua string) {
 	if req == nil {
 		return
 	}
 	// Start with the standard defaults (fill missing).
-	applyClaudeOAuthHeaderDefaults(req)
+	applyClaudeOAuthHeaderDefaults(req, ua)
 	// Then force key headers to match Claude Code fingerprint regardless of what the client sent.
 	// 使用 resolveWireCasing 确保 key 与真实 wire format 一致（如 "x-app" 而非 "X-App"）
 	for key, value := range claude.DefaultHeaders {
 		if value == "" {
 			continue
+		}
+		// Substitute the effective UA instead of the compiled-in default so body fields
+		// (cc_version, metadata.user_id format) stay in sync with the outbound UA header.
+		if strings.ToLower(key) == "user-agent" {
+			value = ua
 		}
 		setHeaderRaw(req.Header, resolveWireCasing(key), value)
 	}
@@ -9067,6 +9112,9 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 		clientHeaders = c.Request.Header
 	}
 
+	// Resolve effective outbound UA for mimic mode (same as buildUpstreamRequest).
+	ctEffectiveUA := s.resolveClaudeCodeUserAgent(ctx)
+
 	// OAuth 账号：应用统一指纹和重写 userID（受设置开关控制）
 	// 如果启用了会话ID伪装，会在重写后替换 session 部分为固定值
 	ctEnableFP, ctEnableMPT, ctEnableCCH := true, false, false
@@ -9081,7 +9129,11 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 			if !ctEnableMPT {
 				accountUUID := account.GetExtraString("account_uuid")
 				if accountUUID != "" && fp.ClientID != "" {
-					if newBody, err := s.identityService.RewriteUserIDWithMasking(ctx, body, account, accountUUID, fp.ClientID, fp.UserAgent); err == nil && len(newBody) > 0 {
+					uaForBody := fp.UserAgent
+					if mimicClaudeCode {
+						uaForBody = ctEffectiveUA
+					}
+					if newBody, err := s.identityService.RewriteUserIDWithMasking(ctx, body, account, accountUUID, fp.ClientID, uaForBody); err == nil && len(newBody) > 0 {
 						body = newBody
 					}
 				}
@@ -9091,7 +9143,11 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 
 	// 同步 billing header cc_version 与实际发送的 User-Agent 版本
 	if ctFingerprint != nil && ctEnableFP {
-		body = syncBillingHeaderVersion(body, ctFingerprint.UserAgent)
+		uaForBilling := ctFingerprint.UserAgent
+		if mimicClaudeCode {
+			uaForBilling = ctEffectiveUA
+		}
+		body = syncBillingHeaderVersion(body, uaForBilling)
 	}
 	if ctEnableCCH {
 		body = signBillingHeaderCCH(body)
@@ -9133,7 +9189,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
 	if tokenType == "oauth" {
-		applyClaudeOAuthHeaderDefaults(req)
+		applyClaudeOAuthHeaderDefaults(req, ctEffectiveUA)
 	}
 
 	// Build effective drop set for count_tokens: merge static defaults with dynamic beta policy filter rules
@@ -9142,7 +9198,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	// OAuth 账号：处理 anthropic-beta header
 	if tokenType == "oauth" {
 		if mimicClaudeCode {
-			applyClaudeCodeMimicHeaders(req, false)
+			applyClaudeCodeMimicHeaders(req, false, ctEffectiveUA)
 
 			incomingBeta := getHeaderRaw(req.Header, "anthropic-beta")
 			requiredBetas := []string{claude.BetaClaudeCode, claude.BetaOAuth, claude.BetaInterleavedThinking, claude.BetaTokenCounting}
@@ -9171,6 +9227,12 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 				}
 			}
 		}
+	}
+
+	// In mimic mode, auto-generate x-client-request-id if the client didn't provide one.
+	// Use setHeaderRaw/getHeaderRaw to preserve the lowercase wire casing that real CC uses.
+	if mimicClaudeCode && getHeaderRaw(req.Header, "x-client-request-id") == "" {
+		setHeaderRaw(req.Header, "x-client-request-id", uuid.NewString())
 	}
 
 	// 同步 X-Claude-Code-Session-Id 头：取 body 中已处理的 metadata.user_id 的 session_id 覆盖

@@ -1,7 +1,7 @@
 # Active Fork Patches
 
 This file is the **single source of truth** for all fork-only patches on `main`.
-Currently **11 active patches** (3, 6, 9, 13, 18, 19, 20, 21, 22, 23, 24).
+Currently **12 active patches** (3, 6, 9, 13, 18, 19, 20, 21, 22, 23, 24, 25).
 
 > **Baseline:** Merged upstream `v0.1.113` on 2026-04-16 (merge commit `fe5f7dd3`).
 
@@ -188,6 +188,23 @@ Currently **11 active patches** (3, 6, 9, 13, 18, 19, 20, 21, 22, 23, 24).
 
 ---
 
+## Patch 25 — Claude Code Fingerprint Hardening
+
+**Purpose:** Align sub2api's outbound Claude Code fingerprint with real captured traffic. Adds `SettingService.GetClaudeCodeUserAgent` so the admin-configured `min_claude_code_version` drives the outbound `User-Agent` (one setting now covers both inbound validation and outbound masquerade). Corrects stale Stainless header defaults to ground-truth values (`X-Stainless-Package-Version 0.81.0`, `OS MacOS`, `Runtime-Version v24.3.0`, `Timeout 900`). Tightens the default `anthropic-beta` to the observed 7-beta baseline (removes stale `fine-grained-tool-streaming`). Auto-generates `x-client-request-id` UUID v4 in mimic mode. Critically fixes a body-field ordering bug where `cc_version` and `metadata.user_id` format were computed from the incoming client UA rather than the outbound masqueraded UA.
+
+**Upstream conflict risk:** MEDIUM — touches `gateway_service.go` (mimic helpers + buildUpstreamRequest/buildCountTokensRequest), `setting_service.go` (pure addition), `claude/constants.go` (value changes), `identity_service.go` (value changes), and frontend i18n.
+
+| Layer | Key Files |
+|-------|-----------|
+| Backend (new) | `service/setting_service.go` (`GetClaudeCodeUserAgent`) |
+| Backend (new) | `service/gateway_service.go` (`resolveClaudeCodeUserAgent`, updated `applyClaudeCodeMimicHeaders`, `applyClaudeOAuthHeaderDefaults`) |
+| Backend (modified) | `service/gateway_service.go` (`buildUpstreamRequest`, `buildCountTokensRequest` — effectiveUA threading + request-id generation) |
+| Backend (values) | `pkg/claude/constants.go` (`DefaultHeaders`, beta constants + header strings), `service/identity_service.go` (`defaultFingerprint`) |
+| Tests | `service/gateway_fingerprint_test.go` (new), `service/gateway_billing_header_test.go` (extended) |
+| Frontend | `i18n/locales/en.ts`, `i18n/locales/zh.ts` |
+
+---
+
 ## Verification
 
 Run after every upstream merge to confirm all patches survived:
@@ -244,6 +261,13 @@ grep -n rpm_limit backend/ent/schema/user.go
 # Patch 24: Change account identity
 ls frontend/src/components/admin/account/ChangeAccountModal.vue
 grep -n change-account frontend/src/components/admin/account/AccountActionMenu.vue
+
+# Patch 25: Claude Code fingerprint hardening
+grep -n GetClaudeCodeUserAgent backend/internal/service/setting_service.go
+grep -n resolveClaudeCodeUserAgent backend/internal/service/gateway_service.go
+grep -n 'claude-cli/2.1.111' backend/internal/pkg/claude/constants.go backend/internal/service/identity_service.go
+grep -n 'BetaContextManagement\|BetaPromptCachingScope\|BetaEffort' backend/internal/pkg/claude/constants.go
+grep -n 'x-client-request-id' backend/internal/service/gateway_service.go
 ```
 
 ---

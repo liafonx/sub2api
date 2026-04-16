@@ -127,8 +127,8 @@ ssh liafonx@Liafonxs-Mac-mini.local 'launchctl bootout gui/$(id -u)/com.sub2api;
 See [`ACTIVE_PATCHES.md`](ACTIVE_PATCHES.md) for conflict-risk ratings, verify commands, and full patch details.
 
 **Patch numbering rules for agents:**
-- The **highest patch number currently in use is 24**. Always check `ACTIVE_PATCHES.md` before assigning a new patch number.
-- The next available patch number is **25**.
+- The **highest patch number currently in use is 25**. Always check `ACTIVE_PATCHES.md` before assigning a new patch number.
+- The next available patch number is **26**.
 - Never reuse a patch number — each patch gets a unique, monotonically increasing integer.
 - Use the patch number in commit message tags: `feat(fork-patch-N): ...`
 - New patches go in **[`ACTIVE_PATCHES.md`](ACTIVE_PATCHES.md)** (the single source of truth for all fork patches).
@@ -146,3 +146,4 @@ See [`ACTIVE_PATCHES.md`](ACTIVE_PATCHES.md) for conflict-risk ratings, verify c
 | 22 | Per-User RPM Allocation | `service/user_quota_service.go`, `service/account.go`, `service/rpm_cache.go`, `repository/rpm_cache.go` |
 | 23 | Per-User RPM Cap | `ent/schema/user.go`, `service/user.go`, `handler/gateway_helper.go`, `handler/gateway_handler*.go`, `handler/openai_*.go` |
 | 24 | Change Account Identity | `components/admin/account/ChangeAccountModal.vue`, `AccountActionMenu.vue`, `AccountsView.vue` |
+| 25 | Claude Code Fingerprint Hardening | `service/setting_service.go` (GetClaudeCodeUserAgent), `pkg/claude/constants.go`, `service/identity_service.go`, `service/gateway_service.go` (effectiveUA threading + mimic helpers + request-id) |
