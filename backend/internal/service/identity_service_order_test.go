@@ -8,26 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type identityCacheStub struct {
-	maskedSessionID string
-}
-
-func (s *identityCacheStub) GetFingerprint(_ context.Context, _ int64) (*Fingerprint, error) {
-	return nil, nil
-}
-func (s *identityCacheStub) SetFingerprint(_ context.Context, _ int64, _ *Fingerprint) error {
-	return nil
-}
-func (s *identityCacheStub) GetMaskedSessionID(_ context.Context, _ int64) (string, error) {
-	return s.maskedSessionID, nil
-}
-func (s *identityCacheStub) SetMaskedSessionID(_ context.Context, _ int64, sessionID string) error {
-	s.maskedSessionID = sessionID
-	return nil
-}
-
 func TestIdentityService_RewriteUserID_PreservesTopLevelFieldOrder(t *testing.T) {
-	cache := &identityCacheStub{}
+	cache := newFakeIdentityCache()
 	svc := NewIdentityService(cache)
 
 	originalUserID := FormatMetadataUserID(
@@ -38,7 +20,7 @@ func TestIdentityService_RewriteUserID_PreservesTopLevelFieldOrder(t *testing.T)
 	)
 	body := []byte(`{"alpha":1,"messages":[],"metadata":{"user_id":` + strconvQuote(originalUserID) + `},"max_tokens":64000,"thinking":{"type":"adaptive"},"output_config":{"effort":"high"},"stream":true}`)
 
-	result, err := svc.RewriteUserID(body, 123, "acc-uuid", "client-xyz", "claude-cli/2.1.78 (external, cli)")
+	result, err := svc.RewriteUserID(context.Background(), body, 123, "acc-uuid", "client-xyz", "claude-cli/2.1.78 (external, cli)", 0)
 	require.NoError(t, err)
 	resultStr := string(result)
 
@@ -48,7 +30,8 @@ func TestIdentityService_RewriteUserID_PreservesTopLevelFieldOrder(t *testing.T)
 }
 
 func TestIdentityService_RewriteUserIDWithMasking_PreservesTopLevelFieldOrder(t *testing.T) {
-	cache := &identityCacheStub{maskedSessionID: "11111111-2222-4333-8444-555555555555"}
+	cache := newFakeIdentityCache()
+	cache.maskedSessionID[123] = "11111111-2222-4333-8444-555555555555"
 	svc := NewIdentityService(cache)
 
 	originalUserID := FormatMetadataUserID(
@@ -68,12 +51,12 @@ func TestIdentityService_RewriteUserIDWithMasking_PreservesTopLevelFieldOrder(t 
 		},
 	}
 
-	result, err := svc.RewriteUserIDWithMasking(context.Background(), body, account, "acc-uuid", "client-xyz", "claude-cli/2.1.78 (external, cli)")
+	result, err := svc.RewriteUserIDWithMasking(context.Background(), body, account, "acc-uuid", "client-xyz", "claude-cli/2.1.78 (external, cli)", 0)
 	require.NoError(t, err)
 	resultStr := string(result)
 
 	assertJSONTokenOrder(t, resultStr, `"alpha"`, `"messages"`, `"metadata"`, `"max_tokens"`, `"thinking"`, `"output_config"`, `"stream"`)
-	require.Contains(t, resultStr, cache.maskedSessionID)
+	require.Contains(t, resultStr, cache.maskedSessionID[123])
 	require.True(t, strings.Contains(resultStr, `"metadata":{"user_id":"`))
 }
 

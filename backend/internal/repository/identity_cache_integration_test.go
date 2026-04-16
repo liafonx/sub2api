@@ -62,6 +62,51 @@ func (s *IdentityCacheSuite) TestSetFingerprint_Nil() {
 	require.NoError(s.T(), err, "SetFingerprint(nil) should succeed")
 }
 
+func (s *IdentityCacheSuite) TestUserSessionID_MissingReturnsEmpty() {
+	got, err := s.cache.GetUserSessionID(s.ctx, 1, 42)
+	require.NoError(s.T(), err, "missing key should yield empty + nil err")
+	require.Equal(s.T(), "", got)
+}
+
+func (s *IdentityCacheSuite) TestUserSessionID_Roundtrip() {
+	sessionID := "11111111-2222-4333-8444-555555555555"
+	require.NoError(s.T(), s.cache.SetUserSessionID(s.ctx, 7, 99, sessionID, userSessionTTL))
+
+	got, err := s.cache.GetUserSessionID(s.ctx, 7, 99)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), sessionID, got)
+
+	// Different user on same account must not collide.
+	other, err := s.cache.GetUserSessionID(s.ctx, 7, 100)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), "", other)
+}
+
+func (s *IdentityCacheSuite) TestUserSessionID_TTLRefreshOnRepeatSet() {
+	sessionID := "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+	key := userSessionKey(3, 4)
+
+	require.NoError(s.T(), s.cache.SetUserSessionID(s.ctx, 3, 4, sessionID, 5*time.Second))
+	ttl1, err := s.rdb.TTL(s.ctx, key).Result()
+	require.NoError(s.T(), err)
+	require.True(s.T(), ttl1 > 0 && ttl1 <= 5*time.Second, "initial TTL should be ≤ 5s, got %v", ttl1)
+
+	// Repeat Set with the default TTL must extend the idle timer beyond the initial 5s.
+	require.NoError(s.T(), s.cache.SetUserSessionID(s.ctx, 3, 4, sessionID, userSessionTTL))
+	ttl2, err := s.rdb.TTL(s.ctx, key).Result()
+	require.NoError(s.T(), err)
+	require.True(s.T(), ttl2 > 5*time.Second, "rolling TTL should refresh beyond initial 5s, got %v", ttl2)
+	s.AssertTTLWithin(ttl2, 1*time.Second, userSessionTTL)
+}
+
+func (s *IdentityCacheSuite) TestUserSessionID_ZeroTTLFallsBackToDefault() {
+	require.NoError(s.T(), s.cache.SetUserSessionID(s.ctx, 5, 6, "sid-default", 0))
+
+	ttl, err := s.rdb.TTL(s.ctx, userSessionKey(5, 6)).Result()
+	require.NoError(s.T(), err)
+	s.AssertTTLWithin(ttl, 1*time.Second, userSessionTTL)
+}
+
 func TestIdentityCacheSuite(t *testing.T) {
 	suite.Run(t, new(IdentityCacheSuite))
 }

@@ -60,6 +60,12 @@ type IdentityCache interface {
 	// SetMaskedSessionID 设置固定的会话ID，TTL 为 15 分钟
 	// 每次调用都会刷新 TTL
 	SetMaskedSessionID(ctx context.Context, accountID int64, sessionID string) error
+	// GetUserSessionID returns the cached mimic-mode session UUID for a
+	// (accountID, userID) pair. Returns ("", nil) when absent or expired.
+	GetUserSessionID(ctx context.Context, accountID, userID int64) (string, error)
+	// SetUserSessionID writes the session UUID with a rolling idle TTL.
+	// Passing 0 lets the repository apply its default (see userSessionTTL).
+	SetUserSessionID(ctx context.Context, accountID, userID int64, sessionID string, ttl time.Duration) error
 }
 
 // IdentityService 管理OAuth账号的请求身份指纹
@@ -70,6 +76,25 @@ type IdentityService struct {
 // NewIdentityService 创建新的IdentityService
 func NewIdentityService(cache IdentityCache) *IdentityService {
 	return &IdentityService{cache: cache}
+}
+
+// GetUserSessionID forwards to the underlying cache; returns ("", nil) when
+// cache is unset so callers can treat this as a soft-miss.
+func (s *IdentityService) GetUserSessionID(ctx context.Context, accountID, userID int64) (string, error) {
+	if s == nil || s.cache == nil {
+		return "", nil
+	}
+	return s.cache.GetUserSessionID(ctx, accountID, userID)
+}
+
+// SetUserSessionID forwards to the underlying cache. Passing ttl == 0 lets
+// the repository apply its default (userSessionTTL = 30 min). Silently no-ops
+// when the cache is unset (e.g. in tests that don't wire it).
+func (s *IdentityService) SetUserSessionID(ctx context.Context, accountID, userID int64, sessionID string, ttl time.Duration) error {
+	if s == nil || s.cache == nil {
+		return nil
+	}
+	return s.cache.SetUserSessionID(ctx, accountID, userID, sessionID, ttl)
 }
 
 // GetOrCreateFingerprint 获取或创建账号的指纹
@@ -211,9 +236,18 @@ func (s *IdentityService) ApplyFingerprint(req *http.Request, fp *Fingerprint) {
 // 支持旧拼接格式和新 JSON 格式的 user_id 解析，
 // 根据 fingerprintUA 版本选择输出格式。
 //
+// sub2api userID participates in the session hash seed so that two distinct
+// local users sharing the same upstream account produce distinct upstream
+// session_ids without randomizing device_id — i.e. "same device, two open
+// sessions", matching real Claude Code behavior on one dev machine.
+//
+// userID == 0 (unauthenticated / internal flows) falls back to the legacy
+// 2-part seed for backward compatibility.
+//
 // 重要：此函数使用 json.RawMessage 保留其他字段的原始字节，
 // 避免重新序列化导致 thinking 块等内容被修改。
-func (s *IdentityService) RewriteUserID(body []byte, accountID int64, accountUUID, cachedClientID, fingerprintUA string) ([]byte, error) {
+func (s *IdentityService) RewriteUserID(ctx context.Context, body []byte, accountID int64, accountUUID, cachedClientID, fingerprintUA string, userID int64) ([]byte, error) {
+	_ = ctx
 	if len(body) == 0 || accountUUID == "" || cachedClientID == "" {
 		return body, nil
 	}
@@ -230,27 +264,33 @@ func (s *IdentityService) RewriteUserID(body []byte, accountID int64, accountUUI
 	if !userIDResult.Exists() || userIDResult.Type != gjson.String {
 		return body, nil
 	}
-	userID := userIDResult.String()
-	if userID == "" {
+	metadataUserID := userIDResult.String()
+	if metadataUserID == "" {
 		return body, nil
 	}
 
 	// 解析 user_id（兼容旧拼接格式和新 JSON 格式）
-	parsed := ParseMetadataUserID(userID)
+	parsed := ParseMetadataUserID(metadataUserID)
 	if parsed == nil {
 		return body, nil
 	}
 
 	sessionTail := parsed.SessionID // 原始session UUID
 
-	// 生成新的session hash: SHA256(accountID::sessionTail) -> UUID格式
-	seed := fmt.Sprintf("%d::%s", accountID, sessionTail)
+	// 生成新的session hash: SHA256(accountID::userID::sessionTail) -> UUID格式
+	// userID == 0 保留旧 2-part 种子，确保未认证/内部流量行为不变。
+	var seed string
+	if userID > 0 {
+		seed = fmt.Sprintf("%d::%d::%s", accountID, userID, sessionTail)
+	} else {
+		seed = fmt.Sprintf("%d::%s", accountID, sessionTail)
+	}
 	newSessionHash := generateUUIDFromSeed(seed)
 
 	// 根据客户端版本选择输出格式
 	version := ExtractCLIVersion(fingerprintUA)
 	newUserID := FormatMetadataUserID(cachedClientID, accountUUID, newSessionHash, version)
-	if newUserID == userID {
+	if newUserID == metadataUserID {
 		return body, nil
 	}
 
@@ -265,17 +305,23 @@ func (s *IdentityService) RewriteUserID(body []byte, accountID int64, accountUUI
 // 如果账号启用了会话ID伪装（session_id_masking_enabled），
 // 则在完成常规重写后，将 session 部分替换为固定的伪装ID（15分钟内保持不变）
 //
+// Masking is account-wide (one UUID per account) and would collapse all
+// authenticated users back into a single shared session, which defeats the
+// per-user scoping in RewriteUserID. When userID > 0 we skip masking entirely
+// — the user-scoped hash is already stable and per-user. userID == 0 keeps
+// legacy masking behavior for internal/unauthenticated flows.
+//
 // 重要：此函数使用 json.RawMessage 保留其他字段的原始字节，
 // 避免重新序列化导致 thinking 块等内容被修改。
-func (s *IdentityService) RewriteUserIDWithMasking(ctx context.Context, body []byte, account *Account, accountUUID, cachedClientID, fingerprintUA string) ([]byte, error) {
+func (s *IdentityService) RewriteUserIDWithMasking(ctx context.Context, body []byte, account *Account, accountUUID, cachedClientID, fingerprintUA string, userID int64) ([]byte, error) {
 	// 先执行常规的 RewriteUserID 逻辑
-	newBody, err := s.RewriteUserID(body, account.ID, accountUUID, cachedClientID, fingerprintUA)
+	newBody, err := s.RewriteUserID(ctx, body, account.ID, accountUUID, cachedClientID, fingerprintUA, userID)
 	if err != nil {
 		return newBody, err
 	}
 
-	// 检查是否启用会话ID伪装
-	if !account.IsSessionIDMaskingEnabled() {
+	// 检查是否启用会话ID伪装；userID > 0 时跳过以避免覆盖用户作用域的 session
+	if userID > 0 || !account.IsSessionIDMaskingEnabled() {
 		return newBody, nil
 	}
 
@@ -291,13 +337,13 @@ func (s *IdentityService) RewriteUserIDWithMasking(ctx context.Context, body []b
 	if !userIDResult.Exists() || userIDResult.Type != gjson.String {
 		return newBody, nil
 	}
-	userID := userIDResult.String()
-	if userID == "" {
+	metadataUserID := userIDResult.String()
+	if metadataUserID == "" {
 		return newBody, nil
 	}
 
 	// 解析已重写的 user_id
-	uidParsed := ParseMetadataUserID(userID)
+	uidParsed := ParseMetadataUserID(metadataUserID)
 	if uidParsed == nil {
 		return newBody, nil
 	}
@@ -326,11 +372,11 @@ func (s *IdentityService) RewriteUserIDWithMasking(ctx context.Context, body []b
 
 	slog.Debug("session_id_masking_applied",
 		"account_id", account.ID,
-		"before", userID,
+		"before", metadataUserID,
 		"after", newUserID,
 	)
 
-	if newUserID == userID {
+	if newUserID == metadataUserID {
 		return newBody, nil
 	}
 

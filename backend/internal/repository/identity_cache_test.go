@@ -44,3 +44,44 @@ func TestFingerprintKey(t *testing.T) {
 		})
 	}
 }
+
+func TestUserSessionKey(t *testing.T) {
+	tests := []struct {
+		name      string
+		accountID int64
+		userID    int64
+		expected  string
+	}{
+		{
+			name:      "normal_pair",
+			accountID: 123,
+			userID:    456,
+			expected:  "user_session:123:456",
+		},
+		{
+			name:      "zero_user_id",
+			accountID: 123,
+			userID:    0,
+			expected:  "user_session:123:0",
+		},
+		{
+			name:      "both_zero",
+			accountID: 0,
+			userID:    0,
+			expected:  "user_session:0:0",
+		},
+		{
+			name:      "max_int64",
+			accountID: math.MaxInt64,
+			userID:    math.MaxInt64,
+			expected:  "user_session:9223372036854775807:9223372036854775807",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := userSessionKey(tc.accountID, tc.userID)
+			require.Equal(t, tc.expected, got)
+		})
+	}
+}

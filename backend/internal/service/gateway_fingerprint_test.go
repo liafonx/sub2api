@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 // ---------------------------------------------------------------------------
@@ -321,4 +323,306 @@ func TestIsNewMetadataFormatVersion_2_1_111(t *testing.T) {
 func TestIsNewMetadataFormatVersion_2_0_50(t *testing.T) {
 	assert.False(t, IsNewMetadataFormatVersion("2.0.50"),
 		"2.0.50 is below the 2.1.78 threshold; should use legacy format")
+}
+
+// ---------------------------------------------------------------------------
+// Patch 26 — Same-Device, Per-User-Session Identity
+// ---------------------------------------------------------------------------
+
+// fakeIdentityCache is an in-memory IdentityCache used across Patch 26 tests.
+// setUserCallCount lets TTL-refresh tests assert that each request re-writes
+// the cache entry (so the rolling idle timer resets).
+type fakeIdentityCache struct {
+	fingerprint     map[int64]*Fingerprint
+	maskedSessionID map[int64]string
+	userSessions    map[string]string // key: "accountID:userID"
+	setUserCalls    map[string]int    // key: "accountID:userID"
+}
+
+func newFakeIdentityCache() *fakeIdentityCache {
+	return &fakeIdentityCache{
+		fingerprint:     map[int64]*Fingerprint{},
+		maskedSessionID: map[int64]string{},
+		userSessions:    map[string]string{},
+		setUserCalls:    map[string]int{},
+	}
+}
+
+func (f *fakeIdentityCache) GetFingerprint(_ context.Context, accountID int64) (*Fingerprint, error) {
+	return f.fingerprint[accountID], nil
+}
+func (f *fakeIdentityCache) SetFingerprint(_ context.Context, accountID int64, fp *Fingerprint) error {
+	f.fingerprint[accountID] = fp
+	return nil
+}
+func (f *fakeIdentityCache) GetMaskedSessionID(_ context.Context, accountID int64) (string, error) {
+	return f.maskedSessionID[accountID], nil
+}
+func (f *fakeIdentityCache) SetMaskedSessionID(_ context.Context, accountID int64, sessionID string) error {
+	f.maskedSessionID[accountID] = sessionID
+	return nil
+}
+func (f *fakeIdentityCache) GetUserSessionID(_ context.Context, accountID, userID int64) (string, error) {
+	return f.userSessions[fakeUserKey(accountID, userID)], nil
+}
+func (f *fakeIdentityCache) SetUserSessionID(_ context.Context, accountID, userID int64, sessionID string, _ time.Duration) error {
+	k := fakeUserKey(accountID, userID)
+	f.userSessions[k] = sessionID
+	f.setUserCalls[k]++
+	return nil
+}
+
+func fakeUserKey(accountID, userID int64) string {
+	return fmt.Sprintf("%d:%d", accountID, userID)
+}
+
+// buildMetadataBody builds a minimal request body with a metadata.user_id
+// in the 2.1.111+ JSON format so RewriteUserID round-trips through the same
+// path the real gateway uses.
+func buildMetadataBody(t *testing.T, deviceID, accountUUID, sessionID, cliVersion string) []byte {
+	t.Helper()
+	uid := FormatMetadataUserID(deviceID, accountUUID, sessionID, cliVersion)
+	return []byte(`{"model":"claude-sonnet-4-5","metadata":{"user_id":` + strconvQuote(uid) + `}}`)
+}
+
+func extractSessionID(t *testing.T, body []byte) string {
+	t.Helper()
+	uid := gjsonGetString(body, "metadata.user_id")
+	require.NotEmpty(t, uid, "body should carry metadata.user_id")
+	parsed := ParseMetadataUserID(uid)
+	require.NotNil(t, parsed, "metadata.user_id must be parseable")
+	return parsed.SessionID
+}
+
+// Test 1 — Same account, different users, same clientSessionID:
+// device_id stays per-account (identical), session_id diverges.
+func TestRewriteUserID_SameAccountDifferentUsers_SameDevice_DifferentSessions(t *testing.T) {
+	svc := NewIdentityService(newFakeIdentityCache())
+	const accountID int64 = 42
+	const clientSessionID = "7578cf37-aaca-46e4-a45c-71285d9dbb83"
+	deviceID := "d61f76d0730d2b920763648949bad5c79742155c27037fc77ac3f9805cb90169"
+
+	body := buildMetadataBody(t, deviceID, "", clientSessionID, "2.1.111")
+	ua := "claude-cli/2.1.111 (external, cli)"
+
+	u1Body, err := svc.RewriteUserID(context.Background(), body, accountID, "acc-uuid", deviceID, ua, 101)
+	require.NoError(t, err)
+	u2Body, err := svc.RewriteUserID(context.Background(), body, accountID, "acc-uuid", deviceID, ua, 202)
+	require.NoError(t, err)
+
+	u1 := ParseMetadataUserID(gjsonGetString(u1Body, "metadata.user_id"))
+	u2 := ParseMetadataUserID(gjsonGetString(u2Body, "metadata.user_id"))
+	require.NotNil(t, u1)
+	require.NotNil(t, u2)
+	require.Equal(t, u1.DeviceID, u2.DeviceID, "device_id must match — shared upstream account = same device")
+	require.NotEqual(t, u1.SessionID, u2.SessionID, "session_id must differ when userID differs")
+}
+
+// Test 2 — Same user opens two distinct `claude` conversations:
+// different clientSessionIDs produce different upstream session_ids.
+func TestRewriteUserID_SameUserMultipleClientSessions_DifferentSessions(t *testing.T) {
+	svc := NewIdentityService(newFakeIdentityCache())
+	const accountID int64 = 42
+	const userID int64 = 7
+	deviceID := "d61f76d0730d2b920763648949bad5c79742155c27037fc77ac3f9805cb90169"
+	ua := "claude-cli/2.1.111 (external, cli)"
+
+	bodyA := buildMetadataBody(t, deviceID, "", "11111111-2222-4333-8444-555555555555", "2.1.111")
+	bodyB := buildMetadataBody(t, deviceID, "", "66666666-7777-4888-8999-aaaaaaaaaaaa", "2.1.111")
+
+	outA, err := svc.RewriteUserID(context.Background(), bodyA, accountID, "acc-uuid", deviceID, ua, userID)
+	require.NoError(t, err)
+	outB, err := svc.RewriteUserID(context.Background(), bodyB, accountID, "acc-uuid", deviceID, ua, userID)
+	require.NoError(t, err)
+
+	require.NotEqual(t, extractSessionID(t, outA), extractSessionID(t, outB),
+		"two separate CC conversations for the same user must map to distinct upstream session_ids")
+}
+
+// Test 3 — Same (account, user, clientSessionID) across many calls is stable.
+// Covers the subagent-fanout / `/resume` case: main CC + subagents share the
+// parent conversation's sessionId, so all outbound session_ids must match.
+// Stability also implies no Redis dependency (we don't prime the fake cache).
+func TestRewriteUserID_SameUserSameClientSession_StableSession(t *testing.T) {
+	svc := NewIdentityService(newFakeIdentityCache())
+	const accountID int64 = 42
+	const userID int64 = 7
+	const clientSessionID = "cccccccc-dddd-4eee-8fff-000000000000"
+	deviceID := "d61f76d0730d2b920763648949bad5c79742155c27037fc77ac3f9805cb90169"
+	ua := "claude-cli/2.1.111 (external, cli)"
+	body := buildMetadataBody(t, deviceID, "", clientSessionID, "2.1.111")
+
+	var sessions []string
+	for i := 0; i < 5; i++ {
+		out, err := svc.RewriteUserID(context.Background(), body, accountID, "acc-uuid", deviceID, ua, userID)
+		require.NoError(t, err)
+		sessions = append(sessions, extractSessionID(t, out))
+	}
+	for i := 1; i < len(sessions); i++ {
+		require.Equal(t, sessions[0], sessions[i],
+			"same (accountID, userID, clientSessionID) must deterministically produce the same upstream session_id")
+	}
+}
+
+// Test 4 — userID == 0 falls back to the legacy 2-part seed so
+// unauthenticated / internal callers see zero behavior change.
+func TestRewriteUserID_UserIDZero_FallsBackToDeterministicSeed(t *testing.T) {
+	svc := NewIdentityService(newFakeIdentityCache())
+	const accountID int64 = 42
+	const clientSessionID = "11111111-2222-4333-8444-555555555555"
+	deviceID := "d61f76d0730d2b920763648949bad5c79742155c27037fc77ac3f9805cb90169"
+	ua := "claude-cli/2.1.111 (external, cli)"
+	body := buildMetadataBody(t, deviceID, "", clientSessionID, "2.1.111")
+
+	out1, err := svc.RewriteUserID(context.Background(), body, accountID, "acc-uuid", deviceID, ua, 0)
+	require.NoError(t, err)
+	out2, err := svc.RewriteUserID(context.Background(), body, accountID, "acc-uuid", deviceID, ua, 0)
+	require.NoError(t, err)
+	require.Equal(t, extractSessionID(t, out1), extractSessionID(t, out2),
+		"userID == 0 path must remain deterministic across calls")
+
+	// Cross-check: seed = sha256(accountID::sessionTail) UUIDv4 — recompute and compare.
+	expected := generateUUIDFromSeed(fmtSeedLegacy(accountID, clientSessionID))
+	require.Equal(t, expected, extractSessionID(t, out1),
+		"userID == 0 session must equal the legacy 2-part seed's UUID")
+}
+
+// Test 5 — Mimic path looks up the per-(user, account) cached UUID on hit and
+// reuses it on the next call (content hash is ignored when userID > 0).
+func TestBuildOAuthMetadataUserID_UsesPerUserSessionCache(t *testing.T) {
+	cache := newFakeIdentityCache()
+	svc := &GatewayService{identityService: NewIdentityService(cache)}
+
+	account := &Account{
+		ID:   42,
+		Type: AccountTypeOAuth,
+		Extra: map[string]any{
+			"account_uuid":   "acc-uuid",
+			"claude_user_id": "deviceabc",
+		},
+	}
+	// Two different parsed requests with different content to make the
+	// content-hash seeded session *would* vary. With the per-user cache
+	// in play, they must not.
+	parsedA := &ParsedRequest{Model: "claude-sonnet-4-5", System: []any{"alpha"}}
+	parsedB := &ParsedRequest{Model: "claude-sonnet-4-5", System: []any{"beta"}}
+	fp := &Fingerprint{ClientID: "deviceabc", UserAgent: "claude-cli/2.1.111 (external, cli)"}
+
+	ctx := context.Background()
+	uid1 := svc.buildOAuthMetadataUserID(ctx, parsedA, account, fp, 77)
+	uid2 := svc.buildOAuthMetadataUserID(ctx, parsedB, account, fp, 77)
+	require.NotEmpty(t, uid1)
+	require.Equal(t, uid1, uid2, "per-user cache must yield the same session_id across distinct prompts")
+
+	// Different user on the same account must diverge.
+	uid3 := svc.buildOAuthMetadataUserID(ctx, parsedA, account, fp, 88)
+	require.NotEqual(t, uid1, uid3, "different userID must yield a different session_id")
+}
+
+// Test 6 — Every mimic call refreshes the cache TTL by calling SetUserSessionID.
+func TestBuildOAuthMetadataUserID_CacheTTLRefreshed(t *testing.T) {
+	cache := newFakeIdentityCache()
+	svc := &GatewayService{identityService: NewIdentityService(cache)}
+
+	account := &Account{
+		ID:    42,
+		Type:  AccountTypeOAuth,
+		Extra: map[string]any{"account_uuid": "acc-uuid", "claude_user_id": "deviceabc"},
+	}
+	parsed := &ParsedRequest{Model: "claude-sonnet-4-5", System: []any{"alpha"}}
+	fp := &Fingerprint{ClientID: "deviceabc", UserAgent: "claude-cli/2.1.111 (external, cli)"}
+
+	for i := 0; i < 3; i++ {
+		_ = svc.buildOAuthMetadataUserID(context.Background(), parsed, account, fp, 77)
+	}
+	require.Equal(t, 3, cache.setUserCalls[fakeUserKey(42, 77)],
+		"SetUserSessionID must be called once per request to refresh the rolling idle TTL")
+}
+
+// Test 7 — Masking toggle + userID > 0 bypasses masking entirely;
+// userID == 0 keeps legacy masking behavior.
+func TestRewriteUserIDWithMasking_SkippedWhenUserIDPositive(t *testing.T) {
+	cache := newFakeIdentityCache()
+	svc := NewIdentityService(cache)
+
+	account := &Account{
+		ID:       42,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeOAuth,
+		Extra:    map[string]any{"session_id_masking_enabled": true},
+	}
+	deviceID := "d61f76d0730d2b920763648949bad5c79742155c27037fc77ac3f9805cb90169"
+	clientSessionID := "11111111-2222-4333-8444-555555555555"
+	body := buildMetadataBody(t, deviceID, "", clientSessionID, "2.1.111")
+	ua := "claude-cli/2.1.111 (external, cli)"
+
+	// userID > 0: masking must be skipped and the per-user seeded hash preserved.
+	outAuth, err := svc.RewriteUserIDWithMasking(context.Background(), body, account, "acc-uuid", deviceID, ua, 77)
+	require.NoError(t, err)
+	authSession := extractSessionID(t, outAuth)
+	// Expected session = sha256(accountID::userID::clientSessionID)-UUIDv4
+	expected := generateUUIDFromSeed(fmtSeedWithUser(42, 77, clientSessionID))
+	require.Equal(t, expected, authSession, "userID > 0 must retain RewriteUserID's per-user seed")
+	require.Empty(t, cache.maskedSessionID[42], "masked session cache must NOT be touched when userID > 0")
+
+	// userID == 0: legacy masking applies and overwrites with the cached (random) UUID.
+	outLegacy, err := svc.RewriteUserIDWithMasking(context.Background(), body, account, "acc-uuid", deviceID, ua, 0)
+	require.NoError(t, err)
+	legacySession := extractSessionID(t, outLegacy)
+	require.NotEqual(t, expected, legacySession, "userID == 0 legacy path must still pick up masking")
+	require.NotEmpty(t, cache.maskedSessionID[42], "masked session cache must be populated on userID == 0 path")
+}
+
+// Test 8 — syncClaudeCodeSessionIDHeader always sets the header in mimic mode
+// and only overwrites an existing one in real-CC mode.
+func TestXClaudeCodeSessionIDSyncedInMimic(t *testing.T) {
+	body := buildMetadataBody(t,
+		"d61f76d0730d2b920763648949bad5c79742155c27037fc77ac3f9805cb90169",
+		"",
+		"abababab-cdcd-4efe-8fef-010101010101",
+		"2.1.111",
+	)
+	wantSession := "abababab-cdcd-4efe-8fef-010101010101"
+
+	// Mimic mode + no client header → must set.
+	req1, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", nil)
+	require.NoError(t, err)
+	syncClaudeCodeSessionIDHeader(req1, body, true)
+	assert.Equal(t, wantSession, getHeaderRaw(req1.Header, "X-Claude-Code-Session-Id"),
+		"mimic mode must always set the header even when absent on the client")
+
+	// Mimic mode + stale client header → must overwrite.
+	req2, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", nil)
+	require.NoError(t, err)
+	setHeaderRaw(req2.Header, "X-Claude-Code-Session-Id", "stale-should-be-replaced")
+	syncClaudeCodeSessionIDHeader(req2, body, true)
+	assert.Equal(t, wantSession, getHeaderRaw(req2.Header, "X-Claude-Code-Session-Id"))
+
+	// Real-CC mode + no client header → must NOT set (client opted out).
+	req3, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", nil)
+	require.NoError(t, err)
+	syncClaudeCodeSessionIDHeader(req3, body, false)
+	assert.Equal(t, "", getHeaderRaw(req3.Header, "X-Claude-Code-Session-Id"),
+		"real-CC mode must not introduce a header the client did not send")
+
+	// Real-CC mode + existing client header → must overwrite to the canonical body session_id.
+	req4, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", nil)
+	require.NoError(t, err)
+	setHeaderRaw(req4.Header, "X-Claude-Code-Session-Id", "client-sent-stale")
+	syncClaudeCodeSessionIDHeader(req4, body, false)
+	assert.Equal(t, wantSession, getHeaderRaw(req4.Header, "X-Claude-Code-Session-Id"))
+}
+
+// fmtSeedLegacy / fmtSeedWithUser mirror the seed formats in identity_service.go
+// so tests can recompute the expected UUIDv4 without exporting helpers.
+func fmtSeedLegacy(accountID int64, sessionTail string) string {
+	return fmt.Sprintf("%d::%s", accountID, sessionTail)
+}
+
+func fmtSeedWithUser(accountID, userID int64, sessionTail string) string {
+	return fmt.Sprintf("%d::%d::%s", accountID, userID, sessionTail)
+}
+
+func gjsonGetString(body []byte, path string) string {
+	return gjson.GetBytes(body, path).String()
 }

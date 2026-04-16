@@ -1249,7 +1249,48 @@ func normalizeClaudeOAuthRequestBody(body []byte, modelID string, opts claudeOAu
 	return out, modelID
 }
 
-func (s *GatewayService) buildOAuthMetadataUserID(parsed *ParsedRequest, account *Account, fp *Fingerprint) string {
+// ctxUserID extracts the sub2api user id injected by all three gateway
+// handlers via ctxkey.UserID. Returns 0 when absent so callers can branch
+// between per-user and legacy behavior without a second error path.
+func ctxUserID(ctx context.Context) int64 {
+	if ctx == nil {
+		return 0
+	}
+	if v, ok := ctx.Value(ctxkey.UserID).(int64); ok {
+		return v
+	}
+	return 0
+}
+
+// syncClaudeCodeSessionIDHeader aligns the outbound X-Claude-Code-Session-Id
+// header with the (possibly rewritten) metadata.user_id.session_id in the body.
+//
+// mimic mode: always set — Anthropic expects the header on Claude Code traffic,
+// and emitting a body session without the matching header looks inconsistent.
+// real Claude Code mode: only overwrite when the client already sent the header,
+// so clients that intentionally omit it keep that shape.
+func syncClaudeCodeSessionIDHeader(req *http.Request, body []byte, mimicClaudeCode bool) {
+	if req == nil {
+		return
+	}
+	uid := gjson.GetBytes(body, "metadata.user_id").String()
+	if uid == "" {
+		return
+	}
+	parsed := ParseMetadataUserID(uid)
+	if parsed == nil || parsed.SessionID == "" {
+		return
+	}
+	if mimicClaudeCode {
+		setHeaderRaw(req.Header, "X-Claude-Code-Session-Id", parsed.SessionID)
+		return
+	}
+	if getHeaderRaw(req.Header, "X-Claude-Code-Session-Id") != "" {
+		setHeaderRaw(req.Header, "X-Claude-Code-Session-Id", parsed.SessionID)
+	}
+}
+
+func (s *GatewayService) buildOAuthMetadataUserID(ctx context.Context, parsed *ParsedRequest, account *Account, fp *Fingerprint, userID int64) string {
 	if parsed == nil || account == nil {
 		return ""
 	}
@@ -1257,21 +1298,38 @@ func (s *GatewayService) buildOAuthMetadataUserID(parsed *ParsedRequest, account
 		return ""
 	}
 
-	userID := strings.TrimSpace(account.GetClaudeUserID())
-	if userID == "" && fp != nil {
-		userID = fp.ClientID
+	deviceID := strings.TrimSpace(account.GetClaudeUserID())
+	if deviceID == "" && fp != nil {
+		deviceID = fp.ClientID
 	}
-	if userID == "" {
+	if deviceID == "" {
 		// Fall back to a random, well-formed client id so we can still satisfy
 		// Claude Code OAuth requirements when account metadata is incomplete.
-		userID = generateClientID()
+		deviceID = generateClientID()
 	}
 
-	sessionHash := s.GenerateSessionHash(parsed)
-	sessionID := uuid.NewString()
-	if sessionHash != "" {
-		seed := fmt.Sprintf("%d::%s", account.ID, sessionHash)
-		sessionID = generateSessionUUID(seed)
+	// Session selection:
+	//   userID > 0 (authenticated mimic caller): look up a per-(account, user)
+	//     cached random UUID so repeated calls from the same user look like one
+	//     long-lived session instead of varying with request content. TTL is
+	//     rolling (UserSessionIdleTTL) — every call refreshes the idle timer.
+	//   userID == 0 (unauthenticated / internal): fall back to the legacy
+	//     content-hash-seeded UUID to preserve prior behavior.
+	var sessionID string
+	if userID > 0 && s.identityService != nil {
+		cached, _ := s.identityService.GetUserSessionID(ctx, account.ID, userID)
+		if cached == "" {
+			cached = generateRandomUUID()
+		}
+		_ = s.identityService.SetUserSessionID(ctx, account.ID, userID, cached, 0)
+		sessionID = cached
+	} else {
+		sessionHash := s.GenerateSessionHash(parsed)
+		sessionID = uuid.NewString()
+		if sessionHash != "" {
+			seed := fmt.Sprintf("%d::%s", account.ID, sessionHash)
+			sessionID = generateSessionUUID(seed)
+		}
 	}
 
 	// 根据指纹 UA 版本选择输出格式
@@ -1280,7 +1338,7 @@ func (s *GatewayService) buildOAuthMetadataUserID(parsed *ParsedRequest, account
 		uaVersion = ExtractCLIVersion(fp.UserAgent)
 	}
 	accountUUID := strings.TrimSpace(account.GetExtraString("account_uuid"))
-	return FormatMetadataUserID(userID, accountUUID, sessionID, uaVersion)
+	return FormatMetadataUserID(deviceID, accountUUID, sessionID, uaVersion)
 }
 
 // GenerateSessionUUID creates a deterministic UUID4 from a seed string.
@@ -1400,7 +1458,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	var affinityResolved bool
 	if s.userAffinityCache != nil && group != nil &&
 		group.UserAccountAffinityEnabled && group.Platform == PlatformAnthropic {
-		if uid, ok := ctx.Value(ctxkey.UserID).(int64); ok && uid > 0 {
+		if uid := ctxUserID(ctx); uid > 0 {
 			affinityUserID = uid
 			if affinityAccountID, afErr := s.userAffinityCache.GetAffinity(ctx, derefGroupID(groupID), uid); afErr == nil && affinityAccountID > 0 {
 				_, isExcl := excludedIDs[affinityAccountID] // nil-map read is safe in Go
@@ -4492,7 +4550,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 				// metadata 透传开启时跳过 metadata 注入
 				_, mimicMPT, _ := s.settingService.GetGatewayForwardingSettings(ctx)
 				if !mimicMPT {
-					if metadataUserID := s.buildOAuthMetadataUserID(parsed, account, fp); metadataUserID != "" {
+					if metadataUserID := s.buildOAuthMetadataUserID(ctx, parsed, account, fp, ctxUserID(ctx)); metadataUserID != "" {
 						normalizeOpts.injectMetadata = true
 						normalizeOpts.metadataUserID = metadataUserID
 					}
@@ -6063,7 +6121,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 			if !enableMPT {
 				accountUUID := account.GetExtraString("account_uuid")
 				if accountUUID != "" && fp.ClientID != "" {
-					if newBody, err := s.identityService.RewriteUserIDWithMasking(ctx, body, account, accountUUID, fp.ClientID, effectiveUAForMimic(fp.UserAgent, mimicClaudeCode, effectiveUA)); err == nil && len(newBody) > 0 {
+					if newBody, err := s.identityService.RewriteUserIDWithMasking(ctx, body, account, accountUUID, fp.ClientID, effectiveUAForMimic(fp.UserAgent, mimicClaudeCode, effectiveUA), ctxUserID(ctx)); err == nil && len(newBody) > 0 {
 						body = newBody
 					}
 				}
@@ -6163,14 +6221,11 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 
 	ensureMimicClientRequestID(req, mimicClaudeCode)
 
-	// 同步 X-Claude-Code-Session-Id 头：取 body 中已处理的 metadata.user_id 的 session_id 覆盖
-	if sessionHeader := getHeaderRaw(req.Header, "X-Claude-Code-Session-Id"); sessionHeader != "" {
-		if uid := gjson.GetBytes(body, "metadata.user_id").String(); uid != "" {
-			if parsed := ParseMetadataUserID(uid); parsed != nil {
-				setHeaderRaw(req.Header, "X-Claude-Code-Session-Id", parsed.SessionID)
-			}
-		}
-	}
+	// 同步 X-Claude-Code-Session-Id 头，使其始终与 body metadata.user_id 的 session_id 对齐。
+	// 在 mimic 模式下：无论客户端是否发送该头，都强制设置（否则一个 mimic 账号会对 Anthropic
+	// 同时呈现"多用户无会话头"与"单会话头"两种矛盾形态）。
+	// 真实 Claude Code 流量：保留原有条件行为（仅在客户端已提供时覆盖）。
+	syncClaudeCodeSessionIDHeader(req, body, mimicClaudeCode)
 
 	// === DEBUG: 打印上游转发请求（headers + body 摘要），与 CLIENT_ORIGINAL 对比 ===
 	s.debugLogGatewaySnapshot("UPSTREAM_FORWARD", req.Header, body, map[string]string{
@@ -9134,7 +9189,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 			if !ctEnableMPT {
 				accountUUID := account.GetExtraString("account_uuid")
 				if accountUUID != "" && fp.ClientID != "" {
-					if newBody, err := s.identityService.RewriteUserIDWithMasking(ctx, body, account, accountUUID, fp.ClientID, effectiveUAForMimic(fp.UserAgent, mimicClaudeCode, ctEffectiveUA)); err == nil && len(newBody) > 0 {
+					if newBody, err := s.identityService.RewriteUserIDWithMasking(ctx, body, account, accountUUID, fp.ClientID, effectiveUAForMimic(fp.UserAgent, mimicClaudeCode, ctEffectiveUA), ctxUserID(ctx)); err == nil && len(newBody) > 0 {
 						body = newBody
 					}
 				}
@@ -9228,14 +9283,8 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 
 	ensureMimicClientRequestID(req, mimicClaudeCode)
 
-	// 同步 X-Claude-Code-Session-Id 头：取 body 中已处理的 metadata.user_id 的 session_id 覆盖
-	if sessionHeader := getHeaderRaw(req.Header, "X-Claude-Code-Session-Id"); sessionHeader != "" {
-		if uid := gjson.GetBytes(body, "metadata.user_id").String(); uid != "" {
-			if parsed := ParseMetadataUserID(uid); parsed != nil {
-				setHeaderRaw(req.Header, "X-Claude-Code-Session-Id", parsed.SessionID)
-			}
-		}
-	}
+	// 同步 X-Claude-Code-Session-Id 头：见 buildUpstreamRequest 中相同的同步逻辑说明。
+	syncClaudeCodeSessionIDHeader(req, body, mimicClaudeCode)
 
 	if c != nil && tokenType == "oauth" {
 		c.Set(claudeMimicDebugInfoKey, buildClaudeMimicDebugLine(req, body, account, tokenType, mimicClaudeCode))

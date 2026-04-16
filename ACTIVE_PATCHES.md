@@ -1,7 +1,7 @@
 # Active Fork Patches
 
 This file is the **single source of truth** for all fork-only patches on `main`.
-Currently **12 active patches** (3, 6, 9, 13, 18, 19, 20, 21, 22, 23, 24, 25).
+Currently **13 active patches** (3, 6, 9, 13, 18, 19, 20, 21, 22, 23, 24, 25, 26).
 
 > **Baseline:** Merged upstream `v0.1.113` on 2026-04-16 (merge commit `fe5f7dd3`).
 
@@ -208,6 +208,22 @@ Currently **12 active patches** (3, 6, 9, 13, 18, 19, 20, 21, 22, 23, 24, 25).
 
 ---
 
+## Patch 26 — Same-Device, Per-User-Session Identity
+
+**Purpose:** Isolate sub2api users who share one upstream Anthropic OAuth account so they look like *multiple sessions on the same device* (the normal pattern for one developer's machine running several `claude` terminals) rather than multiple random devices against one account. `device_id` stays per-account (unchanged). `session_id` is now scoped per-(account, sub2api user): real Claude Code traffic seeds the session hash with `userID`; mimic traffic uses a per-(account, user) cached random UUID with 30-minute rolling idle TTL. Session-ID masking is bypassed on authenticated paths (userID > 0) since it would collapse the per-user sessions back into one. `X-Claude-Code-Session-Id` is always set in mimic mode to match the body session_id.
+
+**Upstream conflict risk:** MEDIUM — adds cache methods + modifies `RewriteUserID`/`RewriteUserIDWithMasking` signatures + threads `ctxkey.UserID` into `buildUpstreamRequest`, `buildCountTokensRequest`, and `Forward`'s mimic injection.
+
+| Layer | Key Files |
+|-------|-----------|
+| Backend (new) | `service/identity_service.go` (`UserSessionIdleTTL`, `IdentityCache.GetUserSessionID`/`SetUserSessionID`, `IdentityService.GetUserSessionID`/`SetUserSessionID`) |
+| Backend (new) | `repository/identity_cache.go` (`userSessionKey`, `userSessionTTL`, `GetUserSessionID`/`SetUserSessionID`) |
+| Backend (modified) | `service/identity_service.go` (`RewriteUserID` adds `ctx`/`userID`; seed becomes `accountID::userID::sessionTail` when userID>0; `RewriteUserIDWithMasking` adds `userID`, skips masking when userID>0) |
+| Backend (modified) | `service/gateway_service.go` (`ctxUserID` helper, `syncClaudeCodeSessionIDHeader` helper, `buildOAuthMetadataUserID` signature + cache lookup, two `RewriteUserIDWithMasking` call sites + `Forward` mimic call threaded with `userID`, header sync always-set in mimic mode) |
+| Tests | `service/gateway_fingerprint_test.go` (new `fakeIdentityCache` + 8 tests), `service/gateway_oauth_metadata_test.go` (per-user cache hit/miss), `repository/identity_cache_test.go` (`TestUserSessionKey`), `repository/identity_cache_integration_test.go` (roundtrip + TTL refresh) |
+
+---
+
 ## Verification
 
 Run after every upstream merge to confirm all patches survived:
@@ -271,6 +287,13 @@ grep -n resolveClaudeCodeUserAgent backend/internal/service/gateway_service.go
 grep -n 'claude-cli/2.1.111' backend/internal/pkg/claude/constants.go backend/internal/service/identity_service.go
 grep -n 'BetaContextManagement\|BetaPromptCachingScope\|BetaEffort' backend/internal/pkg/claude/constants.go
 grep -n 'x-client-request-id' backend/internal/service/gateway_service.go
+
+# Patch 26: Same-device per-user session identity
+grep -n GetUserSessionID backend/internal/service/identity_service.go
+grep -n 'user_session:' backend/internal/repository/identity_cache.go
+grep -n 'userID int64' backend/internal/service/identity_service.go | grep -i rewrite
+grep -n ctxUserID backend/internal/service/gateway_service.go
+grep -n syncClaudeCodeSessionIDHeader backend/internal/service/gateway_service.go
 ```
 
 ---
