@@ -15698,25 +15698,26 @@ func (m *PaymentOrderMutation) ResetEdge(name string) error {
 // PaymentProviderInstanceMutation represents an operation that mutates the PaymentProviderInstance nodes in the graph.
 type PaymentProviderInstanceMutation struct {
 	config
-	op              Op
-	typ             string
-	id              *int64
-	provider_key    *string
-	name            *string
-	_config         *string
-	supported_types *string
-	enabled         *bool
-	payment_mode    *string
-	sort_order      *int
-	addsort_order   *int
-	limits          *string
-	refund_enabled  *bool
-	created_at      *time.Time
-	updated_at      *time.Time
-	clearedFields   map[string]struct{}
-	done            bool
-	oldValue        func(context.Context) (*PaymentProviderInstance, error)
-	predicates      []predicate.PaymentProviderInstance
+	op                Op
+	typ               string
+	id                *int64
+	provider_key      *string
+	name              *string
+	_config           *string
+	supported_types   *string
+	enabled           *bool
+	payment_mode      *string
+	sort_order        *int
+	addsort_order     *int
+	limits            *string
+	refund_enabled    *bool
+	allow_user_refund *bool
+	created_at        *time.Time
+	updated_at        *time.Time
+	clearedFields     map[string]struct{}
+	done              bool
+	oldValue          func(context.Context) (*PaymentProviderInstance, error)
+	predicates        []predicate.PaymentProviderInstance
 }
 
 var _ ent.Mutation = (*PaymentProviderInstanceMutation)(nil)
@@ -16161,6 +16162,42 @@ func (m *PaymentProviderInstanceMutation) ResetRefundEnabled() {
 	m.refund_enabled = nil
 }
 
+// SetAllowUserRefund sets the "allow_user_refund" field.
+func (m *PaymentProviderInstanceMutation) SetAllowUserRefund(b bool) {
+	m.allow_user_refund = &b
+}
+
+// AllowUserRefund returns the value of the "allow_user_refund" field in the mutation.
+func (m *PaymentProviderInstanceMutation) AllowUserRefund() (r bool, exists bool) {
+	v := m.allow_user_refund
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAllowUserRefund returns the old "allow_user_refund" field's value of the PaymentProviderInstance entity.
+// If the PaymentProviderInstance object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PaymentProviderInstanceMutation) OldAllowUserRefund(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAllowUserRefund is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAllowUserRefund requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAllowUserRefund: %w", err)
+	}
+	return oldValue.AllowUserRefund, nil
+}
+
+// ResetAllowUserRefund resets all changes to the "allow_user_refund" field.
+func (m *PaymentProviderInstanceMutation) ResetAllowUserRefund() {
+	m.allow_user_refund = nil
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (m *PaymentProviderInstanceMutation) SetCreatedAt(t time.Time) {
 	m.created_at = &t
@@ -16267,7 +16304,7 @@ func (m *PaymentProviderInstanceMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *PaymentProviderInstanceMutation) Fields() []string {
-	fields := make([]string, 0, 11)
+	fields := make([]string, 0, 12)
 	if m.provider_key != nil {
 		fields = append(fields, paymentproviderinstance.FieldProviderKey)
 	}
@@ -16294,6 +16331,9 @@ func (m *PaymentProviderInstanceMutation) Fields() []string {
 	}
 	if m.refund_enabled != nil {
 		fields = append(fields, paymentproviderinstance.FieldRefundEnabled)
+	}
+	if m.allow_user_refund != nil {
+		fields = append(fields, paymentproviderinstance.FieldAllowUserRefund)
 	}
 	if m.created_at != nil {
 		fields = append(fields, paymentproviderinstance.FieldCreatedAt)
@@ -16327,6 +16367,8 @@ func (m *PaymentProviderInstanceMutation) Field(name string) (ent.Value, bool) {
 		return m.Limits()
 	case paymentproviderinstance.FieldRefundEnabled:
 		return m.RefundEnabled()
+	case paymentproviderinstance.FieldAllowUserRefund:
+		return m.AllowUserRefund()
 	case paymentproviderinstance.FieldCreatedAt:
 		return m.CreatedAt()
 	case paymentproviderinstance.FieldUpdatedAt:
@@ -16358,6 +16400,8 @@ func (m *PaymentProviderInstanceMutation) OldField(ctx context.Context, name str
 		return m.OldLimits(ctx)
 	case paymentproviderinstance.FieldRefundEnabled:
 		return m.OldRefundEnabled(ctx)
+	case paymentproviderinstance.FieldAllowUserRefund:
+		return m.OldAllowUserRefund(ctx)
 	case paymentproviderinstance.FieldCreatedAt:
 		return m.OldCreatedAt(ctx)
 	case paymentproviderinstance.FieldUpdatedAt:
@@ -16433,6 +16477,13 @@ func (m *PaymentProviderInstanceMutation) SetField(name string, value ent.Value)
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetRefundEnabled(v)
+		return nil
+	case paymentproviderinstance.FieldAllowUserRefund:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAllowUserRefund(v)
 		return nil
 	case paymentproviderinstance.FieldCreatedAt:
 		v, ok := value.(time.Time)
@@ -16538,6 +16589,9 @@ func (m *PaymentProviderInstanceMutation) ResetField(name string) error {
 		return nil
 	case paymentproviderinstance.FieldRefundEnabled:
 		m.ResetRefundEnabled()
+		return nil
+	case paymentproviderinstance.FieldAllowUserRefund:
+		m.ResetAllowUserRefund()
 		return nil
 	case paymentproviderinstance.FieldCreatedAt:
 		m.ResetCreatedAt()
@@ -29121,14 +29175,21 @@ type UserMutation struct {
 	addbalance                    *float64
 	concurrency                   *int
 	addconcurrency                *int
-	rpm_limit                     *int
-	addrpm_limit                  *int
 	status                        *string
 	username                      *string
 	notes                         *string
 	totp_secret_encrypted         *string
 	totp_enabled                  *bool
 	totp_enabled_at               *time.Time
+	balance_notify_enabled        *bool
+	balance_notify_threshold_type *string
+	balance_notify_threshold      *float64
+	addbalance_notify_threshold   *float64
+	balance_notify_extra_emails   *string
+	total_recharged               *float64
+	addtotal_recharged            *float64
+	rpm_limit                     *int
+	addrpm_limit                  *int
 	clearedFields                 map[string]struct{}
 	api_keys                      map[int64]struct{}
 	removedapi_keys               map[int64]struct{}
@@ -29604,62 +29665,6 @@ func (m *UserMutation) ResetConcurrency() {
 	m.addconcurrency = nil
 }
 
-// SetRpmLimit sets the "rpm_limit" field.
-func (m *UserMutation) SetRpmLimit(i int) {
-	m.rpm_limit = &i
-	m.addrpm_limit = nil
-}
-
-// RpmLimit returns the value of the "rpm_limit" field in the mutation.
-func (m *UserMutation) RpmLimit() (r int, exists bool) {
-	v := m.rpm_limit
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// OldRpmLimit returns the old "rpm_limit" field's value of the User entity.
-// If the User object wasn't provided to the builder, the object is fetched from the database.
-// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *UserMutation) OldRpmLimit(ctx context.Context) (v int, err error) {
-	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldRpmLimit is only allowed on UpdateOne operations")
-	}
-	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldRpmLimit requires an ID field in the mutation")
-	}
-	oldValue, err := m.oldValue(ctx)
-	if err != nil {
-		return v, fmt.Errorf("querying old value for OldRpmLimit: %w", err)
-	}
-	return oldValue.RpmLimit, nil
-}
-
-// AddRpmLimit adds i to the "rpm_limit" field.
-func (m *UserMutation) AddRpmLimit(i int) {
-	if m.addrpm_limit != nil {
-		*m.addrpm_limit += i
-	} else {
-		m.addrpm_limit = &i
-	}
-}
-
-// AddedRpmLimit returns the value that was added to the "rpm_limit" field in this mutation.
-func (m *UserMutation) AddedRpmLimit() (r int, exists bool) {
-	v := m.addrpm_limit
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// ResetRpmLimit resets all changes to the "rpm_limit" field.
-func (m *UserMutation) ResetRpmLimit() {
-	m.rpm_limit = nil
-	m.addrpm_limit = nil
-}
-
 // SetStatus sets the "status" field.
 func (m *UserMutation) SetStatus(s string) {
 	m.status = &s
@@ -29900,6 +29905,296 @@ func (m *UserMutation) TotpEnabledAtCleared() bool {
 func (m *UserMutation) ResetTotpEnabledAt() {
 	m.totp_enabled_at = nil
 	delete(m.clearedFields, user.FieldTotpEnabledAt)
+}
+
+// SetBalanceNotifyEnabled sets the "balance_notify_enabled" field.
+func (m *UserMutation) SetBalanceNotifyEnabled(b bool) {
+	m.balance_notify_enabled = &b
+}
+
+// BalanceNotifyEnabled returns the value of the "balance_notify_enabled" field in the mutation.
+func (m *UserMutation) BalanceNotifyEnabled() (r bool, exists bool) {
+	v := m.balance_notify_enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBalanceNotifyEnabled returns the old "balance_notify_enabled" field's value of the User entity.
+// If the User object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserMutation) OldBalanceNotifyEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBalanceNotifyEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBalanceNotifyEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBalanceNotifyEnabled: %w", err)
+	}
+	return oldValue.BalanceNotifyEnabled, nil
+}
+
+// ResetBalanceNotifyEnabled resets all changes to the "balance_notify_enabled" field.
+func (m *UserMutation) ResetBalanceNotifyEnabled() {
+	m.balance_notify_enabled = nil
+}
+
+// SetBalanceNotifyThresholdType sets the "balance_notify_threshold_type" field.
+func (m *UserMutation) SetBalanceNotifyThresholdType(s string) {
+	m.balance_notify_threshold_type = &s
+}
+
+// BalanceNotifyThresholdType returns the value of the "balance_notify_threshold_type" field in the mutation.
+func (m *UserMutation) BalanceNotifyThresholdType() (r string, exists bool) {
+	v := m.balance_notify_threshold_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBalanceNotifyThresholdType returns the old "balance_notify_threshold_type" field's value of the User entity.
+// If the User object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserMutation) OldBalanceNotifyThresholdType(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBalanceNotifyThresholdType is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBalanceNotifyThresholdType requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBalanceNotifyThresholdType: %w", err)
+	}
+	return oldValue.BalanceNotifyThresholdType, nil
+}
+
+// ResetBalanceNotifyThresholdType resets all changes to the "balance_notify_threshold_type" field.
+func (m *UserMutation) ResetBalanceNotifyThresholdType() {
+	m.balance_notify_threshold_type = nil
+}
+
+// SetBalanceNotifyThreshold sets the "balance_notify_threshold" field.
+func (m *UserMutation) SetBalanceNotifyThreshold(f float64) {
+	m.balance_notify_threshold = &f
+	m.addbalance_notify_threshold = nil
+}
+
+// BalanceNotifyThreshold returns the value of the "balance_notify_threshold" field in the mutation.
+func (m *UserMutation) BalanceNotifyThreshold() (r float64, exists bool) {
+	v := m.balance_notify_threshold
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBalanceNotifyThreshold returns the old "balance_notify_threshold" field's value of the User entity.
+// If the User object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserMutation) OldBalanceNotifyThreshold(ctx context.Context) (v *float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBalanceNotifyThreshold is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBalanceNotifyThreshold requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBalanceNotifyThreshold: %w", err)
+	}
+	return oldValue.BalanceNotifyThreshold, nil
+}
+
+// AddBalanceNotifyThreshold adds f to the "balance_notify_threshold" field.
+func (m *UserMutation) AddBalanceNotifyThreshold(f float64) {
+	if m.addbalance_notify_threshold != nil {
+		*m.addbalance_notify_threshold += f
+	} else {
+		m.addbalance_notify_threshold = &f
+	}
+}
+
+// AddedBalanceNotifyThreshold returns the value that was added to the "balance_notify_threshold" field in this mutation.
+func (m *UserMutation) AddedBalanceNotifyThreshold() (r float64, exists bool) {
+	v := m.addbalance_notify_threshold
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearBalanceNotifyThreshold clears the value of the "balance_notify_threshold" field.
+func (m *UserMutation) ClearBalanceNotifyThreshold() {
+	m.balance_notify_threshold = nil
+	m.addbalance_notify_threshold = nil
+	m.clearedFields[user.FieldBalanceNotifyThreshold] = struct{}{}
+}
+
+// BalanceNotifyThresholdCleared returns if the "balance_notify_threshold" field was cleared in this mutation.
+func (m *UserMutation) BalanceNotifyThresholdCleared() bool {
+	_, ok := m.clearedFields[user.FieldBalanceNotifyThreshold]
+	return ok
+}
+
+// ResetBalanceNotifyThreshold resets all changes to the "balance_notify_threshold" field.
+func (m *UserMutation) ResetBalanceNotifyThreshold() {
+	m.balance_notify_threshold = nil
+	m.addbalance_notify_threshold = nil
+	delete(m.clearedFields, user.FieldBalanceNotifyThreshold)
+}
+
+// SetBalanceNotifyExtraEmails sets the "balance_notify_extra_emails" field.
+func (m *UserMutation) SetBalanceNotifyExtraEmails(s string) {
+	m.balance_notify_extra_emails = &s
+}
+
+// BalanceNotifyExtraEmails returns the value of the "balance_notify_extra_emails" field in the mutation.
+func (m *UserMutation) BalanceNotifyExtraEmails() (r string, exists bool) {
+	v := m.balance_notify_extra_emails
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBalanceNotifyExtraEmails returns the old "balance_notify_extra_emails" field's value of the User entity.
+// If the User object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserMutation) OldBalanceNotifyExtraEmails(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBalanceNotifyExtraEmails is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBalanceNotifyExtraEmails requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBalanceNotifyExtraEmails: %w", err)
+	}
+	return oldValue.BalanceNotifyExtraEmails, nil
+}
+
+// ResetBalanceNotifyExtraEmails resets all changes to the "balance_notify_extra_emails" field.
+func (m *UserMutation) ResetBalanceNotifyExtraEmails() {
+	m.balance_notify_extra_emails = nil
+}
+
+// SetTotalRecharged sets the "total_recharged" field.
+func (m *UserMutation) SetTotalRecharged(f float64) {
+	m.total_recharged = &f
+	m.addtotal_recharged = nil
+}
+
+// TotalRecharged returns the value of the "total_recharged" field in the mutation.
+func (m *UserMutation) TotalRecharged() (r float64, exists bool) {
+	v := m.total_recharged
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTotalRecharged returns the old "total_recharged" field's value of the User entity.
+// If the User object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserMutation) OldTotalRecharged(ctx context.Context) (v float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTotalRecharged is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTotalRecharged requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTotalRecharged: %w", err)
+	}
+	return oldValue.TotalRecharged, nil
+}
+
+// AddTotalRecharged adds f to the "total_recharged" field.
+func (m *UserMutation) AddTotalRecharged(f float64) {
+	if m.addtotal_recharged != nil {
+		*m.addtotal_recharged += f
+	} else {
+		m.addtotal_recharged = &f
+	}
+}
+
+// AddedTotalRecharged returns the value that was added to the "total_recharged" field in this mutation.
+func (m *UserMutation) AddedTotalRecharged() (r float64, exists bool) {
+	v := m.addtotal_recharged
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetTotalRecharged resets all changes to the "total_recharged" field.
+func (m *UserMutation) ResetTotalRecharged() {
+	m.total_recharged = nil
+	m.addtotal_recharged = nil
+}
+
+// SetRpmLimit sets the "rpm_limit" field.
+func (m *UserMutation) SetRpmLimit(i int) {
+	m.rpm_limit = &i
+	m.addrpm_limit = nil
+}
+
+// RpmLimit returns the value of the "rpm_limit" field in the mutation.
+func (m *UserMutation) RpmLimit() (r int, exists bool) {
+	v := m.rpm_limit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRpmLimit returns the old "rpm_limit" field's value of the User entity.
+// If the User object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserMutation) OldRpmLimit(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRpmLimit is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRpmLimit requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRpmLimit: %w", err)
+	}
+	return oldValue.RpmLimit, nil
+}
+
+// AddRpmLimit adds i to the "rpm_limit" field.
+func (m *UserMutation) AddRpmLimit(i int) {
+	if m.addrpm_limit != nil {
+		*m.addrpm_limit += i
+	} else {
+		m.addrpm_limit = &i
+	}
+}
+
+// AddedRpmLimit returns the value that was added to the "rpm_limit" field in this mutation.
+func (m *UserMutation) AddedRpmLimit() (r int, exists bool) {
+	v := m.addrpm_limit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRpmLimit resets all changes to the "rpm_limit" field.
+func (m *UserMutation) ResetRpmLimit() {
+	m.rpm_limit = nil
+	m.addrpm_limit = nil
 }
 
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by ids.
@@ -30476,7 +30771,7 @@ func (m *UserMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UserMutation) Fields() []string {
-	fields := make([]string, 0, 15)
+	fields := make([]string, 0, 20)
 	if m.created_at != nil {
 		fields = append(fields, user.FieldCreatedAt)
 	}
@@ -30501,9 +30796,6 @@ func (m *UserMutation) Fields() []string {
 	if m.concurrency != nil {
 		fields = append(fields, user.FieldConcurrency)
 	}
-	if m.rpm_limit != nil {
-		fields = append(fields, user.FieldRpmLimit)
-	}
 	if m.status != nil {
 		fields = append(fields, user.FieldStatus)
 	}
@@ -30521,6 +30813,24 @@ func (m *UserMutation) Fields() []string {
 	}
 	if m.totp_enabled_at != nil {
 		fields = append(fields, user.FieldTotpEnabledAt)
+	}
+	if m.balance_notify_enabled != nil {
+		fields = append(fields, user.FieldBalanceNotifyEnabled)
+	}
+	if m.balance_notify_threshold_type != nil {
+		fields = append(fields, user.FieldBalanceNotifyThresholdType)
+	}
+	if m.balance_notify_threshold != nil {
+		fields = append(fields, user.FieldBalanceNotifyThreshold)
+	}
+	if m.balance_notify_extra_emails != nil {
+		fields = append(fields, user.FieldBalanceNotifyExtraEmails)
+	}
+	if m.total_recharged != nil {
+		fields = append(fields, user.FieldTotalRecharged)
+	}
+	if m.rpm_limit != nil {
+		fields = append(fields, user.FieldRpmLimit)
 	}
 	return fields
 }
@@ -30546,8 +30856,6 @@ func (m *UserMutation) Field(name string) (ent.Value, bool) {
 		return m.Balance()
 	case user.FieldConcurrency:
 		return m.Concurrency()
-	case user.FieldRpmLimit:
-		return m.RpmLimit()
 	case user.FieldStatus:
 		return m.Status()
 	case user.FieldUsername:
@@ -30560,6 +30868,18 @@ func (m *UserMutation) Field(name string) (ent.Value, bool) {
 		return m.TotpEnabled()
 	case user.FieldTotpEnabledAt:
 		return m.TotpEnabledAt()
+	case user.FieldBalanceNotifyEnabled:
+		return m.BalanceNotifyEnabled()
+	case user.FieldBalanceNotifyThresholdType:
+		return m.BalanceNotifyThresholdType()
+	case user.FieldBalanceNotifyThreshold:
+		return m.BalanceNotifyThreshold()
+	case user.FieldBalanceNotifyExtraEmails:
+		return m.BalanceNotifyExtraEmails()
+	case user.FieldTotalRecharged:
+		return m.TotalRecharged()
+	case user.FieldRpmLimit:
+		return m.RpmLimit()
 	}
 	return nil, false
 }
@@ -30585,8 +30905,6 @@ func (m *UserMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldBalance(ctx)
 	case user.FieldConcurrency:
 		return m.OldConcurrency(ctx)
-	case user.FieldRpmLimit:
-		return m.OldRpmLimit(ctx)
 	case user.FieldStatus:
 		return m.OldStatus(ctx)
 	case user.FieldUsername:
@@ -30599,6 +30917,18 @@ func (m *UserMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldTotpEnabled(ctx)
 	case user.FieldTotpEnabledAt:
 		return m.OldTotpEnabledAt(ctx)
+	case user.FieldBalanceNotifyEnabled:
+		return m.OldBalanceNotifyEnabled(ctx)
+	case user.FieldBalanceNotifyThresholdType:
+		return m.OldBalanceNotifyThresholdType(ctx)
+	case user.FieldBalanceNotifyThreshold:
+		return m.OldBalanceNotifyThreshold(ctx)
+	case user.FieldBalanceNotifyExtraEmails:
+		return m.OldBalanceNotifyExtraEmails(ctx)
+	case user.FieldTotalRecharged:
+		return m.OldTotalRecharged(ctx)
+	case user.FieldRpmLimit:
+		return m.OldRpmLimit(ctx)
 	}
 	return nil, fmt.Errorf("unknown User field %s", name)
 }
@@ -30664,13 +30994,6 @@ func (m *UserMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetConcurrency(v)
 		return nil
-	case user.FieldRpmLimit:
-		v, ok := value.(int)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.SetRpmLimit(v)
-		return nil
 	case user.FieldStatus:
 		v, ok := value.(string)
 		if !ok {
@@ -30713,6 +31036,48 @@ func (m *UserMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetTotpEnabledAt(v)
 		return nil
+	case user.FieldBalanceNotifyEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBalanceNotifyEnabled(v)
+		return nil
+	case user.FieldBalanceNotifyThresholdType:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBalanceNotifyThresholdType(v)
+		return nil
+	case user.FieldBalanceNotifyThreshold:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBalanceNotifyThreshold(v)
+		return nil
+	case user.FieldBalanceNotifyExtraEmails:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBalanceNotifyExtraEmails(v)
+		return nil
+	case user.FieldTotalRecharged:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTotalRecharged(v)
+		return nil
+	case user.FieldRpmLimit:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRpmLimit(v)
+		return nil
 	}
 	return fmt.Errorf("unknown User field %s", name)
 }
@@ -30726,6 +31091,12 @@ func (m *UserMutation) AddedFields() []string {
 	}
 	if m.addconcurrency != nil {
 		fields = append(fields, user.FieldConcurrency)
+	}
+	if m.addbalance_notify_threshold != nil {
+		fields = append(fields, user.FieldBalanceNotifyThreshold)
+	}
+	if m.addtotal_recharged != nil {
+		fields = append(fields, user.FieldTotalRecharged)
 	}
 	if m.addrpm_limit != nil {
 		fields = append(fields, user.FieldRpmLimit)
@@ -30742,6 +31113,10 @@ func (m *UserMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedBalance()
 	case user.FieldConcurrency:
 		return m.AddedConcurrency()
+	case user.FieldBalanceNotifyThreshold:
+		return m.AddedBalanceNotifyThreshold()
+	case user.FieldTotalRecharged:
+		return m.AddedTotalRecharged()
 	case user.FieldRpmLimit:
 		return m.AddedRpmLimit()
 	}
@@ -30767,6 +31142,20 @@ func (m *UserMutation) AddField(name string, value ent.Value) error {
 		}
 		m.AddConcurrency(v)
 		return nil
+	case user.FieldBalanceNotifyThreshold:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddBalanceNotifyThreshold(v)
+		return nil
+	case user.FieldTotalRecharged:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddTotalRecharged(v)
+		return nil
 	case user.FieldRpmLimit:
 		v, ok := value.(int)
 		if !ok {
@@ -30791,6 +31180,9 @@ func (m *UserMutation) ClearedFields() []string {
 	if m.FieldCleared(user.FieldTotpEnabledAt) {
 		fields = append(fields, user.FieldTotpEnabledAt)
 	}
+	if m.FieldCleared(user.FieldBalanceNotifyThreshold) {
+		fields = append(fields, user.FieldBalanceNotifyThreshold)
+	}
 	return fields
 }
 
@@ -30813,6 +31205,9 @@ func (m *UserMutation) ClearField(name string) error {
 		return nil
 	case user.FieldTotpEnabledAt:
 		m.ClearTotpEnabledAt()
+		return nil
+	case user.FieldBalanceNotifyThreshold:
+		m.ClearBalanceNotifyThreshold()
 		return nil
 	}
 	return fmt.Errorf("unknown User nullable field %s", name)
@@ -30846,9 +31241,6 @@ func (m *UserMutation) ResetField(name string) error {
 	case user.FieldConcurrency:
 		m.ResetConcurrency()
 		return nil
-	case user.FieldRpmLimit:
-		m.ResetRpmLimit()
-		return nil
 	case user.FieldStatus:
 		m.ResetStatus()
 		return nil
@@ -30866,6 +31258,24 @@ func (m *UserMutation) ResetField(name string) error {
 		return nil
 	case user.FieldTotpEnabledAt:
 		m.ResetTotpEnabledAt()
+		return nil
+	case user.FieldBalanceNotifyEnabled:
+		m.ResetBalanceNotifyEnabled()
+		return nil
+	case user.FieldBalanceNotifyThresholdType:
+		m.ResetBalanceNotifyThresholdType()
+		return nil
+	case user.FieldBalanceNotifyThreshold:
+		m.ResetBalanceNotifyThreshold()
+		return nil
+	case user.FieldBalanceNotifyExtraEmails:
+		m.ResetBalanceNotifyExtraEmails()
+		return nil
+	case user.FieldTotalRecharged:
+		m.ResetTotalRecharged()
+		return nil
+	case user.FieldRpmLimit:
+		m.ResetRpmLimit()
 		return nil
 	}
 	return fmt.Errorf("unknown User field %s", name)

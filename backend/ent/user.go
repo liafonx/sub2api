@@ -33,8 +33,6 @@ type User struct {
 	Balance float64 `json:"balance,omitempty"`
 	// Concurrency holds the value of the "concurrency" field.
 	Concurrency int `json:"concurrency,omitempty"`
-	// RpmLimit holds the value of the "rpm_limit" field.
-	RpmLimit int `json:"rpm_limit,omitempty"`
 	// Status holds the value of the "status" field.
 	Status string `json:"status,omitempty"`
 	// Username holds the value of the "username" field.
@@ -47,6 +45,18 @@ type User struct {
 	TotpEnabled bool `json:"totp_enabled,omitempty"`
 	// TotpEnabledAt holds the value of the "totp_enabled_at" field.
 	TotpEnabledAt *time.Time `json:"totp_enabled_at,omitempty"`
+	// BalanceNotifyEnabled holds the value of the "balance_notify_enabled" field.
+	BalanceNotifyEnabled bool `json:"balance_notify_enabled,omitempty"`
+	// BalanceNotifyThresholdType holds the value of the "balance_notify_threshold_type" field.
+	BalanceNotifyThresholdType string `json:"balance_notify_threshold_type,omitempty"`
+	// BalanceNotifyThreshold holds the value of the "balance_notify_threshold" field.
+	BalanceNotifyThreshold *float64 `json:"balance_notify_threshold,omitempty"`
+	// BalanceNotifyExtraEmails holds the value of the "balance_notify_extra_emails" field.
+	BalanceNotifyExtraEmails string `json:"balance_notify_extra_emails,omitempty"`
+	// TotalRecharged holds the value of the "total_recharged" field.
+	TotalRecharged float64 `json:"total_recharged,omitempty"`
+	// RpmLimit holds the value of the "rpm_limit" field.
+	RpmLimit int `json:"rpm_limit,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the UserQuery when eager-loading is set.
 	Edges        UserEdges `json:"edges"`
@@ -186,13 +196,13 @@ func (*User) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case user.FieldTotpEnabled:
+		case user.FieldTotpEnabled, user.FieldBalanceNotifyEnabled:
 			values[i] = new(sql.NullBool)
-		case user.FieldBalance:
+		case user.FieldBalance, user.FieldBalanceNotifyThreshold, user.FieldTotalRecharged:
 			values[i] = new(sql.NullFloat64)
 		case user.FieldID, user.FieldConcurrency, user.FieldRpmLimit:
 			values[i] = new(sql.NullInt64)
-		case user.FieldEmail, user.FieldPasswordHash, user.FieldRole, user.FieldStatus, user.FieldUsername, user.FieldNotes, user.FieldTotpSecretEncrypted:
+		case user.FieldEmail, user.FieldPasswordHash, user.FieldRole, user.FieldStatus, user.FieldUsername, user.FieldNotes, user.FieldTotpSecretEncrypted, user.FieldBalanceNotifyThresholdType, user.FieldBalanceNotifyExtraEmails:
 			values[i] = new(sql.NullString)
 		case user.FieldCreatedAt, user.FieldUpdatedAt, user.FieldDeletedAt, user.FieldTotpEnabledAt:
 			values[i] = new(sql.NullTime)
@@ -266,12 +276,6 @@ func (_m *User) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.Concurrency = int(value.Int64)
 			}
-		case user.FieldRpmLimit:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for field rpm_limit", values[i])
-			} else if value.Valid {
-				_m.RpmLimit = int(value.Int64)
-			}
 		case user.FieldStatus:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field status", values[i])
@@ -309,6 +313,43 @@ func (_m *User) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.TotpEnabledAt = new(time.Time)
 				*_m.TotpEnabledAt = value.Time
+			}
+		case user.FieldBalanceNotifyEnabled:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field balance_notify_enabled", values[i])
+			} else if value.Valid {
+				_m.BalanceNotifyEnabled = value.Bool
+			}
+		case user.FieldBalanceNotifyThresholdType:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field balance_notify_threshold_type", values[i])
+			} else if value.Valid {
+				_m.BalanceNotifyThresholdType = value.String
+			}
+		case user.FieldBalanceNotifyThreshold:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field balance_notify_threshold", values[i])
+			} else if value.Valid {
+				_m.BalanceNotifyThreshold = new(float64)
+				*_m.BalanceNotifyThreshold = value.Float64
+			}
+		case user.FieldBalanceNotifyExtraEmails:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field balance_notify_extra_emails", values[i])
+			} else if value.Valid {
+				_m.BalanceNotifyExtraEmails = value.String
+			}
+		case user.FieldTotalRecharged:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field total_recharged", values[i])
+			} else if value.Valid {
+				_m.TotalRecharged = value.Float64
+			}
+		case user.FieldRpmLimit:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field rpm_limit", values[i])
+			} else if value.Valid {
+				_m.RpmLimit = int(value.Int64)
 			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
@@ -427,9 +468,6 @@ func (_m *User) String() string {
 	builder.WriteString("concurrency=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Concurrency))
 	builder.WriteString(", ")
-	builder.WriteString("rpm_limit=")
-	builder.WriteString(fmt.Sprintf("%v", _m.RpmLimit))
-	builder.WriteString(", ")
 	builder.WriteString("status=")
 	builder.WriteString(_m.Status)
 	builder.WriteString(", ")
@@ -451,6 +489,26 @@ func (_m *User) String() string {
 		builder.WriteString("totp_enabled_at=")
 		builder.WriteString(v.Format(time.ANSIC))
 	}
+	builder.WriteString(", ")
+	builder.WriteString("balance_notify_enabled=")
+	builder.WriteString(fmt.Sprintf("%v", _m.BalanceNotifyEnabled))
+	builder.WriteString(", ")
+	builder.WriteString("balance_notify_threshold_type=")
+	builder.WriteString(_m.BalanceNotifyThresholdType)
+	builder.WriteString(", ")
+	if v := _m.BalanceNotifyThreshold; v != nil {
+		builder.WriteString("balance_notify_threshold=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("balance_notify_extra_emails=")
+	builder.WriteString(_m.BalanceNotifyExtraEmails)
+	builder.WriteString(", ")
+	builder.WriteString("total_recharged=")
+	builder.WriteString(fmt.Sprintf("%v", _m.TotalRecharged))
+	builder.WriteString(", ")
+	builder.WriteString("rpm_limit=")
+	builder.WriteString(fmt.Sprintf("%v", _m.RpmLimit))
 	builder.WriteByte(')')
 	return builder.String()
 }

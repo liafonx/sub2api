@@ -87,13 +87,13 @@
 
         <template #cell-billing_mode="{ row }">
           <span class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium" :class="getBillingModeBadgeClass(row.billing_mode)">
-            {{ getBillingModeLabel(row.billing_mode) }}
+            {{ getBillingModeLabel(row.billing_mode, t) }}
           </span>
         </template>
 
         <template #cell-tokens="{ row }">
           <!-- 图片生成请求（仅按次计费时显示图片格式） -->
-          <div v-if="row.image_count > 0 && row.billing_mode === 'image'" class="flex items-center gap-1.5">
+          <div v-if="row.image_count > 0 && row.billing_mode === BILLING_MODE_IMAGE" class="flex items-center gap-1.5">
             <svg class="h-4 w-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
@@ -136,8 +136,8 @@
               <span class="font-medium text-green-600 dark:text-green-400">${{ row.actual_cost?.toFixed(6) || '0.000000' }}</span>
               <UsageCostPopup :row="row" showAccountBilling />
             </div>
-            <div v-if="row.account_rate_multiplier != null" class="mt-0.5 text-[11px] text-gray-400">
-              A ${{ (row.total_cost * row.account_rate_multiplier).toFixed(6) }}
+            <div v-if="row.account_rate_multiplier != null" class="mt-0.5 text-[11px] text-orange-500 dark:text-orange-400">
+              A ${{ accountBilled(row).toFixed(6) }}
             </div>
           </div>
         </template>
@@ -176,6 +176,15 @@
 import { useI18n } from 'vue-i18n'
 import { formatDateTime, formatReasoningEffort } from '@/utils/format'
 import { resolveUsageRequestType } from '@/utils/usageRequestType'
+import { getBillingModeLabel, getBillingModeBadgeClass, BILLING_MODE_IMAGE } from '@/utils/billingMode'
+
+/** Compute the account-billed cost for display: (account_stats_cost ?? total_cost) * rate_multiplier */
+function accountBilled(row: { total_cost?: number | null; account_stats_cost?: number | null; account_rate_multiplier?: number | null }): number {
+  const base = row.account_stats_cost != null ? row.account_stats_cost : (row.total_cost ?? 0)
+  const result = base * (row.account_rate_multiplier ?? 1)
+  return Number.isNaN(result) ? 0 : result
+}
+
 import DataTable from '@/components/common/DataTable.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import UsageCostPopup from '@/components/common/UsageCostPopup.vue'
@@ -219,24 +228,6 @@ const getRequestTypeBadgeClass = (row: AdminUsageLog): string => {
   if (requestType === 'stream') return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
   if (requestType === 'sync') return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
   return 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200'
-}
-
-const getBillingModeLabel = (mode: string | null | undefined): string => {
-  switch (mode) {
-    case 'token': return t('admin.usage.billingModeToken')
-    case 'image': return t('admin.usage.billingModeImage')
-    case 'per_request': return t('admin.usage.billingModePerRequest')
-    default: return mode || '-'
-  }
-}
-
-const getBillingModeBadgeClass = (mode: string | null | undefined): string => {
-  switch (mode) {
-    case 'token': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-    case 'image': return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-    case 'per_request': return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
-    default: return 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-400'
-  }
 }
 
 const formatCacheTokens = (tokens: number): string => {

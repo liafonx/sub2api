@@ -3831,6 +3831,19 @@ watch(
   },
 );
 
+watch(
+  () => editForm.platform,
+  (newVal) => {
+    if (!['anthropic', 'antigravity'].includes(newVal)) {
+      editForm.fallback_group_id_on_invalid_request = null
+    }
+    if (newVal !== 'openai') {
+      editForm.allow_messages_dispatch = false
+      editForm.default_mapped_model = ''
+    }
+  }
+)
+
 // 点击外部关闭账号搜索下拉框
 const handleClickOutside = (event: MouseEvent) => {
   const target = event.target as HTMLElement;

@@ -49,8 +49,6 @@ func (User) Fields() []ent.Field {
 			Default(0),
 		field.Int("concurrency").
 			Default(5),
-		field.Int("rpm_limit").
-			Default(0), // 0 = unlimited; new users get 35 from settings
 		field.String("status").
 			MaxLen(20).
 			Default(domain.StatusActive),
@@ -74,6 +72,24 @@ func (User) Fields() []ent.Field {
 		field.Time("totp_enabled_at").
 			Optional().
 			Nillable(),
+
+		// 余额不足通知
+		field.Bool("balance_notify_enabled").
+			Default(true),
+		field.String("balance_notify_threshold_type").
+			Default("fixed"), // "fixed" | "percentage"
+		field.Float("balance_notify_threshold").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
+			Optional().
+			Nillable(),
+		field.String("balance_notify_extra_emails").
+			SchemaType(map[string]string{dialect.Postgres: "text"}).
+			Default("[]"),
+		field.Float("total_recharged").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
+			Default(0),
+		field.Int("rpm_limit").
+			Default(0), // 0 = unlimited; new users get 35 from settings
 	}
 }
 

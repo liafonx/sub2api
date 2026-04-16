@@ -31,8 +31,6 @@ const (
 	FieldBalance = "balance"
 	// FieldConcurrency holds the string denoting the concurrency field in the database.
 	FieldConcurrency = "concurrency"
-	// FieldRpmLimit holds the string denoting the rpm_limit field in the database.
-	FieldRpmLimit = "rpm_limit"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
 	// FieldUsername holds the string denoting the username field in the database.
@@ -45,6 +43,18 @@ const (
 	FieldTotpEnabled = "totp_enabled"
 	// FieldTotpEnabledAt holds the string denoting the totp_enabled_at field in the database.
 	FieldTotpEnabledAt = "totp_enabled_at"
+	// FieldBalanceNotifyEnabled holds the string denoting the balance_notify_enabled field in the database.
+	FieldBalanceNotifyEnabled = "balance_notify_enabled"
+	// FieldBalanceNotifyThresholdType holds the string denoting the balance_notify_threshold_type field in the database.
+	FieldBalanceNotifyThresholdType = "balance_notify_threshold_type"
+	// FieldBalanceNotifyThreshold holds the string denoting the balance_notify_threshold field in the database.
+	FieldBalanceNotifyThreshold = "balance_notify_threshold"
+	// FieldBalanceNotifyExtraEmails holds the string denoting the balance_notify_extra_emails field in the database.
+	FieldBalanceNotifyExtraEmails = "balance_notify_extra_emails"
+	// FieldTotalRecharged holds the string denoting the total_recharged field in the database.
+	FieldTotalRecharged = "total_recharged"
+	// FieldRpmLimit holds the string denoting the rpm_limit field in the database.
+	FieldRpmLimit = "rpm_limit"
 	// EdgeAPIKeys holds the string denoting the api_keys edge name in mutations.
 	EdgeAPIKeys = "api_keys"
 	// EdgeRedeemCodes holds the string denoting the redeem_codes edge name in mutations.
@@ -157,13 +167,18 @@ var Columns = []string{
 	FieldRole,
 	FieldBalance,
 	FieldConcurrency,
-	FieldRpmLimit,
 	FieldStatus,
 	FieldUsername,
 	FieldNotes,
 	FieldTotpSecretEncrypted,
 	FieldTotpEnabled,
 	FieldTotpEnabledAt,
+	FieldBalanceNotifyEnabled,
+	FieldBalanceNotifyThresholdType,
+	FieldBalanceNotifyThreshold,
+	FieldBalanceNotifyExtraEmails,
+	FieldTotalRecharged,
+	FieldRpmLimit,
 }
 
 var (
@@ -208,8 +223,6 @@ var (
 	DefaultBalance float64
 	// DefaultConcurrency holds the default value on creation for the "concurrency" field.
 	DefaultConcurrency int
-	// DefaultRpmLimit holds the default value on creation for the "rpm_limit" field.
-	DefaultRpmLimit int
 	// DefaultStatus holds the default value on creation for the "status" field.
 	DefaultStatus string
 	// StatusValidator is a validator for the "status" field. It is called by the builders before save.
@@ -222,6 +235,16 @@ var (
 	DefaultNotes string
 	// DefaultTotpEnabled holds the default value on creation for the "totp_enabled" field.
 	DefaultTotpEnabled bool
+	// DefaultBalanceNotifyEnabled holds the default value on creation for the "balance_notify_enabled" field.
+	DefaultBalanceNotifyEnabled bool
+	// DefaultBalanceNotifyThresholdType holds the default value on creation for the "balance_notify_threshold_type" field.
+	DefaultBalanceNotifyThresholdType string
+	// DefaultBalanceNotifyExtraEmails holds the default value on creation for the "balance_notify_extra_emails" field.
+	DefaultBalanceNotifyExtraEmails string
+	// DefaultTotalRecharged holds the default value on creation for the "total_recharged" field.
+	DefaultTotalRecharged float64
+	// DefaultRpmLimit holds the default value on creation for the "rpm_limit" field.
+	DefaultRpmLimit int
 )
 
 // OrderOption defines the ordering options for the User queries.
@@ -272,11 +295,6 @@ func ByConcurrency(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldConcurrency, opts...).ToFunc()
 }
 
-// ByRpmLimit orders the results by the rpm_limit field.
-func ByRpmLimit(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldRpmLimit, opts...).ToFunc()
-}
-
 // ByStatus orders the results by the status field.
 func ByStatus(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldStatus, opts...).ToFunc()
@@ -305,6 +323,36 @@ func ByTotpEnabled(opts ...sql.OrderTermOption) OrderOption {
 // ByTotpEnabledAt orders the results by the totp_enabled_at field.
 func ByTotpEnabledAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldTotpEnabledAt, opts...).ToFunc()
+}
+
+// ByBalanceNotifyEnabled orders the results by the balance_notify_enabled field.
+func ByBalanceNotifyEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBalanceNotifyEnabled, opts...).ToFunc()
+}
+
+// ByBalanceNotifyThresholdType orders the results by the balance_notify_threshold_type field.
+func ByBalanceNotifyThresholdType(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBalanceNotifyThresholdType, opts...).ToFunc()
+}
+
+// ByBalanceNotifyThreshold orders the results by the balance_notify_threshold field.
+func ByBalanceNotifyThreshold(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBalanceNotifyThreshold, opts...).ToFunc()
+}
+
+// ByBalanceNotifyExtraEmails orders the results by the balance_notify_extra_emails field.
+func ByBalanceNotifyExtraEmails(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBalanceNotifyExtraEmails, opts...).ToFunc()
+}
+
+// ByTotalRecharged orders the results by the total_recharged field.
+func ByTotalRecharged(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTotalRecharged, opts...).ToFunc()
+}
+
+// ByRpmLimit orders the results by the rpm_limit field.
+func ByRpmLimit(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRpmLimit, opts...).ToFunc()
 }
 
 // ByAPIKeysCount orders the results by api_keys count.

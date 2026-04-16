@@ -22,6 +22,16 @@ export interface FetchOptions {
   signal?: AbortSignal;
 }
 
+// ==================== Notification Types ====================
+
+/** Notification email entry with enable/disable and verification state.
+ *  email="" is a placeholder for the primary email (user's registration email or admin email). */
+export interface NotifyEmailEntry {
+  email: string
+  disabled: boolean
+  verified: boolean
+}
+
 // ==================== User & Auth Types ====================
 
 export interface User {
@@ -34,6 +44,9 @@ export interface User {
   rpm_limit: number; // Per-user RPM cap (0 = unlimited)
   status: "active" | "disabled"; // Account status
   allowed_groups: number[] | null; // Allowed group IDs (null = all non-exclusive groups)
+  balance_notify_enabled: boolean;
+  balance_notify_threshold: number | null;
+  balance_notify_extra_emails: NotifyEmailEntry[];
   subscriptions?: UserSubscription[]; // User's active subscriptions
   created_at: string;
   updated_at: string;
@@ -119,6 +132,9 @@ export interface PublicSettings {
   oidc_oauth_provider_name: string;
   backend_mode_enabled: boolean;
   version: string;
+  balance_low_notify_enabled: boolean;
+  account_quota_notify_enabled: boolean;
+  balance_low_notify_threshold: number;
 }
 
 export interface AuthResponse {
@@ -695,6 +711,7 @@ export interface Account {
       string,
       { rate_limited_at: string; rate_limit_reset_at: string }
     >;
+    antigravity_credits_overages?: Record<string, { activated_at: string; active_until: string }>;
   } & Record<string, unknown>;
   proxy_id: number | null;
   concurrency: number;
@@ -1094,6 +1111,12 @@ export interface AdminUsageLog extends UsageLog {
 
   // 账号计费倍率（仅管理员可见）
   account_rate_multiplier?: number | null;
+  // 自定义定价规则计算的账号统计费用（nil 时使用 total_cost * multiplier）
+  account_stats_cost?: number | null;
+
+  // 渠道 ID 和计费等级（仅管理员可见）
+  channel_id?: number | null;
+  billing_tier?: string | null;
 
   // 用户请求 IP（仅管理员可见）
   ip_address?: string | null;
@@ -1189,6 +1212,7 @@ export interface DashboardStats {
   total_tokens: number;
   total_cost: number; // 累计标准计费
   total_actual_cost: number; // 累计实际扣除
+  total_account_cost: number; // 累计账号成本
 
   // 今日 Token 使用统计
   today_requests: number;
@@ -1199,6 +1223,7 @@ export interface DashboardStats {
   today_tokens: number;
   today_cost: number; // 今日标准计费
   today_actual_cost: number; // 今日实际扣除
+  today_account_cost: number; // 今日账号成本
 
   // 系统运行统计
   average_duration_ms: number; // 平均响应时间
@@ -1246,6 +1271,7 @@ export interface ModelStat {
   total_tokens: number;
   cost: number; // 标准计费
   actual_cost: number; // 实际扣除
+  account_cost: number; // 账号成本
 }
 
 export interface EndpointStat {
@@ -1263,6 +1289,7 @@ export interface GroupStat {
   total_tokens: number;
   cost: number; // 标准计费
   actual_cost: number; // 实际扣除
+  account_cost: number; // 账号成本
 }
 
 export interface UserBreakdownItem {
@@ -1272,6 +1299,7 @@ export interface UserBreakdownItem {
   total_tokens: number;
   cost: number;
   actual_cost: number;
+  account_cost: number;
 }
 
 export interface UserUsageTrendPoint {

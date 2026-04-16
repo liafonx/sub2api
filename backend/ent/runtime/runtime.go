@@ -673,12 +673,16 @@ func init() {
 	paymentproviderinstanceDescRefundEnabled := paymentproviderinstanceFields[8].Descriptor()
 	// paymentproviderinstance.DefaultRefundEnabled holds the default value on creation for the refund_enabled field.
 	paymentproviderinstance.DefaultRefundEnabled = paymentproviderinstanceDescRefundEnabled.Default.(bool)
+	// paymentproviderinstanceDescAllowUserRefund is the schema descriptor for allow_user_refund field.
+	paymentproviderinstanceDescAllowUserRefund := paymentproviderinstanceFields[9].Descriptor()
+	// paymentproviderinstance.DefaultAllowUserRefund holds the default value on creation for the allow_user_refund field.
+	paymentproviderinstance.DefaultAllowUserRefund = paymentproviderinstanceDescAllowUserRefund.Default.(bool)
 	// paymentproviderinstanceDescCreatedAt is the schema descriptor for created_at field.
-	paymentproviderinstanceDescCreatedAt := paymentproviderinstanceFields[9].Descriptor()
+	paymentproviderinstanceDescCreatedAt := paymentproviderinstanceFields[10].Descriptor()
 	// paymentproviderinstance.DefaultCreatedAt holds the default value on creation for the created_at field.
 	paymentproviderinstance.DefaultCreatedAt = paymentproviderinstanceDescCreatedAt.Default.(func() time.Time)
 	// paymentproviderinstanceDescUpdatedAt is the schema descriptor for updated_at field.
-	paymentproviderinstanceDescUpdatedAt := paymentproviderinstanceFields[10].Descriptor()
+	paymentproviderinstanceDescUpdatedAt := paymentproviderinstanceFields[11].Descriptor()
 	// paymentproviderinstance.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	paymentproviderinstance.DefaultUpdatedAt = paymentproviderinstanceDescUpdatedAt.Default.(func() time.Time)
 	// paymentproviderinstance.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
@@ -1333,30 +1337,46 @@ func init() {
 	userDescConcurrency := userFields[4].Descriptor()
 	// user.DefaultConcurrency holds the default value on creation for the concurrency field.
 	user.DefaultConcurrency = userDescConcurrency.Default.(int)
-	// userDescRpmLimit is the schema descriptor for rpm_limit field.
-	userDescRpmLimit := userFields[5].Descriptor()
-	// user.DefaultRpmLimit holds the default value on creation for the rpm_limit field.
-	user.DefaultRpmLimit = userDescRpmLimit.Default.(int)
 	// userDescStatus is the schema descriptor for status field.
-	userDescStatus := userFields[6].Descriptor()
+	userDescStatus := userFields[5].Descriptor()
 	// user.DefaultStatus holds the default value on creation for the status field.
 	user.DefaultStatus = userDescStatus.Default.(string)
 	// user.StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	user.StatusValidator = userDescStatus.Validators[0].(func(string) error)
 	// userDescUsername is the schema descriptor for username field.
-	userDescUsername := userFields[7].Descriptor()
+	userDescUsername := userFields[6].Descriptor()
 	// user.DefaultUsername holds the default value on creation for the username field.
 	user.DefaultUsername = userDescUsername.Default.(string)
 	// user.UsernameValidator is a validator for the "username" field. It is called by the builders before save.
 	user.UsernameValidator = userDescUsername.Validators[0].(func(string) error)
 	// userDescNotes is the schema descriptor for notes field.
-	userDescNotes := userFields[8].Descriptor()
+	userDescNotes := userFields[7].Descriptor()
 	// user.DefaultNotes holds the default value on creation for the notes field.
 	user.DefaultNotes = userDescNotes.Default.(string)
 	// userDescTotpEnabled is the schema descriptor for totp_enabled field.
-	userDescTotpEnabled := userFields[10].Descriptor()
+	userDescTotpEnabled := userFields[9].Descriptor()
 	// user.DefaultTotpEnabled holds the default value on creation for the totp_enabled field.
 	user.DefaultTotpEnabled = userDescTotpEnabled.Default.(bool)
+	// userDescBalanceNotifyEnabled is the schema descriptor for balance_notify_enabled field.
+	userDescBalanceNotifyEnabled := userFields[11].Descriptor()
+	// user.DefaultBalanceNotifyEnabled holds the default value on creation for the balance_notify_enabled field.
+	user.DefaultBalanceNotifyEnabled = userDescBalanceNotifyEnabled.Default.(bool)
+	// userDescBalanceNotifyThresholdType is the schema descriptor for balance_notify_threshold_type field.
+	userDescBalanceNotifyThresholdType := userFields[12].Descriptor()
+	// user.DefaultBalanceNotifyThresholdType holds the default value on creation for the balance_notify_threshold_type field.
+	user.DefaultBalanceNotifyThresholdType = userDescBalanceNotifyThresholdType.Default.(string)
+	// userDescBalanceNotifyExtraEmails is the schema descriptor for balance_notify_extra_emails field.
+	userDescBalanceNotifyExtraEmails := userFields[14].Descriptor()
+	// user.DefaultBalanceNotifyExtraEmails holds the default value on creation for the balance_notify_extra_emails field.
+	user.DefaultBalanceNotifyExtraEmails = userDescBalanceNotifyExtraEmails.Default.(string)
+	// userDescTotalRecharged is the schema descriptor for total_recharged field.
+	userDescTotalRecharged := userFields[15].Descriptor()
+	// user.DefaultTotalRecharged holds the default value on creation for the total_recharged field.
+	user.DefaultTotalRecharged = userDescTotalRecharged.Default.(float64)
+	// userDescRpmLimit is the schema descriptor for rpm_limit field.
+	userDescRpmLimit := userFields[16].Descriptor()
+	// user.DefaultRpmLimit holds the default value on creation for the rpm_limit field.
+	user.DefaultRpmLimit = userDescRpmLimit.Default.(int)
 	userallowedgroupFields := schema.UserAllowedGroup{}.Fields()
 	_ = userallowedgroupFields
 	// userallowedgroupDescCreatedAt is the schema descriptor for created_at field.
