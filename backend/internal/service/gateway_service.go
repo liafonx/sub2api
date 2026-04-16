@@ -6063,14 +6063,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 			if !enableMPT {
 				accountUUID := account.GetExtraString("account_uuid")
 				if accountUUID != "" && fp.ClientID != "" {
-					// In mimic mode, use effectiveUA so cc_version / metadata.user_id
-					// format match the outbound User-Agent header rather than the
-					// incoming client's UA.
-					uaForBody := fp.UserAgent
-					if mimicClaudeCode {
-						uaForBody = effectiveUA
-					}
-					if newBody, err := s.identityService.RewriteUserIDWithMasking(ctx, body, account, accountUUID, fp.ClientID, uaForBody); err == nil && len(newBody) > 0 {
+					if newBody, err := s.identityService.RewriteUserIDWithMasking(ctx, body, account, accountUUID, fp.ClientID, effectiveUAForMimic(fp.UserAgent, mimicClaudeCode, effectiveUA)); err == nil && len(newBody) > 0 {
 						body = newBody
 					}
 				}
@@ -6080,11 +6073,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 
 	// 同步 billing header cc_version 与实际发送的 User-Agent 版本
 	if fingerprint != nil {
-		uaForBilling := fingerprint.UserAgent
-		if mimicClaudeCode {
-			uaForBilling = effectiveUA
-		}
-		body = syncBillingHeaderVersion(body, uaForBilling)
+		body = syncBillingHeaderVersion(body, effectiveUAForMimic(fingerprint.UserAgent, mimicClaudeCode, effectiveUA))
 	}
 	// CCH 签名：将 cch=00000 占位符替换为 xxHash64 签名（需在所有 body 修改之后）
 	if enableCCH {
@@ -6172,11 +6161,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		}
 	}
 
-	// In mimic mode, auto-generate x-client-request-id if the client didn't provide one.
-	// Use setHeaderRaw/getHeaderRaw to preserve the lowercase wire casing that real CC uses.
-	if mimicClaudeCode && getHeaderRaw(req.Header, "x-client-request-id") == "" {
-		setHeaderRaw(req.Header, "x-client-request-id", uuid.NewString())
-	}
+	ensureMimicClientRequestID(req, mimicClaudeCode)
 
 	// 同步 X-Claude-Code-Session-Id 头：取 body 中已处理的 metadata.user_id 的 session_id 覆盖
 	if sessionHeader := getHeaderRaw(req.Header, "X-Claude-Code-Session-Id"); sessionHeader != "" {
@@ -6290,7 +6275,7 @@ func applyClaudeOAuthHeaderDefaults(req *http.Request, ua string) {
 			continue
 		}
 		// Substitute the effective UA so the fill-missing path is also consistent.
-		if strings.ToLower(key) == "user-agent" {
+		if key == "User-Agent" {
 			value = ua
 		}
 		if getHeaderRaw(req.Header, key) == "" {
@@ -6612,6 +6597,26 @@ func buildBetaTokenSet(tokens []string) map[string]struct{} {
 
 var defaultDroppedBetasSet = buildBetaTokenSet(claude.DroppedBetas)
 
+// effectiveUAForMimic returns fpUA for real Claude Code clients; when mimic is true,
+// returns resolved (setting-driven outbound UA) so body rewrites match outbound headers.
+func effectiveUAForMimic(fpUA string, mimic bool, resolved string) string {
+	if mimic {
+		return resolved
+	}
+	return fpUA
+}
+
+// ensureMimicClientRequestID auto-generates x-client-request-id (UUID v4) in mimic mode
+// when the client did not provide one. Uses setHeaderRaw to preserve lowercase wire casing.
+func ensureMimicClientRequestID(req *http.Request, mimic bool) {
+	if !mimic || req == nil {
+		return
+	}
+	if getHeaderRaw(req.Header, "x-client-request-id") == "" {
+		setHeaderRaw(req.Header, "x-client-request-id", uuid.NewString())
+	}
+}
+
 // resolveClaudeCodeUserAgent returns the outbound User-Agent for mimic mode.
 // Falls back to the compile-time default when settingService is nil (e.g. in tests
 // that construct a bare &GatewayService{}).
@@ -6640,7 +6645,7 @@ func applyClaudeCodeMimicHeaders(req *http.Request, isStream bool, ua string) {
 		}
 		// Substitute the effective UA instead of the compiled-in default so body fields
 		// (cc_version, metadata.user_id format) stay in sync with the outbound UA header.
-		if strings.ToLower(key) == "user-agent" {
+		if key == "User-Agent" {
 			value = ua
 		}
 		setHeaderRaw(req.Header, resolveWireCasing(key), value)
@@ -9129,11 +9134,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 			if !ctEnableMPT {
 				accountUUID := account.GetExtraString("account_uuid")
 				if accountUUID != "" && fp.ClientID != "" {
-					uaForBody := fp.UserAgent
-					if mimicClaudeCode {
-						uaForBody = ctEffectiveUA
-					}
-					if newBody, err := s.identityService.RewriteUserIDWithMasking(ctx, body, account, accountUUID, fp.ClientID, uaForBody); err == nil && len(newBody) > 0 {
+					if newBody, err := s.identityService.RewriteUserIDWithMasking(ctx, body, account, accountUUID, fp.ClientID, effectiveUAForMimic(fp.UserAgent, mimicClaudeCode, ctEffectiveUA)); err == nil && len(newBody) > 0 {
 						body = newBody
 					}
 				}
@@ -9143,11 +9144,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 
 	// 同步 billing header cc_version 与实际发送的 User-Agent 版本
 	if ctFingerprint != nil && ctEnableFP {
-		uaForBilling := ctFingerprint.UserAgent
-		if mimicClaudeCode {
-			uaForBilling = ctEffectiveUA
-		}
-		body = syncBillingHeaderVersion(body, uaForBilling)
+		body = syncBillingHeaderVersion(body, effectiveUAForMimic(ctFingerprint.UserAgent, mimicClaudeCode, ctEffectiveUA))
 	}
 	if ctEnableCCH {
 		body = signBillingHeaderCCH(body)
@@ -9229,11 +9226,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 		}
 	}
 
-	// In mimic mode, auto-generate x-client-request-id if the client didn't provide one.
-	// Use setHeaderRaw/getHeaderRaw to preserve the lowercase wire casing that real CC uses.
-	if mimicClaudeCode && getHeaderRaw(req.Header, "x-client-request-id") == "" {
-		setHeaderRaw(req.Header, "x-client-request-id", uuid.NewString())
-	}
+	ensureMimicClientRequestID(req, mimicClaudeCode)
 
 	// 同步 X-Claude-Code-Session-Id 头：取 body 中已处理的 metadata.user_id 的 session_id 覆盖
 	if sessionHeader := getHeaderRaw(req.Header, "X-Claude-Code-Session-Id"); sessionHeader != "" {

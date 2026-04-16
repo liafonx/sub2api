@@ -253,12 +253,6 @@ func TestApplyClaudeCodeMimicHeaders_RequestIDIsLowercase(t *testing.T) {
 	// Raw (lowercase) key must be present, not the canonicalized form.
 	rawVal := getHeaderRaw(req.Header, "x-client-request-id")
 	assert.Equal(t, "test-id-12345", rawVal, "x-client-request-id must use lowercase wire key")
-
-	// The canonical Go form should NOT be set independently.
-	canonicalVal := req.Header.Get("X-Client-Request-Id")
-	// Note: Go's http.Header stores canonical keys, but our getHeaderRaw searches
-	// case-insensitively; this just verifies round-trip.
-	_ = canonicalVal
 }
 
 // ---------------------------------------------------------------------------

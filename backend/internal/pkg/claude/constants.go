@@ -22,7 +22,7 @@ const (
 // 这些 token 是客户端特有的，不应透传给上游 API。
 var DroppedBetas = []string{}
 
-// oauthDefaultBetas is the 7-beta baseline observed in a live Claude Code 2.1.101 request.
+// oauthDefaultBetas is the 7-beta baseline observed in a live Claude Code 2.1.111 request.
 // Order matches the observed wire order.
 const oauthDefaultBetas = BetaClaudeCode + "," + BetaOAuth + "," + BetaContext1M + "," +
 	BetaInterleavedThinking + "," + BetaContextManagement + "," +
