@@ -281,7 +281,7 @@ func TestDefaultFingerprint_GroundTruthValues(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestOAuthDefaultBetaBaseline(t *testing.T) {
-	// DefaultBetaHeader must match the 7 betas observed in the captured request.
+	// DefaultBetaHeader must match the 8 betas in the current oauthDefaultBetas.
 	expected := []string{
 		claude.BetaClaudeCode,
 		claude.BetaOAuth,
@@ -290,6 +290,7 @@ func TestOAuthDefaultBetaBaseline(t *testing.T) {
 		claude.BetaContextManagement,
 		claude.BetaPromptCachingScope,
 		claude.BetaEffort,
+		claude.BetaFastMode,
 	}
 	got := strings.Split(claude.DefaultBetaHeader, ",")
 	assert.Equal(t, expected, got)

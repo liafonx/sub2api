@@ -6168,14 +6168,13 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 			applyClaudeCodeMimicHeaders(req, reqStream, effectiveUA)
 
 			incomingBeta := getHeaderRaw(req.Header, "anthropic-beta")
-			// Claude Code OAuth credentials are scoped to Claude Code.
-			// Non-haiku models MUST include claude-code beta for Anthropic to recognize
-			// this as a legitimate Claude Code request; without it, the request is
-			// rejected as third-party ("out of extra usage").
-			// Haiku models are exempt from third-party detection and don't need it.
-			requiredBetas := []string{claude.BetaOAuth, claude.BetaInterleavedThinking}
-			if !strings.Contains(strings.ToLower(modelID), "haiku") {
-				requiredBetas = []string{claude.BetaClaudeCode, claude.BetaOAuth, claude.BetaInterleavedThinking}
+			// In mimic mode, use the full oauthDefaultBetas baseline so the outbound
+			// fingerprint matches a real CC client regardless of what the caller sent.
+			// Split the constant string so we don't duplicate the composition logic.
+			// Haiku is exempt from the claude-code beta and uses a narrower set.
+			requiredBetas := strings.Split(claude.DefaultBetaHeader, ",")
+			if strings.Contains(strings.ToLower(modelID), "haiku") {
+				requiredBetas = []string{claude.BetaOAuth, claude.BetaInterleavedThinking}
 			}
 			setHeaderRaw(req.Header, "anthropic-beta", mergeAnthropicBetaDropping(requiredBetas, incomingBeta, effectiveDropSet))
 		} else {

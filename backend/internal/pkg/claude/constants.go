@@ -22,11 +22,12 @@ const (
 // 这些 token 是客户端特有的，不应透传给上游 API。
 var DroppedBetas = []string{}
 
-// oauthDefaultBetas is the 7-beta baseline observed in a live Claude Code 2.1.111 request.
-// Order matches the observed wire order.
+// oauthDefaultBetas is the 8-beta baseline observed in live Claude Code traffic.
+// Order matches the observed wire order. fast-mode is included because real CC
+// latches it sticky-on after activation and sends it for the remainder of the session.
 const oauthDefaultBetas = BetaClaudeCode + "," + BetaOAuth + "," + BetaContext1M + "," +
 	BetaInterleavedThinking + "," + BetaContextManagement + "," +
-	BetaPromptCachingScope + "," + BetaEffort
+	BetaPromptCachingScope + "," + BetaEffort + "," + BetaFastMode
 
 // DefaultBetaHeader Claude Code 客户端默认的 anthropic-beta header
 const DefaultBetaHeader = oauthDefaultBetas
