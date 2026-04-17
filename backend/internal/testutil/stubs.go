@@ -172,6 +172,12 @@ func (c StubRPMCache) GetRPMBatch(_ context.Context, _ []int64) (map[int64]int, 
 func (c StubRPMCache) IncrementUserRPM(_ context.Context, _ int64) (int, error) {
 	return 0, nil
 }
+func (c StubRPMCache) GetUserRPM(_ context.Context, _ int64) (int, error) {
+	return 0, nil
+}
+func (c StubRPMCache) GetUserRPMBatch(_ context.Context, _ []int64) (map[int64]int, error) {
+	return nil, nil
+}
 func (c StubRPMCache) GetUserAccountRPM(_ context.Context, _ int64, _ int64) (int, error) {
 	return 0, nil
 }

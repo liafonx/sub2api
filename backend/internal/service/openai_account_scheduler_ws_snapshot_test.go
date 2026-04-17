@@ -42,7 +42,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_UsesWSPassthroughSnapsh
 		cache:              &stubGatewayCache{},
 		cfg:                cfg,
 		schedulerSnapshot:  &SchedulerSnapshotService{cache: snapshotCache},
-		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}, nil),
 	}
 
 	selection, decision, err := svc.SelectAccountWithScheduler(

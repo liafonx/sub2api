@@ -63,6 +63,7 @@ func TestAPIContracts(t *testing.T) {
 					"balance_notify_threshold": null,
 					"balance_notify_extra_emails": null,
 					"total_recharged": 0,
+					"rpm_limit": 0,
 					"run_mode": "standard"
 				}
 			}`,
@@ -569,6 +570,7 @@ func TestAPIContracts(t *testing.T) {
 					"doc_url": "https://docs.example.com",
 					"default_concurrency": 5,
 					"default_balance": 1.25,
+					"default_rpm_limit": 0,
 					"default_subscriptions": [],
 					"enable_model_fallback": false,
 					"fallback_model_anthropic": "claude-3-5-sonnet-20241022",
@@ -838,6 +840,27 @@ func (r *stubUserRepo) GetByEmail(ctx context.Context, email string) (*service.U
 		}
 	}
 	return nil, service.ErrUserNotFound
+}
+
+func (r *stubUserRepo) GetByIDs(ctx context.Context, ids []int64) ([]*service.User, error) {
+	users := make([]*service.User, 0, len(ids))
+	for _, id := range ids {
+		user, ok := r.users[id]
+		if !ok {
+			continue
+		}
+		clone := *user
+		users = append(users, &clone)
+	}
+	return users, nil
+}
+
+func (r *stubUserRepo) ListAllIDs(ctx context.Context) ([]int64, error) {
+	ids := make([]int64, 0, len(r.users))
+	for id := range r.users {
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 func (r *stubUserRepo) GetFirstAdmin(ctx context.Context) (*service.User, error) {

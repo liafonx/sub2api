@@ -55,7 +55,7 @@ sub2api/
 
 ## Branch State
 
-- `main` is at upstream release `v0.1.112` + 11 active fork patches (merged 2026-04-13, commit `b1052902`).
+- `main` is at upstream release `v0.1.114` + 13 active fork patches (merged 2026-04-17, commit `73e175f1`).
 - `upstream-v0.1.105-clean` is the original clean release baseline branch (preserved for historical reference).
 - The old fork `main` state, including fork-only code, is preserved on:
   - branch: `archive/fork-main-pre-clean-migration-2026-03-28`

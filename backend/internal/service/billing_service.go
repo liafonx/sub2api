@@ -826,7 +826,7 @@ func inferProviderFromModelName(model string) string {
 }
 
 func (s *BillingService) applyCacheReadOverride(provider string, pricing *ModelPricing) *ModelPricing {
-	if pricing == nil || provider == "" || len(s.cfg.Pricing.ZeroCacheReadProviders) == 0 {
+	if s == nil || s.cfg == nil || pricing == nil || provider == "" || len(s.cfg.Pricing.ZeroCacheReadProviders) == 0 {
 		return pricing
 	}
 	for _, p := range s.cfg.Pricing.ZeroCacheReadProviders {

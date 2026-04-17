@@ -141,6 +141,14 @@ func (s *stubUserRepo) GetByEmail(ctx context.Context, email string) (*service.U
 	panic("unexpected GetByEmail call")
 }
 
+func (s *stubUserRepo) GetByIDs(ctx context.Context, ids []int64) ([]*service.User, error) {
+	panic("unexpected GetByIDs call")
+}
+
+func (s *stubUserRepo) ListAllIDs(ctx context.Context) ([]int64, error) {
+	panic("unexpected ListAllIDs call")
+}
+
 func (s *stubUserRepo) GetFirstAdmin(ctx context.Context) (*service.User, error) {
 	panic("unexpected GetFirstAdmin call")
 }
