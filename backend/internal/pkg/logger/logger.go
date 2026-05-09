@@ -2,6 +2,7 @@ package logger
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -47,6 +48,7 @@ var (
 	sugar         atomic.Pointer[zap.SugaredLogger]
 	atomicLevel   zap.AtomicLevel
 	initOptions   InitOptions
+	legacyRawMu   sync.Mutex
 	currentSink   atomic.Value // sinkState
 	stdLogUndo    func()
 	bootstrapOnce sync.Once
@@ -221,7 +223,7 @@ func bridgeStdLogLocked() {
 	if base == nil {
 		base = zap.NewNop()
 	}
-	log.SetOutput(newStdLogBridge(base.Named("stdlog")))
+	log.SetOutput(newStdLogBridge("stdlog"))
 
 	stdLogUndo = func() {
 		log.SetOutput(prevWriter)
@@ -408,14 +410,15 @@ func (s *sinkCore) Sync() error {
 }
 
 type stdLogBridge struct {
-	logger *zap.Logger
+	component string
 }
 
-func newStdLogBridge(l *zap.Logger) io.Writer {
-	if l == nil {
-		l = zap.NewNop()
+func newStdLogBridge(component string) io.Writer {
+	component = strings.TrimSpace(component)
+	if component == "" {
+		component = "stdlog"
 	}
-	return &stdLogBridge{logger: l}
+	return &stdLogBridge{component: component}
 }
 
 func (b *stdLogBridge) Write(p []byte) (int, error) {
@@ -424,19 +427,7 @@ func (b *stdLogBridge) Write(p []byte) (int, error) {
 		return len(p), nil
 	}
 
-	level := inferStdLogLevel(msg)
-	entry := b.logger.WithOptions(zap.AddCallerSkip(4))
-
-	switch level {
-	case LevelDebug:
-		entry.Debug(msg, zap.Bool("legacy_stdlog", true))
-	case LevelWarn:
-		entry.Warn(msg, zap.Bool("legacy_stdlog", true))
-	case LevelError, LevelFatal:
-		entry.Error(msg, zap.Bool("legacy_stdlog", true))
-	default:
-		entry.Info(msg, zap.Bool("legacy_stdlog", true))
-	}
+	emitLegacyLog(inferStdLogLevel(msg), b.component, msg, "legacy_stdlog")
 	return len(p), nil
 }
 
@@ -487,22 +478,87 @@ func LegacyPrintf(component, format string, args ...any) {
 		return
 	}
 
-	l := L()
-	if component != "" {
-		l = l.With(zap.String("component", component))
-	}
-	l = l.WithOptions(zap.AddCallerSkip(1))
+	emitLegacyLog(inferStdLogLevel(msg), component, msg, "legacy_printf")
+}
 
-	switch inferStdLogLevel(msg) {
-	case LevelDebug:
-		l.Debug(msg, zap.Bool("legacy_printf", true))
-	case LevelWarn:
-		l.Warn(msg, zap.Bool("legacy_printf", true))
-	case LevelError, LevelFatal:
-		l.Error(msg, zap.Bool("legacy_printf", true))
-	default:
-		l.Info(msg, zap.Bool("legacy_printf", true))
+func emitLegacyLog(level Level, component, msg, marker string) {
+	opts := initOptions.normalized()
+	line := formatLegacyLogLine(opts, level, component, msg, marker)
+
+	legacyRawMu.Lock()
+	defer legacyRawMu.Unlock()
+
+	if opts.Output.ToStdout {
+		target := os.Stdout
+		if level >= LevelWarn {
+			target = os.Stderr
+		}
+		_, _ = target.Write(line)
 	}
+
+	if opts.Output.ToFile {
+		if err := appendLegacyLogLine(opts.Output.FilePath, line); err != nil && !opts.Output.ToStdout {
+			_, _ = os.Stderr.Write([]byte(fmt.Sprintf("%s WARN [logger] raw legacy log file write failed: %v\n", time.Now().Format(time.RFC3339Nano), err)))
+			_, _ = os.Stderr.Write(line)
+		}
+	}
+}
+
+func formatLegacyLogLine(opts InitOptions, level Level, component, msg, marker string) []byte {
+	now := time.Now()
+	levelText := strings.ToUpper(level.String())
+	component = strings.TrimSpace(component)
+
+	if opts.Format == "json" {
+		fields := map[string]any{
+			"time":    now.Format(time.RFC3339Nano),
+			"level":   levelText,
+			"msg":     msg,
+			"service": opts.ServiceName,
+			"env":     opts.Environment,
+			marker:    true,
+		}
+		if component != "" {
+			fields["component"] = component
+		}
+		line, err := json.Marshal(fields)
+		if err == nil {
+			return append(line, '\n')
+		}
+	}
+
+	parts := []string{
+		now.Format(time.RFC3339Nano),
+		levelText,
+	}
+	if component != "" {
+		parts = append(parts, fmt.Sprintf("[%s]", component))
+	}
+	parts = append(parts,
+		msg,
+		fmt.Sprintf("service=%s", opts.ServiceName),
+		fmt.Sprintf("env=%s", opts.Environment),
+		fmt.Sprintf("%s=true", marker),
+	)
+	return []byte(strings.Join(parts, " ") + "\n")
+}
+
+func appendLegacyLogLine(path string, line []byte) error {
+	if strings.TrimSpace(path) == "" {
+		path = resolveLogFilePath("")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = f.Close()
+	}()
+	_, err = f.Write(line)
+	return err
 }
 
 type contextKey string

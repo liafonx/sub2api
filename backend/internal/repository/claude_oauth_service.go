@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/oauth"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyurl"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -34,6 +35,16 @@ type claudeOAuthService struct {
 	tokenClientFactory func(proxyURL string) (*req.Client, error)
 }
 
+var claudeOAuthTraceWriter io.Writer = os.Stderr
+
+func traceClaudeOAuthf(format string, args ...any) {
+	msg := strings.TrimSpace(fmt.Sprintf(format, args...))
+	if msg == "" {
+		return
+	}
+	_, _ = fmt.Fprintf(claudeOAuthTraceWriter, "%s [repository.claude_oauth] %s\n", time.Now().Format(time.RFC3339Nano), msg)
+}
+
 func (s *claudeOAuthService) GetOrganizationUUID(ctx context.Context, sessionKey, proxyURL string) (string, error) {
 	client, err := s.authClientFactory(proxyURL)
 	if err != nil {
@@ -47,7 +58,7 @@ func (s *claudeOAuthService) GetOrganizationUUID(ctx context.Context, sessionKey
 	}
 
 	targetURL := s.baseURL + "/api/organizations"
-	logger.LegacyPrintf("repository.claude_oauth", "[OAuth] Step 1: Getting organization UUID from %s", targetURL)
+	traceClaudeOAuthf("[OAuth] Step 1: Getting organization UUID from %s", targetURL)
 
 	resp, err := client.R().
 		SetContext(ctx).
@@ -59,11 +70,11 @@ func (s *claudeOAuthService) GetOrganizationUUID(ctx context.Context, sessionKey
 		Get(targetURL)
 
 	if err != nil {
-		logger.LegacyPrintf("repository.claude_oauth", "[OAuth] Step 1 FAILED - Request error: %v", err)
+		traceClaudeOAuthf("[OAuth] Step 1 FAILED - Request error: %v", err)
 		return "", fmt.Errorf("request failed: %w", err)
 	}
 
-	logger.LegacyPrintf("repository.claude_oauth", "[OAuth] Step 1 Response - Status: %d", resp.StatusCode)
+	traceClaudeOAuthf("[OAuth] Step 1 Response - Status: %d", resp.StatusCode)
 
 	if !resp.IsSuccessState() {
 		return "", fmt.Errorf("failed to get organizations: status %d, body: %s", resp.StatusCode, resp.String())
@@ -75,21 +86,21 @@ func (s *claudeOAuthService) GetOrganizationUUID(ctx context.Context, sessionKey
 
 	// 如果只有一个组织，直接使用
 	if len(orgs) == 1 {
-		logger.LegacyPrintf("repository.claude_oauth", "[OAuth] Step 1 SUCCESS - Single org found, UUID: %s, Name: %s", orgs[0].UUID, orgs[0].Name)
+		traceClaudeOAuthf("[OAuth] Step 1 SUCCESS - Single org found, UUID: %s, Name: %s", orgs[0].UUID, orgs[0].Name)
 		return orgs[0].UUID, nil
 	}
 
 	// 如果有多个组织，优先选择 raven_type 为 "team" 的组织
 	for _, org := range orgs {
 		if org.RavenType != nil && *org.RavenType == "team" {
-			logger.LegacyPrintf("repository.claude_oauth", "[OAuth] Step 1 SUCCESS - Selected team org, UUID: %s, Name: %s, RavenType: %s",
+			traceClaudeOAuthf("[OAuth] Step 1 SUCCESS - Selected team org, UUID: %s, Name: %s, RavenType: %s",
 				org.UUID, org.Name, *org.RavenType)
 			return org.UUID, nil
 		}
 	}
 
 	// 如果没有 team 类型的组织，使用第一个
-	logger.LegacyPrintf("repository.claude_oauth", "[OAuth] Step 1 SUCCESS - No team org found, using first org, UUID: %s, Name: %s", orgs[0].UUID, orgs[0].Name)
+	traceClaudeOAuthf("[OAuth] Step 1 SUCCESS - No team org found, using first org, UUID: %s, Name: %s", orgs[0].UUID, orgs[0].Name)
 	return orgs[0].UUID, nil
 }
 
@@ -112,9 +123,9 @@ func (s *claudeOAuthService) GetAuthorizationCode(ctx context.Context, sessionKe
 		"code_challenge_method": "S256",
 	}
 
-	logger.LegacyPrintf("repository.claude_oauth", "[OAuth] Step 2: Getting authorization code from %s", authURL)
+	traceClaudeOAuthf("[OAuth] Step 2: Getting authorization code from %s", authURL)
 	reqBodyJSON, _ := json.Marshal(logredact.RedactMap(reqBody))
-	logger.LegacyPrintf("repository.claude_oauth", "[OAuth] Step 2 Request Body: %s", string(reqBodyJSON))
+	traceClaudeOAuthf("[OAuth] Step 2 Request Body: %s", string(reqBodyJSON))
 
 	var result struct {
 		RedirectURI string `json:"redirect_uri"`
@@ -137,11 +148,11 @@ func (s *claudeOAuthService) GetAuthorizationCode(ctx context.Context, sessionKe
 		Post(authURL)
 
 	if err != nil {
-		logger.LegacyPrintf("repository.claude_oauth", "[OAuth] Step 2 FAILED - Request error: %v", err)
+		traceClaudeOAuthf("[OAuth] Step 2 FAILED - Request error: %v", err)
 		return "", fmt.Errorf("request failed: %w", err)
 	}
 
-	logger.LegacyPrintf("repository.claude_oauth", "[OAuth] Step 2 Response - Status: %d, Body: %s", resp.StatusCode, logredact.RedactJSON(resp.Bytes()))
+	traceClaudeOAuthf("[OAuth] Step 2 Response - Status: %d, Body: %s", resp.StatusCode, logredact.RedactJSON(resp.Bytes()))
 
 	if !resp.IsSuccessState() {
 		return "", fmt.Errorf("failed to get authorization code: status %d, body: %s", resp.StatusCode, resp.String())
@@ -169,7 +180,7 @@ func (s *claudeOAuthService) GetAuthorizationCode(ctx context.Context, sessionKe
 		fullCode = authCode + "#" + responseState
 	}
 
-	logger.LegacyPrintf("repository.claude_oauth", "[OAuth] Step 2 SUCCESS - Got authorization code")
+	traceClaudeOAuthf("[OAuth] Step 2 SUCCESS - Got authorization code")
 	return fullCode, nil
 }
 
@@ -204,9 +215,9 @@ func (s *claudeOAuthService) ExchangeCodeForToken(ctx context.Context, code, cod
 		reqBody["expires_in"] = 31536000 // 365 * 24 * 60 * 60 seconds
 	}
 
-	logger.LegacyPrintf("repository.claude_oauth", "[OAuth] Step 3: Exchanging code for token at %s", s.tokenURL)
+	traceClaudeOAuthf("[OAuth] Step 3: Exchanging code for token at %s", s.tokenURL)
 	reqBodyJSON, _ := json.Marshal(logredact.RedactMap(reqBody))
-	logger.LegacyPrintf("repository.claude_oauth", "[OAuth] Step 3 Request Body: %s", string(reqBodyJSON))
+	traceClaudeOAuthf("[OAuth] Step 3 Request Body: %s", string(reqBodyJSON))
 
 	var tokenResp oauth.TokenResponse
 
@@ -220,17 +231,17 @@ func (s *claudeOAuthService) ExchangeCodeForToken(ctx context.Context, code, cod
 		Post(s.tokenURL)
 
 	if err != nil {
-		logger.LegacyPrintf("repository.claude_oauth", "[OAuth] Step 3 FAILED - Request error: %v", err)
+		traceClaudeOAuthf("[OAuth] Step 3 FAILED - Request error: %v", err)
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 
-	logger.LegacyPrintf("repository.claude_oauth", "[OAuth] Step 3 Response - Status: %d, Body: %s", resp.StatusCode, logredact.RedactJSON(resp.Bytes()))
+	traceClaudeOAuthf("[OAuth] Step 3 Response - Status: %d, Body: %s", resp.StatusCode, logredact.RedactJSON(resp.Bytes()))
 
 	if !resp.IsSuccessState() {
 		return nil, fmt.Errorf("token exchange failed: status %d, body: %s", resp.StatusCode, resp.String())
 	}
 
-	logger.LegacyPrintf("repository.claude_oauth", "[OAuth] Step 3 SUCCESS - Got access token")
+	traceClaudeOAuthf("[OAuth] Step 3 SUCCESS - Got access token")
 	return &tokenResp, nil
 }
 

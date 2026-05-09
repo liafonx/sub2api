@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -402,4 +403,25 @@ func (s *ClaudeOAuthServiceSuite) TestRefreshToken() {
 
 func TestClaudeOAuthServiceSuite(t *testing.T) {
 	suite.Run(t, new(ClaudeOAuthServiceSuite))
+}
+
+func TestTraceClaudeOAuthfWritesSingleLine(t *testing.T) {
+	t.Parallel()
+
+	origWriter := claudeOAuthTraceWriter
+	var buf bytes.Buffer
+	claudeOAuthTraceWriter = &buf
+	t.Cleanup(func() {
+		claudeOAuthTraceWriter = origWriter
+	})
+
+	traceClaudeOAuthf(" [OAuth] Step %d: token=%s \n", 1, "***")
+
+	got := buf.String()
+	if !strings.Contains(got, "[repository.claude_oauth] [OAuth] Step 1: token=***\n") {
+		t.Fatalf("trace output mismatch: %q", got)
+	}
+	if strings.Contains(got, "\n\n") {
+		t.Fatalf("trace output should be a single line: %q", got)
+	}
 }

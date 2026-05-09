@@ -4,6 +4,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -162,5 +163,41 @@ func TestLegacyPrintfRoutesLevels(t *testing.T) {
 	}
 	if !strings.Contains(stderrText, "\"component\":\"service.test\"") {
 		t.Fatalf("stderr missing component field: %s", stderrText)
+	}
+}
+
+func TestLegacyPrintfWritesFileWhenFileOnly(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "logs", "sub2api.log")
+
+	if err := Init(InitOptions{
+		Level:       "debug",
+		Format:      "json",
+		ServiceName: "sub2api",
+		Environment: "test",
+		Output: OutputOptions{
+			ToStdout: false,
+			ToFile:   true,
+			FilePath: logPath,
+		},
+		Sampling: SamplingOptions{Enabled: false},
+	}); err != nil {
+		t.Fatalf("Init() error: %v", err)
+	}
+
+	LegacyPrintf("service.test", "request started")
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "\"legacy_printf\":true") {
+		t.Fatalf("file missing legacy_printf marker: %s", text)
+	}
+	if !strings.Contains(text, "\"component\":\"service.test\"") {
+		t.Fatalf("file missing component field: %s", text)
+	}
+	if !strings.Contains(text, "request started") {
+		t.Fatalf("file missing message: %s", text)
 	}
 }
